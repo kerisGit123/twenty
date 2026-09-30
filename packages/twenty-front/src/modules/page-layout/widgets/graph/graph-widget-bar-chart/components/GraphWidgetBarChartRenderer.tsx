@@ -153,6 +153,7 @@ export const GraphWidgetBarChartRenderer = () => {
         id={widget.id}
         decimals={chartValueFormatOptions.decimals}
         displayType={chartValueFormatOptions.displayType}
+        prefix={chartValueFormatOptions.prefix}
         axisDisplayType="shortNumber"
         tooltipDisplayType="number"
         rangeMin={configuration.rangeMin ?? undefined}

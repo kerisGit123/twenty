@@ -119,6 +119,7 @@ export const GraphWidgetPieChartRenderer = () => {
         colorMode={colorMode}
         decimals={chartValueFormatOptions.decimals}
         displayType={chartValueFormatOptions.displayType}
+        prefix={chartValueFormatOptions.prefix}
         tooltipDisplayType="number"
         onSliceClick={
           isPageLayoutInEditMode || !canRedirectToFilteredView

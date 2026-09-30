@@ -161,6 +161,7 @@ export const GraphWidgetLineChartRenderer = () => {
         colorMode={colorMode}
         decimals={chartValueFormatOptions.decimals}
         displayType={chartValueFormatOptions.displayType}
+        prefix={chartValueFormatOptions.prefix}
         axisDisplayType="shortNumber"
         tooltipDisplayType="number"
         onSliceClick={

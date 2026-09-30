@@ -51,8 +51,55 @@ export const getChartValueFormatOptions = ({
     ? aggregateFieldDecimals
     : undefined;
 
+  // Sums/averages of a money field are shown with its currency symbol
+  // (e.g. "RM 1.5k"); counts stay plain numbers.
+  const prefix =
+    shouldUseAggregateFieldDecimals &&
+    aggregateFieldMetadataItem?.type === FieldMetadataType.CURRENCY
+      ? getCurrencyPrefix(aggregateFieldMetadataItem.defaultValue)
+      : undefined;
+
   return {
     decimals,
     displayType: getChartValueDisplayType(numberFormat),
+    prefix,
   };
+};
+
+// Default values are stored as SQL literals, e.g. { currencyCode: "'MYR'" }.
+const getCurrencyPrefix = (defaultValue: unknown): string | undefined => {
+  const rawCurrencyCode =
+    isDefined(defaultValue) &&
+    typeof defaultValue === 'object' &&
+    'currencyCode' in defaultValue
+      ? (defaultValue as { currencyCode?: unknown }).currencyCode
+      : undefined;
+
+  const currencyCode =
+    typeof rawCurrencyCode === 'string'
+      ? rawCurrencyCode.replace(/'/g, '').trim()
+      : '';
+
+  if (!/^[A-Z]{3}$/.test(currencyCode)) {
+    return undefined;
+  }
+
+  try {
+    const symbol = new Intl.NumberFormat('en', {
+      style: 'currency',
+      currency: currencyCode,
+      currencyDisplay: 'narrowSymbol',
+    })
+      .formatToParts(0)
+      .find((part) => part.type === 'currency')?.value;
+
+    if (!isDefined(symbol)) {
+      return undefined;
+    }
+
+    // Letter symbols read better with a space: "RM 1.5k", but "$1.5k".
+    return /[A-Za-z]$/.test(symbol) ? `${symbol} ` : symbol;
+  } catch {
+    return undefined;
+  }
 };

@@ -233,6 +233,7 @@ export const GraphWidgetPieChart = ({
             configuration={configuration}
             show={showCenterMetric && !hasNoData}
             hasNoData={hasNoData}
+            valuePrefix={prefix}
           />
         </StyledPieChartWrapper>
       </GraphWidgetChartContainer>

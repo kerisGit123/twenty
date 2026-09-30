@@ -10,6 +10,8 @@ type PieChartCenterMetricProps = {
   configuration: PieChartConfiguration;
   show: boolean;
   hasNoData?: boolean;
+  // e.g. "RM " for money totals, shown before the value.
+  valuePrefix?: string;
 };
 
 const StyledCenterMetricContainerBase = styled.div`
@@ -48,6 +50,7 @@ export const PieChartCenterMetric = ({
   configuration,
   show,
   hasNoData = false,
+  valuePrefix,
 }: PieChartCenterMetricProps) => {
   const theme = useTheme();
   const { t } = useLingui();
@@ -76,7 +79,10 @@ export const PieChartCenterMetric = ({
             <StyledNoDataText>{t`No data`}</StyledNoDataText>
           ) : (
             <>
-              <StyledValue>{centerMetricValue}</StyledValue>
+              <StyledValue>
+                {centerMetricValue !== undefined ? (valuePrefix ?? '') : ''}
+                {centerMetricValue}
+              </StyledValue>
               <StyledLabel>{centerMetricLabel}</StyledLabel>
             </>
           )}

@@ -60,6 +60,45 @@ describe('getChartValueFormatOptions', () => {
     },
   );
 
+  it.each([
+    ['MYR', 'RM 123.46'],
+    ['USD', '$123.46'],
+    ['EUR', '€123.46'],
+  ])(
+    'should prefix sums of %s currency fields with the currency symbol',
+    (currencyCode, expected) => {
+      const currencyFieldWithDefault = {
+        ...aggregateCurrencyFieldMetadataItem,
+        defaultValue: { amountMicros: null, currencyCode: `'${currencyCode}'` },
+      } as FieldMetadataItem;
+
+      const formatOptions = getChartValueFormatOptions({
+        aggregateOperation: AggregateOperations.SUM,
+        aggregateFieldMetadataId: currencyFieldWithDefault.id,
+        fieldMetadataItems: [currencyFieldWithDefault],
+        numberFormat: ChartNumberFormat.FULL,
+      });
+
+      expect(formatGraphValue(123.4567, formatOptions)).toBe(expected);
+    },
+  );
+
+  it('should not prefix counts of currency fields', () => {
+    const currencyFieldWithDefault = {
+      ...aggregateCurrencyFieldMetadataItem,
+      defaultValue: { amountMicros: null, currencyCode: "'MYR'" },
+    } as FieldMetadataItem;
+
+    const formatOptions = getChartValueFormatOptions({
+      aggregateOperation: AggregateOperations.COUNT,
+      aggregateFieldMetadataId: currencyFieldWithDefault.id,
+      fieldMetadataItems: [currencyFieldWithDefault],
+      numberFormat: ChartNumberFormat.FULL,
+    });
+
+    expect(formatOptions.prefix).toBeUndefined();
+  });
+
   it('should keep the short format compact', () => {
     const formatOptions = getChartValueFormatOptions({
       aggregateOperation: AggregateOperations.SUM,
