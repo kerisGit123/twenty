@@ -640,6 +640,16 @@ export class ConfigVariables {
 
   @ConfigVariablesMetadata({
     group: ConfigVariablesGroup.STORAGE_CONFIG,
+    description:
+      'Optional folder (key prefix) inside the bucket for all Twenty files, e.g. "app". Lets Twenty share a bucket with other content.',
+    type: ConfigVariableType.STRING,
+  })
+  @ValidateIf((env) => env.STORAGE_TYPE === StorageDriverType.S_3)
+  @IsOptional()
+  STORAGE_S3_KEY_PREFIX: string;
+
+  @ConfigVariablesMetadata({
+    group: ConfigVariablesGroup.STORAGE_CONFIG,
     isSensitive: true,
     description:
       'S3 access key ID. Optional — omit to use the default AWS credential chain (IAM role, instance profile, etc.).',

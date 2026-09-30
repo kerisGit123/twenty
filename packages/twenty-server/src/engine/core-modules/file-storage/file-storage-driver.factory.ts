@@ -6,6 +6,7 @@ import { type StorageDriver } from 'src/engine/core-modules/file-storage/drivers
 import { StorageDriverType } from 'src/engine/core-modules/file-storage/interfaces/file-storage.interface';
 
 import { LocalDriver } from 'src/engine/core-modules/file-storage/drivers/local.driver';
+import { PrefixedStorageDriver } from 'src/engine/core-modules/file-storage/drivers/prefixed-storage.driver';
 import { S3Driver } from 'src/engine/core-modules/file-storage/drivers/s3.driver';
 import { ValidatedStorageDriver } from 'src/engine/core-modules/file-storage/drivers/validated-storage.driver';
 import { DriverFactoryBase } from 'src/engine/core-modules/twenty-config/dynamic-factory.base';
@@ -74,7 +75,9 @@ export class FileStorageDriverFactory extends DriverFactoryBase<StorageDriver> {
           'STORAGE_S3_PRESIGNED_URL_BASE',
         );
 
-        rawDriver = new S3Driver({
+        const keyPrefix = this.twentyConfigService.get('STORAGE_S3_KEY_PREFIX');
+
+        const s3Driver = new S3Driver({
           bucketName: bucketName ?? '',
           endpoint: endpoint,
           presignEnabled,
@@ -85,6 +88,10 @@ export class FileStorageDriverFactory extends DriverFactoryBase<StorageDriver> {
           forcePathStyle: true,
           region: region ?? '',
         });
+
+        rawDriver = keyPrefix?.trim()
+          ? new PrefixedStorageDriver(s3Driver, keyPrefix.trim())
+          : s3Driver;
         break;
       }
 
