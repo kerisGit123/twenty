@@ -562,6 +562,11 @@ export class WorkspaceService {
 
       await this.enqueuePreInstalledAppsInstallation(workspace.id);
     } catch (error) {
+      this.logger.error(
+        `Workspace activation failed for workspace ${workspace.id}`,
+        error,
+      );
+
       await this.workspaceRepository.update(workspace.id, {
         activationStatus: WorkspaceActivationStatus.PENDING_CREATION,
       });

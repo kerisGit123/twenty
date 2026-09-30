@@ -1,4 +1,4 @@
-import { relative } from 'path';
+import { relative, sep } from 'path';
 import { type Manifest, OUTPUT_DIR } from 'twenty-shared/application';
 import { FileFolder } from 'twenty-shared/types';
 import { isDefined } from 'twenty-shared/utils';
@@ -35,7 +35,7 @@ export const manifestUpdateChecksums = ({
     builtPath,
     { fileFolder, checksum },
   ] of builtFileInfos.entries()) {
-    const rootBuiltPath = relative(outputDir, builtPath);
+    const rootBuiltPath = relative(outputDir, builtPath).split(sep).join('/');
     if (fileFolder === FileFolder.BuiltLogicFunction) {
       const logicFunctions = result.logicFunctions;
       const fnIndex = logicFunctions.findIndex(

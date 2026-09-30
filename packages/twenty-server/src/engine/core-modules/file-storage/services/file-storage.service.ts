@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 
 import { isString } from '@sniptt/guards';
-import { basename, dirname, join } from 'path';
+// Storage keys are always '/'-separated, regardless of host OS.
+import { posix } from 'path';
 import { type Readable } from 'stream';
 import { v4 } from 'uuid';
 
@@ -357,9 +358,9 @@ export class FileStorageService {
     fileFolder: FileFolder;
     relativePath: string;
   }): { onStoragePath: string; resourcePath: string } {
-    const resourcePath = join(fileFolder, relativePath).replace(/\/+/g, '/');
+    const resourcePath = posix.join(fileFolder, relativePath).replace(/\/+/g, '/');
 
-    const onStoragePath = join(
+    const onStoragePath = posix.join(
       workspaceId,
       applicationUniversalIdentifier,
       resourcePath,
@@ -774,8 +775,8 @@ export class FileStorageService {
       this.validateAndBuildFileStoragePathOrThrow(params);
 
     await driver.delete({
-      folderPath: dirname(onStorageFilePath),
-      filename: basename(onStorageFilePath),
+      folderPath: posix.dirname(onStorageFilePath),
+      filename: posix.basename(onStorageFilePath),
     });
 
     const applicationId =
@@ -801,8 +802,8 @@ export class FileStorageService {
       this.validateAndBuildFileStoragePathOrThrow(params);
 
     await driver.delete({
-      folderPath: dirname(onStorageFilePath),
-      filename: basename(onStorageFilePath),
+      folderPath: posix.dirname(onStorageFilePath),
+      filename: posix.basename(onStorageFilePath),
     });
   }
 
@@ -988,8 +989,8 @@ export class FileStorageService {
 
     if (isFile) {
       return driver.copy({
-        from: { folderPath: dirname(fromPath), filename: basename(fromPath) },
-        to: { folderPath: dirname(toPath), filename: basename(toPath) },
+        from: { folderPath: posix.dirname(fromPath), filename: posix.basename(fromPath) },
+        to: { folderPath: posix.dirname(toPath), filename: posix.basename(toPath) },
       });
     }
 
@@ -1016,8 +1017,8 @@ export class FileStorageService {
       this.validateAndBuildFileStoragePathOrThrow(to);
 
     return driver.move({
-      from: { folderPath: dirname(fromPath), filename: basename(fromPath) },
-      to: { folderPath: dirname(toPath), filename: basename(toPath) },
+      from: { folderPath: posix.dirname(fromPath), filename: posix.basename(fromPath) },
+      to: { folderPath: posix.dirname(toPath), filename: posix.basename(toPath) },
       ifMatchChecksum,
     });
   }

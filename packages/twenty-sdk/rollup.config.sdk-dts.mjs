@@ -1,3 +1,4 @@
+import { isAbsolute } from 'path';
 import dts from 'rollup-plugin-dts';
 
 const external = (id) => {
@@ -7,7 +8,7 @@ const external = (id) => {
   if (id.startsWith('@/')) {
     return false;
   }
-  return !id.startsWith('.') && !id.startsWith('/');
+  return !id.startsWith('.') && !isAbsolute(id);
 };
 
 const plugins = [

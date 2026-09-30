@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { join } from 'path';
+// Storage resource paths are always '/'-separated, regardless of host OS.
+import { posix } from 'path';
 
 import { isDefined } from 'twenty-shared/utils';
 import { Repository } from 'typeorm';
@@ -187,11 +188,11 @@ export class LogicFunctionFromSourceHelperService {
       getLogicFunctionSubfolderForFromSource(logicFunctionId);
 
     return {
-      sourceHandlerPath: join(
+      sourceHandlerPath: posix.join(
         logicFunctionSubfolder,
         DEFAULT_SOURCE_HANDLER_PATH,
       ),
-      builtHandlerPath: join(
+      builtHandlerPath: posix.join(
         logicFunctionSubfolder,
         DEFAULT_BUILT_HANDLER_PATH,
       ),
