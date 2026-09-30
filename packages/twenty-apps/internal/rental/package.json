@@ -1,0 +1,32 @@
+{
+  "name": "rental",
+  "version": "0.1.0",
+  "description": "Rental management: properties, tenants, rent and deposit payments, and receipts",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "node": "^24.5.0",
+    "npm": "please-use-yarn",
+    "yarn": ">=4.0.2",
+    "twenty": ">=2.19.0"
+  },
+  "keywords": [
+    "twenty-app"
+  ],
+  "packageManager": "yarn@4.13.0",
+  "scripts": {
+    "twenty": "twenty"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.2",
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "twenty-client-sdk": "2.43.0",
+    "twenty-sdk": "patch:twenty-sdk@npm%3A2.43.0#~/.yarn/patches/twenty-sdk-npm-2.43.0-49f948753e.patch",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1"
+  }
+}

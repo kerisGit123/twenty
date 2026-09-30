@@ -1,0 +1,8 @@
+/node_modules
+.yarn/*
+!.yarn/patches
+generated
+/dist/
+.twenty
+.env*
+*.tsbuildinfo

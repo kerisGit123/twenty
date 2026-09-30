@@ -1,0 +1,106 @@
+import { defineObject, FieldType } from 'twenty-sdk/define';
+
+import {
+  RENTAL_DEPOSIT_FIELD_ID,
+  RENTAL_DUE_DAY_FIELD_ID,
+  RENTAL_END_DATE_FIELD_ID,
+  RENTAL_MONTHLY_RENT_FIELD_ID,
+  RENTAL_NAME_FIELD_ID,
+  RENTAL_NOTES_FIELD_ID,
+  RENTAL_OBJECT_ID,
+  RENTAL_START_DATE_FIELD_ID,
+  RENTAL_STATUS_ACTIVE_OPTION_ID,
+  RENTAL_STATUS_DRAFT_OPTION_ID,
+  RENTAL_STATUS_ENDED_OPTION_ID,
+  RENTAL_STATUS_FIELD_ID,
+} from 'src/constants/universal-identifiers';
+
+// One tenant renting one property for a period, with the agreed terms.
+// Payments hang off a rental; the property's Occupied/Vacant status and
+// current tenant follow the rental's status automatically.
+export default defineObject({
+  universalIdentifier: RENTAL_OBJECT_ID,
+  nameSingular: 'rental',
+  namePlural: 'rentals',
+  labelSingular: 'Rental',
+  labelPlural: 'Rentals',
+  description: 'A tenant renting a property for a period',
+  icon: 'IconKey',
+  labelIdentifierFieldMetadataUniversalIdentifier: RENTAL_NAME_FIELD_ID,
+  fields: [
+    {
+      universalIdentifier: RENTAL_NAME_FIELD_ID,
+      type: FieldType.TEXT,
+      name: 'name',
+      label: 'Name',
+      description: 'Filled in automatically as "Property · Tenant" when left empty',
+      icon: 'IconAbc',
+    },
+    {
+      universalIdentifier: RENTAL_STATUS_FIELD_ID,
+      type: FieldType.SELECT,
+      name: 'status',
+      label: 'Status',
+      icon: 'IconProgress',
+      defaultValue: "'DRAFT'",
+      options: [
+        { id: RENTAL_STATUS_DRAFT_OPTION_ID, value: 'DRAFT', label: 'Draft', position: 0, color: 'gray' },
+        { id: RENTAL_STATUS_ACTIVE_OPTION_ID, value: 'ACTIVE', label: 'Active', position: 1, color: 'green' },
+        { id: RENTAL_STATUS_ENDED_OPTION_ID, value: 'ENDED', label: 'Ended', position: 2, color: 'red' },
+      ],
+    },
+    {
+      universalIdentifier: RENTAL_START_DATE_FIELD_ID,
+      type: FieldType.DATE,
+      name: 'startDate',
+      label: 'Start date',
+      icon: 'IconCalendarEvent',
+      isNullable: true,
+    },
+    {
+      universalIdentifier: RENTAL_END_DATE_FIELD_ID,
+      type: FieldType.DATE,
+      name: 'endDate',
+      label: 'End date',
+      icon: 'IconCalendarX',
+      isNullable: true,
+    },
+    {
+      universalIdentifier: RENTAL_MONTHLY_RENT_FIELD_ID,
+      type: FieldType.CURRENCY,
+      name: 'monthlyRent',
+      label: 'Monthly rent',
+      description: "Taken from the property's monthly rent when left empty",
+      icon: 'IconCash',
+      isNullable: true,
+      defaultValue: { amountMicros: null, currencyCode: "'MYR'" },
+    },
+    {
+      universalIdentifier: RENTAL_DEPOSIT_FIELD_ID,
+      type: FieldType.CURRENCY,
+      name: 'depositAmount',
+      label: 'Deposit',
+      icon: 'IconShieldCheck',
+      isNullable: true,
+      defaultValue: { amountMicros: null, currencyCode: "'MYR'" },
+    },
+    {
+      universalIdentifier: RENTAL_DUE_DAY_FIELD_ID,
+      type: FieldType.NUMBER,
+      name: 'dueDay',
+      label: 'Rent due day',
+      description: 'Day of the month rent is due (1-31). A draft rent payment is created on this day.',
+      icon: 'IconCalendarDue',
+      isNullable: true,
+      defaultValue: 1,
+    },
+    {
+      universalIdentifier: RENTAL_NOTES_FIELD_ID,
+      type: FieldType.TEXT,
+      name: 'notes',
+      label: 'Notes',
+      icon: 'IconNotes',
+      isNullable: true,
+    },
+  ],
+});
