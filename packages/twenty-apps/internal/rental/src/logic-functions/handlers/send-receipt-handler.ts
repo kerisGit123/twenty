@@ -5,6 +5,12 @@ import { PAYMENT_RECEIPT_FILE_FIELD_ID } from 'src/constants/universal-identifie
 import { ringgitInWords } from 'src/logic-functions/utils/amount-in-words';
 import { daysInMonth, todayIso } from 'src/logic-functions/utils/dates';
 import {
+  publicFileUrl,
+  sendWhatsappReceipt,
+  toE164,
+  whatsappConfig,
+} from 'src/logic-functions/utils/whatsapp';
+import {
   buildReceiptPdf,
   type ReceiptPaymentMethod,
 } from 'src/logic-functions/utils/receipt-pdf';
@@ -21,6 +27,7 @@ export type ReceiptResult = {
   status?: number;
   receiptNumber?: string;
   emailed?: boolean;
+  whatsapped?: boolean;
 };
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -192,6 +199,7 @@ export const receiptHandler = async (
           tenant: {
             name: { firstName: true, lastName: true },
             emails: { primaryEmail: true },
+            phones: { primaryPhoneNumber: true, primaryPhoneCallingCode: true },
           },
           property: {
             name: true,
@@ -326,66 +334,97 @@ export const receiptHandler = async (
     },
   });
 
+  // Deliver on every channel the tenant can be reached on. Each is tried
+  // independently, so one failing doesn't block the other.
   const tenantEmail = payment.tenant?.emails?.primaryEmail?.trim();
-  const apiKey = process.env.RESEND_API_KEY?.trim();
+  const tenantPhone = toE164(payment.tenant?.phones);
+  const resendKey = process.env.RESEND_API_KEY?.trim();
+  const whatsapp = whatsappConfig();
+  const delivered: string[] = [];
+  const notSetUp: string[] = [];
+  const failures: string[] = [];
 
-  if (!tenantEmail) {
-    return {
-      success: true,
-      emailed: false,
-      receiptNumber,
-      message: `Receipt ${receiptNumber} issued. The tenant has no email address, so it was not emailed.`,
-    };
-  }
-  if (!apiKey) {
-    return {
-      success: true,
-      emailed: false,
-      receiptNumber,
-      message: `Receipt ${receiptNumber} issued. Add your Resend API key in Settings > Apps > Rental to email it.`,
-    };
-  }
+  if (tenantEmail && resendKey) {
+    const from = process.env.RECEIPT_FROM_EMAIL?.trim() || 'onboarding@resend.dev';
 
-  const from = process.env.RECEIPT_FROM_EMAIL?.trim() || 'onboarding@resend.dev';
-
-  try {
-    await sendWithResend({
-      apiKey,
-      from: `${issuerName} <${from}>`,
-      to: tenantEmail,
-      subject: `Receipt ${receiptNumber} - ${amountText}`,
-      html: `<p>Dear ${escapeHtml(tenantName || 'tenant')},</p>
+    try {
+      await sendWithResend({
+        apiKey: resendKey,
+        from: `${issuerName} <${from}>`,
+        to: tenantEmail,
+        subject: `Receipt ${receiptNumber} - ${amountText}`,
+        html: `<p>Dear ${escapeHtml(tenantName || 'tenant')},</p>
 <p>Thank you for your payment of <strong>${escapeHtml(amountText)}</strong> (${escapeHtml(description)}).</p>
 <p>Your receipt <strong>${escapeHtml(receiptNumber)}</strong> is attached.</p>
 <p>Regards,<br/>${escapeHtml(issuerName)}</p>`,
-      fileName,
-      pdf,
-    });
-  } catch (error) {
-    console.warn('[rental] email failed:', error);
-
-    return {
-      success: false,
-      status: 502,
-      receiptNumber,
-      message: `Receipt ${receiptNumber} issued, but emailing failed: ${error instanceof Error ? error.message : 'unknown error'}`,
-    };
+        fileName,
+        pdf,
+      });
+      delivered.push(`email (${tenantEmail})`);
+    } catch (error) {
+      console.warn('[rental] email failed:', error);
+      failures.push(`email failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
+  } else if (tenantEmail) {
+    notSetUp.push('email is not set up (add your Resend API key in Settings > Apps > Rental)');
   }
 
-  await client.mutation({
-    updateRentPayment: {
-      __args: {
-        id: payment.id,
-        data: { status: 'SENT', receiptSentAt: new Date().toISOString() },
+  if (tenantPhone && whatsapp) {
+    try {
+      const mediaUrl = await publicFileUrl(uploaded.url);
+
+      await sendWhatsappReceipt({
+        to: tenantPhone,
+        mediaUrl,
+        body: `Hi ${tenantName || 'there'}, thank you for your payment of ${amountText} (${description}). Your receipt ${receiptNumber} is attached. - ${issuerName}`,
+        templateVariables: {
+          '1': tenantName || 'there',
+          '2': amountText,
+          '3': receiptNumber,
+          '4': mediaUrl,
+        },
+      });
+      delivered.push(`WhatsApp (${tenantPhone})`);
+    } catch (error) {
+      console.warn('[rental] WhatsApp failed:', error);
+      failures.push(`WhatsApp failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
+  } else if (tenantPhone) {
+    notSetUp.push('WhatsApp is not set up (add your Twilio details in Settings > Apps > Rental)');
+  } else if (payment.tenant?.phones?.primaryPhoneNumber) {
+    notSetUp.push("the tenant's phone number needs a country code for WhatsApp");
+  }
+
+  if (!tenantEmail && !payment.tenant?.phones?.primaryPhoneNumber) {
+    notSetUp.push('the tenant has no email address or phone number');
+  }
+
+  if (delivered.length > 0) {
+    await client.mutation({
+      updateRentPayment: {
+        __args: {
+          id: payment.id,
+          data: { status: 'SENT', receiptSentAt: new Date().toISOString() },
+        },
+        id: true,
       },
-      id: true,
-    },
-  });
+    });
+  }
+
+  const issues = [...failures, ...notSetUp];
+  const issuesText = issues.length > 0 ? ` Not sent: ${issues.join('; ')}.` : '';
 
   return {
-    success: true,
-    emailed: true,
+    // Only an actual delivery failure is an error; "not set up" leaves the
+    // receipt issued, ready to send later.
+    success: delivered.length > 0 || failures.length === 0,
+    status: delivered.length > 0 || failures.length === 0 ? undefined : 502,
+    emailed: delivered.some((channel) => channel.startsWith('email')),
+    whatsapped: delivered.some((channel) => channel.startsWith('WhatsApp')),
     receiptNumber,
-    message: `Receipt ${receiptNumber} sent to ${tenantEmail}.`,
+    message:
+      delivered.length > 0
+        ? `Receipt ${receiptNumber} sent by ${delivered.join(' and ')}.${issuesText}`
+        : `Receipt ${receiptNumber} issued.${issuesText}`,
   };
 };
