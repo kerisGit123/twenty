@@ -11,6 +11,7 @@ import {
   EXPENSE_PAID_TO_FIELD_ID,
   EXPENSE_RECEIPT_FIELD_ID,
 } from 'src/constants/universal-identifiers-v2';
+import { EXPENSE_NO_BILL_FIELD_ID } from 'src/constants/universal-identifiers-v3';
 import { EXPENSE_CATEGORIES, expenseGroup } from 'src/shared/expense-categories';
 
 const METHOD_OPTION_IDS = [
@@ -109,6 +110,15 @@ export default defineObject({
       icon: 'IconPaperclip',
       isNullable: true,
       universalSettings: { maxNumberOfValues: 5 },
+    },
+    {
+      universalIdentifier: EXPENSE_NO_BILL_FIELD_ID,
+      type: FieldType.BOOLEAN,
+      name: 'noBillNeeded',
+      label: 'No bill available',
+      description: 'Tick when there is no bill or receipt, so it stops showing as missing.',
+      icon: 'IconReceiptOff',
+      defaultValue: false,
     },
     {
       universalIdentifier: EXPENSE_NOTES_FIELD_ID,

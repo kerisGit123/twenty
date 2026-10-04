@@ -50,3 +50,15 @@ export const EXPENSE_TRACKER_NAV_ITEM_ID = '97b4aaac-559d-4521-aa95-b2fdbba6abc7
 export const RENTALS_FOLDER_NAV_ID = '97e00001-2d50-4fb4-9681-c5c00c7981f9';
 export const RECORDS_FOLDER_NAV_ID = '2afa6b5b-ed2b-447d-82fb-8e7e99c81830';
 export const MORE_FOLDER_NAV_ID = 'fbbf4b80-df52-4fb8-b736-b48b50fa06e8';
+
+// UX round: Today page, person overview, stamping, no-bill flag
+export const RENTAL_STAMPED_ON_FIELD_ID = 'c79fd59a-e763-4581-a1ce-b92e6b159061';
+export const EXPENSE_NO_BILL_FIELD_ID = '83bb348a-1ae5-4e24-834b-5095280079da';
+export const TODAY_FRONT_COMPONENT_ID = '61e6f166-0c4f-4a99-b849-41285105dcdb';
+export const TODAY_PAGE_LAYOUT_ID = '7617109a-d31f-48a1-94d7-0ae523ff3f1f';
+export const TODAY_TAB_ID = '0bcc947d-c2f5-4a02-b4d6-3681b702f321';
+export const TODAY_WIDGET_ID = 'cbc3d479-5bbf-4082-8edf-d10ba1927c7d';
+export const TODAY_NAV_ITEM_ID = '4636711e-5c3a-4ab8-bc7a-dadf2da7ff13';
+export const PERSON_OVERVIEW_FRONT_COMPONENT_ID = '14da1079-ddea-451e-a1bc-8be8e1ae2728';
+export const PERSON_OVERVIEW_TAB_ID = 'c06041e3-6375-486f-8419-5a14fc5046a6';
+export const PERSON_OVERVIEW_WIDGET_ID = '626db159-3587-479b-831b-df0b1da8dc6c';

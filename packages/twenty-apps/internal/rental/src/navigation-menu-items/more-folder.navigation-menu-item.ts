@@ -10,6 +10,6 @@ export default defineNavigationMenuItem({
   universalIdentifier: MORE_FOLDER_NAV_ID,
   name: 'More',
   icon: 'IconDots',
-  position: 5,
+  position: 6,
   type: NavigationMenuItemType.FOLDER,
 });

@@ -13,7 +13,7 @@ export default defineNavigationMenuItem({
   universalIdentifier: EXPENSE_TRACKER_NAV_ITEM_ID,
   name: 'Expenses',
   icon: 'IconCashOff',
-  position: 1,
+  position: 2,
   type: NavigationMenuItemType.PAGE_LAYOUT,
   pageLayoutUniversalIdentifier: EXPENSE_TRACKER_PAGE_LAYOUT_ID,
 });

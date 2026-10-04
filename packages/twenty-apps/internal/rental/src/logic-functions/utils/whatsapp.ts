@@ -1,27 +1,8 @@
 // Sending receipts on WhatsApp through Twilio.
 
-export type TenantPhone = {
-  primaryPhoneNumber?: string | null;
-  primaryPhoneCallingCode?: string | null;
-} | null | undefined;
+import { type TenantPhone, toE164 } from 'src/shared/whatsapp-link';
 
-// "+60" + "012-345 6789" -> "+60123456789". Returns null if it can't be
-// turned into an international number.
-export const toE164 = (phone: TenantPhone): string | null => {
-  const raw = (phone?.primaryPhoneNumber ?? '').replace(/[^\d+]/g, '');
-
-  if (!raw) return null;
-  if (raw.startsWith('+')) return /^\+\d{8,15}$/.test(raw) ? raw : null;
-
-  const callingCode = (phone?.primaryPhoneCallingCode ?? '').replace(/[^\d+]/g, '');
-
-  if (!callingCode) return null;
-
-  // Local numbers are often written with a trunk "0" (Malaysia: 012-...).
-  const e164 = `${callingCode.startsWith('+') ? callingCode : `+${callingCode}`}${raw.replace(/^0+/, '')}`;
-
-  return /^\+\d{8,15}$/.test(e164) ? e164 : null;
-};
+export { toE164, type TenantPhone };
 
 export const whatsappConfig = () => {
   const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();

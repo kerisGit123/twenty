@@ -10,6 +10,7 @@ import {
 } from 'twenty-sdk/front-component';
 
 import { EXPENSE_TRACKER_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
+import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { monthStart, nextMonthStart, todayIso } from 'src/logic-functions/utils/dates';
 import {
   EXPENSE_CATEGORIES,
@@ -32,6 +33,7 @@ type Expense = {
   ownerId: string | null;
   ownerName: string;
   files: number;
+  noBillNeeded: boolean;
 };
 
 type Option = { id: string; name: string; ownerId?: string | null };
@@ -106,6 +108,7 @@ const loadExpenses = async (client: CoreApiClient, from: string, to: string): Pr
             category: true,
             paidTo: true,
             receipt: true,
+            noBillNeeded: true,
             propertyId: true,
             ownerId: true,
             property: { name: true },
@@ -131,6 +134,7 @@ const loadExpenses = async (client: CoreApiClient, from: string, to: string): Pr
         ownerId: node.ownerId ?? null,
         ownerName: node.owner?.name ?? '',
         files: files.filter((file) => !file?.isDeleted).length,
+        noBillNeeded: Boolean(node.noBillNeeded),
       });
     }
 
@@ -383,6 +387,8 @@ const ExpenseTracker = () => {
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<Record<FilterKey, string[]>>({ owner: [], property: [], category: [] });
   const [openFilter, setOpenFilter] = useState<FilterKey | null>(null);
+  const [missingOnly, setMissingOnly] = useState(false);
+  const scope = useOwnerScope();
   const [groupBy, setGroupBy] = useState<GroupBy>('month');
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [owners, setOwners] = useState<Option[]>([]);
@@ -427,12 +433,14 @@ const ExpenseTracker = () => {
 
     return expenses.filter(
       (e) =>
+        scope.matches(e.ownerId) &&
         matches(filters.owner, e.ownerId) &&
         matches(filters.property, e.propertyId) &&
         matches(filters.category, e.category) &&
+        (!missingOnly || (e.files === 0 && !e.noBillNeeded)) &&
         (!term || [e.name, e.paidTo, e.propertyName, e.ownerName, expenseCategory(e.category).label].some((text) => text.toLowerCase().includes(term))),
     );
-  }, [expenses, filters, search]);
+  }, [expenses, filters, search, missingOnly, scope.ownerId]);
 
   const stats = useMemo(() => {
     const total = visible.reduce((s, e) => s + e.amount, 0);
@@ -452,7 +460,8 @@ const ExpenseTracker = () => {
 
     return {
       total,
-      withFiles: visible.filter((e) => e.files > 0).length,
+      withFiles: visible.filter((e) => e.files > 0 || e.noBillNeeded).length,
+      missing: expenses.filter((e) => scope.matches(e.ownerId) && e.files === 0 && !e.noBillNeeded).length,
       byGroup,
       byOwner: sumBy((e) => e.ownerName || 'No owner'),
       byProperty: sumBy((e) => e.propertyName || 'No property'),
@@ -500,6 +509,7 @@ const ExpenseTracker = () => {
       >
         {/* period + actions */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <OwnerSwitcher scope={scope} />
           <div style={{ display: 'flex', border: `1px solid ${c.border2}`, borderRadius: c.radius, overflow: 'hidden' }}>
             {(['month', 'year', 'range'] as Mode[]).map((option) => (
               <button
@@ -552,6 +562,17 @@ const ExpenseTracker = () => {
               onChange={(next) => setFilters({ ...filters, [key]: next })}
             />
           ))}
+          <button
+            onClick={() => setMissingOnly(!missingOnly)}
+            style={{
+              ...button(),
+              ...(missingOnly
+                ? { background: 'var(--t-color-amber3)', color: 'var(--t-color-amber11)', borderColor: 'var(--t-color-amber9)' }
+                : {}),
+            }}
+          >
+            Missing bill{stats.missing ? ` · ${stats.missing}` : ''}
+          </button>
           {anyFilter && (
             <button onClick={() => setFilters({ owner: [], property: [], category: [] })} style={{ ...button(), border: 'none', color: c.text3 }}>
               Clear filters
@@ -566,7 +587,7 @@ const ExpenseTracker = () => {
           <Kpi
             label="Bills attached"
             value={`${stats.withFiles} / ${visible.length}`}
-            hint={visible.length - stats.withFiles > 0 ? `${visible.length - stats.withFiles} missing a bill or receipt` : 'All have a bill'}
+            hint={visible.length - stats.withFiles > 0 ? `${visible.length - stats.withFiles} missing — click "Missing bill" to see them` : 'Nothing missing'}
           />
         </div>
 
@@ -653,8 +674,11 @@ const ExpenseTracker = () => {
                     <span style={{ color: c.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.propertyName || '—'}</span>
                     <span style={{ color: c.text3 }}>{e.ownerName}</span>
                   </span>
-                  <span title={e.files ? `${e.files} file(s)` : 'No bill attached'} style={{ color: e.files ? c.text2 : 'var(--t-color-amber11)', fontSize: 12 }}>
-                    {e.files ? `📎 ${e.files}` : 'No bill'}
+                  <span
+                    title={e.files ? `${e.files} file(s)` : e.noBillNeeded ? 'Marked as no bill available' : 'No bill attached'}
+                    style={{ color: e.files || e.noBillNeeded ? c.text3 : 'var(--t-color-amber11)', fontSize: 12 }}
+                  >
+                    {e.files ? `📎 ${e.files}` : e.noBillNeeded ? '—' : 'No bill'}
                   </span>
                   <span style={{ textAlign: 'right', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{rm(e.amount)}</span>
                 </div>

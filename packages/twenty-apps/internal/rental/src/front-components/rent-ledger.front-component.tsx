@@ -6,7 +6,9 @@ import { AppPath, enqueueSnackbar, navigate } from 'twenty-sdk/front-component';
 
 import { RENT_LEDGER_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers';
 import { ReceiptSettingsPanel } from 'src/front-components/shared/receipt-settings-panel';
+import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { ReceiptView, type ReceiptViewData } from 'src/front-components/shared/receipt-view';
+import { type TenantPhone, whatsappLink } from 'src/shared/whatsapp-link';
 import {
   dueDateInMonth,
   monthStart,
@@ -26,7 +28,9 @@ type Rental = {
   rent: number; // RM
   propertyName: string;
   propertyType: string | null;
+  ownerId: string | null;
   tenantName: string;
+  tenantPhone: TenantPhone;
 };
 
 type Payment = {
@@ -196,8 +200,11 @@ const loadRentals = async (client: CoreApiClient): Promise<Rental[]> => {
             endDate: true,
             dueDay: true,
             monthlyRent: { amountMicros: true },
-            property: { name: true, propertyType: true },
-            tenant: { name: { firstName: true, lastName: true } },
+            property: { name: true, propertyType: true, ownerId: true },
+            tenant: {
+              name: { firstName: true, lastName: true },
+              phones: { primaryPhoneNumber: true, primaryPhoneCallingCode: true },
+            },
           },
         },
         pageInfo: { hasNextPage: true, endCursor: true },
@@ -217,7 +224,9 @@ const loadRentals = async (client: CoreApiClient): Promise<Rental[]> => {
         rent: (node.monthlyRent?.amountMicros ?? 0) / 1_000_000,
         propertyName: node.property?.name ?? node.name ?? 'Property',
         propertyType: (node.property?.propertyType as string | null) ?? null,
+        ownerId: node.property?.ownerId ?? null,
         tenantName: [node.tenant?.name?.firstName, node.tenant?.name?.lastName].filter(Boolean).join(' '),
+        tenantPhone: node.tenant?.phones ?? null,
       });
     }
 
@@ -310,6 +319,7 @@ const RentLedger = () => {
   const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const scope = useOwnerScope();
 
   const months = useMemo(() => {
     if (mode === 'month') return [monthStart(anchor)];
@@ -352,7 +362,7 @@ const RentLedger = () => {
     return map;
   }, [payments]);
 
-  const rows = useMemo(() => {
+  const allRows = useMemo(() => {
     const query = search.trim().toLowerCase();
 
     return rentals
@@ -367,15 +377,25 @@ const RentLedger = () => {
       })
       .filter(({ rental, cells }) => {
         if (cells.every((cell) => cell.status === 'none')) return false;
+        if (!scope.matches(rental.ownerId)) return false;
         if (type && rental.propertyType !== type) return false;
         if (query && !`${rental.propertyName} ${rental.tenantName}`.toLowerCase().includes(query)) return false;
+
+        return true;
+      });
+  }, [rentals, months, paymentByCell, search, type, today, scope.ownerId]);
+
+  const rows = useMemo(
+    () =>
+      allRows.filter(({ cells }) => {
         if (status === 'paid') return cells.some((cell) => cell.status === 'paid');
         if (status === 'overdue') return cells.some((cell) => cell.status === 'overdue');
         if (status === 'unpaid') return cells.some((cell) => cell.status === 'due' || cell.status === 'overdue');
 
         return true;
-      });
-  }, [rentals, months, paymentByCell, search, type, status, today]);
+      }),
+    [allRows, status],
+  );
 
   const totals = useMemo(() => {
     let expected = 0;
@@ -384,7 +404,7 @@ const RentLedger = () => {
     let overdue = 0;
     let overdueCount = 0;
 
-    for (const { rental, cells } of rows) {
+    for (const { rental, cells } of allRows) {
       for (const cell of cells) {
         if (cell.status === 'none') continue;
         expected += rental.rent;
@@ -398,7 +418,7 @@ const RentLedger = () => {
     }
 
     return { expected, collected, outstanding, overdue, overdueCount };
-  }, [rows]);
+  }, [allRows]);
 
   const periodLabel =
     mode === 'month' ? monthLabel(anchor, true) : mode === 'year' ? anchor.slice(0, 4) : '';
@@ -410,6 +430,7 @@ const RentLedger = () => {
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', padding: 16, gap: 14, overflow: 'auto' }}>
         {/* Period + filters */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <OwnerSwitcher scope={scope} />
           <div style={{ display: 'flex', border: `1px solid ${c.border2}`, borderRadius: c.radius, overflow: 'hidden' }}>
             {(['month', 'year', 'range'] as Mode[]).map((option) => (
               <button
@@ -459,16 +480,36 @@ const RentLedger = () => {
         {/* Totals */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
           {[
-            { label: 'Expected', value: rm(totals.expected), color: c.text },
-            { label: 'Collected', value: rm(totals.collected), color: 'var(--t-color-green11)' },
-            { label: 'Outstanding', value: rm(totals.outstanding), color: 'var(--t-color-amber11)' },
-            { label: `Overdue${totals.overdueCount ? ` · ${totals.overdueCount}` : ''}`, value: rm(totals.overdue), color: 'var(--t-color-red11)' },
-          ].map((card) => (
-            <div key={card.label} style={{ background: c.bg2, borderRadius: c.radius, padding: '10px 14px' }}>
-              <div style={{ fontSize: 12, color: c.text2 }}>{card.label}</div>
-              <div style={{ fontSize: 20, fontWeight: 600, color: card.color, marginTop: 2 }}>{card.value}</div>
-            </div>
-          ))}
+            { label: 'Expected', value: rm(totals.expected), color: c.text, filter: '' },
+            { label: 'Collected', value: rm(totals.collected), color: 'var(--t-color-green11)', filter: 'paid' },
+            { label: 'Outstanding', value: rm(totals.outstanding), color: 'var(--t-color-amber11)', filter: 'unpaid' },
+            { label: `Overdue${totals.overdueCount ? ` · ${totals.overdueCount}` : ''}`, value: rm(totals.overdue), color: 'var(--t-color-red11)', filter: 'overdue' },
+          ].map((card) => {
+            const active = status === card.filter;
+
+            // Clicking a card shows only the matching rows; click again (or Expected) for all.
+            return (
+              <button
+                key={card.label}
+                onClick={() => setStatus(active ? '' : card.filter)}
+                style={{
+                  fontFamily: c.font,
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  background: active && card.filter ? c.bg : c.bg2,
+                  border: `1px solid ${active && card.filter ? c.accent : 'transparent'}`,
+                  borderRadius: c.radius,
+                  padding: '10px 14px',
+                }}
+              >
+                <div style={{ fontSize: 12, color: c.text2 }}>
+                  {card.label}
+                  {active && card.filter ? ' · showing' : ''}
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 600, color: card.color, marginTop: 2 }}>{card.value}</div>
+              </button>
+            );
+          })}
         </div>
 
         {/* Ledger */}
@@ -476,7 +517,18 @@ const RentLedger = () => {
           <div style={{ color: c.text3, fontSize: 13, padding: 24, textAlign: 'center' }}>Loading…</div>
         ) : rows.length === 0 ? (
           <div style={{ color: c.text3, fontSize: 13, padding: 24, textAlign: 'center' }}>
-            No active rentals in this period. Create a rental and set it to Active.
+            {allRows.length > 0 ? (
+              <>
+                Nothing {status === 'paid' ? 'collected' : status === 'overdue' ? 'overdue' : 'outstanding'} in this period.{' '}
+                <button onClick={() => setStatus('')} style={{ ...button(), height: 26, marginLeft: 6 }}>
+                  Show all
+                </button>
+              </>
+            ) : (
+              scope.owner
+                ? `No active contracts for ${scope.owner.name} in this period. Set ${scope.owner.name} as the owner on its properties.`
+                : 'No active contracts in this period. Create a contract and set it to Active.'
+            )}
           </div>
         ) : mode === 'month' ? (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -728,6 +780,28 @@ const PaymentPanel = ({
       </div>
 
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {(() => {
+          const first = rental.tenantName.split(' ')[0] || 'there';
+          const period = monthLabel(month, true);
+          const due = dueDateInMonth(month, rental.dueDay);
+          const text = isPaid
+            ? `Hi ${first}, thank you! We've received your rent for ${rental.propertyName} for ${period}${payment?.amount ? ` (${rm(payment.amount)})` : ''}.${payment?.receiptNumber ? ` Receipt no. ${payment.receiptNumber}.` : ''}`
+            : `Hi ${first}, a friendly reminder that the rent for ${rental.propertyName} for ${period} (${rm(rental.rent)}) ${status === 'overdue' ? 'was' : 'is'} due on ${Number(due.slice(8, 10))} ${monthLabel(month)}. Please let us know once it's paid. Thank you!`;
+          const link = whatsappLink(rental.tenantPhone, text);
+
+          return link ? (
+            <a
+              href={link}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ ...button(), height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', background: '#25D366', border: '1px solid #25D366', color: '#fff' }}
+            >
+              {isPaid ? 'Send thank-you on WhatsApp' : status === 'overdue' ? 'Remind on WhatsApp (overdue)' : 'Remind on WhatsApp'}
+            </a>
+          ) : (
+            <div style={{ fontSize: 12, color: c.text3 }}>Add the tenant's phone number to message them on WhatsApp.</div>
+          );
+        })()}
         {!isPaid && (
           <>
             <label style={field}>

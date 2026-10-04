@@ -26,6 +26,7 @@ import {
   RENTAL_DEPOSIT_STATUS_FIELD_ID,
   RENTAL_UTILITY_DEPOSIT_FIELD_ID,
 } from 'src/constants/universal-identifiers-v2';
+import { RENTAL_STAMPED_ON_FIELD_ID } from 'src/constants/universal-identifiers-v3';
 
 // One tenant renting one property for a period, with the agreed terms.
 // Payments hang off a rental; the property's Occupied/Vacant status and
@@ -144,6 +145,15 @@ export default defineObject({
       label: 'Deposit notes',
       description: 'Deductions at move-out, e.g. cleaning RM 200',
       icon: 'IconNotes',
+      isNullable: true,
+    },
+    {
+      universalIdentifier: RENTAL_STAMPED_ON_FIELD_ID,
+      type: FieldType.DATE,
+      name: 'stampedOn',
+      label: 'Stamped on',
+      description: 'When the agreement was stamped (LHDN e-Duti Setem). Due within 30 days of signing.',
+      icon: 'IconStamp',
       isNullable: true,
     },
     {

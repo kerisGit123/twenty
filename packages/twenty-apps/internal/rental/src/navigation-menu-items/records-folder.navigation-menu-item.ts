@@ -10,6 +10,6 @@ export default defineNavigationMenuItem({
   universalIdentifier: RECORDS_FOLDER_NAV_ID,
   name: 'Records',
   icon: 'IconAddressBook',
-  position: 4,
+  position: 5,
   type: NavigationMenuItemType.FOLDER,
 });
