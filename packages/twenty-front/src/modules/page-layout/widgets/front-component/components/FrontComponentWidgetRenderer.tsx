@@ -43,14 +43,19 @@ export const FrontComponentWidgetRenderer = ({
 
   const configuration = widget.configuration;
 
-  if (
-    !isDefined(configuration) ||
-    !isWidgetConfigurationOfType(configuration, 'FrontComponentConfiguration')
-  ) {
+  // Record-page widgets served from the metadata store carry configurationType
+  // but no __typename, so accept either.
+  const isFrontComponentConfiguration =
+    isWidgetConfigurationOfType(configuration, 'FrontComponentConfiguration') ||
+    (configuration as { configurationType?: string } | null | undefined)
+      ?.configurationType === 'FRONT_COMPONENT';
+
+  if (!isDefined(configuration) || !isFrontComponentConfiguration) {
     return <PageLayoutWidgetNoDataDisplay />;
   }
 
-  const frontComponentId = configuration.frontComponentId;
+  const frontComponentId = (configuration as { frontComponentId: string })
+    .frontComponentId;
   const selectedRecordIds = isDefined(targetRecordIdentifier?.id)
     ? [targetRecordIdentifier.id]
     : undefined;

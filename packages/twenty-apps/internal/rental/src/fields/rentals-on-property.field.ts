@@ -16,7 +16,7 @@ export default defineField({
   objectUniversalIdentifier: PROPERTY_OBJECT_ID,
   type: FieldType.RELATION,
   name: 'rentals',
-  label: 'Rentals',
+  label: 'Contracts',
   icon: 'IconKey',
   relationTargetObjectMetadataUniversalIdentifier: RENTAL_OBJECT_ID,
   relationTargetFieldMetadataUniversalIdentifier: RENTAL_PROPERTY_FIELD_ID,
