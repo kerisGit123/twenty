@@ -11,35 +11,7 @@ import {
   EXPENSE_PAID_TO_FIELD_ID,
   EXPENSE_RECEIPT_FIELD_ID,
 } from 'src/constants/universal-identifiers-v2';
-
-// Categories follow what Malaysian landlords usually claim against rental
-// income, so yearly totals per owner line up with the tax return.
-const CATEGORIES: Array<[string, string, string]> = [
-  ['REPAIRS', 'Repairs and maintenance', 'orange'],
-  ['ASSESSMENT_TAX', 'Assessment tax (cukai pintu)', 'blue'],
-  ['QUIT_RENT', 'Quit rent (cukai tanah)', 'blue'],
-  ['MANAGEMENT_FEE', 'Maintenance / sinking fund', 'purple'],
-  ['WATER', 'Water', 'sky'],
-  ['ELECTRICITY', 'Electricity', 'yellow'],
-  ['SEWERAGE', 'Sewerage (IWK)', 'sky'],
-  ['INSURANCE', 'Insurance', 'green'],
-  ['LOAN_INTEREST', 'Loan interest', 'red'],
-  ['AGENT_FEE', 'Agent fee', 'pink'],
-  ['LEGAL_STAMP_DUTY', 'Legal fees / stamp duty', 'gray'],
-  ['FURNISHING', 'Furnishing / appliances', 'turquoise'],
-  ['OTHER', 'Other', 'gray'],
-];
-
-// Fixed option ids: never change them once installed.
-const OPTION_IDS = [
-  'd2fa8444-22f5-4c2b-8349-f944e0ead23f', '6cd40021-1484-43c1-bd05-0a3ca5b097c9',
-  'c2f4dbf2-5916-4c3e-911a-a5f2e29dc1a3', '6965b137-5697-4821-a322-e801e7eded62',
-  'cdbda8e7-56b2-4c48-b609-525b4832a508', 'e146ebd8-9dcf-4472-b59a-856b327b7073',
-  '7f393a9c-bb93-4d55-97eb-33b8af199cc4', '89361410-2cb2-4510-a5c1-2ccfc4934606',
-  '23d154b2-665f-4af4-9a6b-11d39f276e15', '554d0f61-809c-4e5c-86af-1f8d5dd3a203',
-  '331aa18e-7bf1-4e58-87a0-c0b25696e997', '277bec6b-4f31-4776-a458-2f723176b863',
-  'f83ca586-ab0e-4f68-afac-4ea0dc9bfa2b',
-];
+import { EXPENSE_CATEGORIES, expenseGroup } from 'src/shared/expense-categories';
 
 const METHOD_OPTION_IDS = [
   '7a84969b-5f58-46a6-8202-4dd7ce13cf67', '061eabe5-bd07-40fc-810d-f78933a3c937',
@@ -90,12 +62,13 @@ export default defineObject({
       label: 'Category',
       icon: 'IconCategory',
       isNullable: true,
-      options: CATEGORIES.map(([value, label, color], index) => ({
-        id: OPTION_IDS[index],
-        value,
-        label,
+      // Grouped (taxes, utilities, upkeep...) and coloured by group.
+      options: EXPENSE_CATEGORIES.map((category, index) => ({
+        id: category.id,
+        value: category.value,
+        label: category.label,
         position: index,
-        color,
+        color: expenseGroup(category.value).color,
       })),
     },
     {

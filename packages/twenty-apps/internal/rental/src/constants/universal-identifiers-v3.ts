@@ -37,3 +37,16 @@ export const PROPERTY_CONTRACTS_VIEW_ID = '3d3714c2-3684-4a66-b9c8-9a1b0e89a6ff'
 export const PROPERTY_PAYMENTS_VIEW_ID = '3969b835-e613-49df-adae-f8a185f085ea';
 export const PROPERTY_EXPENSES_VIEW_ID = '127d217c-9f1f-4958-bbdb-4be56f7e581c';
 export const PROPERTY_DOCUMENTS_VIEW_ID = 'db427bff-a0ac-4008-bdda-0aa5c7b38d9f';
+
+
+// Expenses page
+export const EXPENSE_TRACKER_FRONT_COMPONENT_ID = '60471c7e-a48c-46ad-8ea5-db3ffe93aa46';
+export const EXPENSE_TRACKER_PAGE_LAYOUT_ID = '6cec178d-f41b-4ac5-bec5-7368755ee9ba';
+export const EXPENSE_TRACKER_TAB_ID = 'ef1d8477-b105-4887-b743-bfa5110502b8';
+export const EXPENSE_TRACKER_WIDGET_ID = '1d360aaa-2e40-4025-b80b-91232cb8b08c';
+export const EXPENSE_TRACKER_NAV_ITEM_ID = '97b4aaac-559d-4521-aa95-b2fdbba6abc7';
+
+// Sidebar folders
+export const RENTALS_FOLDER_NAV_ID = '97e00001-2d50-4fb4-9681-c5c00c7981f9';
+export const RECORDS_FOLDER_NAV_ID = '2afa6b5b-ed2b-447d-82fb-8e7e99c81830';
+export const MORE_FOLDER_NAV_ID = 'fbbf4b80-df52-4fb8-b736-b48b50fa06e8';

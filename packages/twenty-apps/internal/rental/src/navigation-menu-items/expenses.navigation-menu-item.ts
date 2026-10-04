@@ -4,13 +4,16 @@ import {
 } from 'twenty-sdk/define';
 
 import {
-  EXPENSE_OBJECT_ID,
-  EXPENSES_NAV_ITEM_ID,
-} from 'src/constants/universal-identifiers-v2';
+  EXPENSE_TRACKER_NAV_ITEM_ID,
+  EXPENSE_TRACKER_PAGE_LAYOUT_ID,
+} from 'src/constants/universal-identifiers-v3';
 
+// Opens the expenses page; the plain table is one click away from there.
 export default defineNavigationMenuItem({
-  universalIdentifier: EXPENSES_NAV_ITEM_ID,
-  position: 4,
-  type: NavigationMenuItemType.OBJECT,
-  targetObjectUniversalIdentifier: EXPENSE_OBJECT_ID,
+  universalIdentifier: EXPENSE_TRACKER_NAV_ITEM_ID,
+  name: 'Expenses',
+  icon: 'IconCashOff',
+  position: 1,
+  type: NavigationMenuItemType.PAGE_LAYOUT,
+  pageLayoutUniversalIdentifier: EXPENSE_TRACKER_PAGE_LAYOUT_ID,
 });
