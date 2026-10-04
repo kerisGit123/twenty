@@ -10,6 +10,15 @@ export const todayIso = (): string =>
     day: '2-digit',
   }).format(new Date());
 
+// A timestamp (e.g. receiptSentAt) as a Malaysia 'YYYY-MM-DD' date.
+export const toMalaysiaDate = (timestamp: string): string =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: RENTAL_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(timestamp));
+
 const pad = (n: number) => String(n).padStart(2, '0');
 
 export const daysInMonth = (year: number, month: number): number =>

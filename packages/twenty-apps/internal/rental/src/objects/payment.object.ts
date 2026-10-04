@@ -24,6 +24,7 @@ import {
   PAYMENT_TYPE_FIELD_ID,
   PAYMENT_TYPE_RENT_OPTION_ID,
 } from 'src/constants/universal-identifiers';
+import { PAYMENT_TYPE_UTILITY_DEPOSIT_OPTION_ID } from 'src/constants/universal-identifiers-v2';
 
 // Money received from a tenant: monthly rent or a deposit. Each payment gets
 // a receipt (number + PDF) that can be sent to the tenant.
@@ -80,9 +81,16 @@ export default defineObject({
         {
           id: PAYMENT_TYPE_DEPOSIT_OPTION_ID,
           value: 'DEPOSIT',
-          label: 'Deposit',
+          label: 'Security deposit',
           position: 1,
           color: 'purple',
+        },
+        {
+          id: PAYMENT_TYPE_UTILITY_DEPOSIT_OPTION_ID,
+          value: 'UTILITY_DEPOSIT',
+          label: 'Utility deposit',
+          position: 2,
+          color: 'violet',
         },
       ],
     },
@@ -173,6 +181,17 @@ export default defineObject({
       icon: 'IconFileTypePdf',
       isNullable: true,
       universalSettings: { maxNumberOfValues: 1 },
+    },
+    {
+      // Exactly what was printed when the receipt was issued (content,
+      // wording and template), so later setting changes don't alter how an
+      // issued receipt is shown.
+      universalIdentifier: '1c96e368-79c7-4634-8b6a-5fdca130778b',
+      type: FieldType.RAW_JSON,
+      name: 'receiptSnapshot',
+      label: 'Receipt snapshot',
+      icon: 'IconCamera',
+      isNullable: true,
     },
     {
       universalIdentifier: PAYMENT_RECEIPT_SENT_AT_FIELD_ID,

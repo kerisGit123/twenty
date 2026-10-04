@@ -115,6 +115,18 @@ export const VOID_RECEIPT_FRONT_COMPONENT_ID = '70d8ec1d-0a13-444d-b421-351c560a
 export const VOID_RECEIPT_COMMAND_ID = '6fe7861e-46e9-4d80-a23e-15eb705ee5ab';
 export const RENTALS_NAV_ITEM_ID = '7f6f3af1-decb-4b8e-8004-711a8ef45719';
 
+// Rent ledger + corrections
+export const PROPERTY_TYPE_FIELD_ID = '44c8c42b-2cb3-4bc6-af58-b59ebfd6e074';
+export const LEDGER_RECORD_ROUTE_ID = 'b61569ba-34a3-4994-929a-f3fce2bd27ed';
+export const RENT_LEDGER_FRONT_COMPONENT_ID = '409b4319-bc8b-40ba-817d-11ae19b81a19';
+export const RENT_LEDGER_PAGE_LAYOUT_ID = '83a7588c-c9d5-4d84-a3a8-22c6409b7d27';
+export const RENT_LEDGER_TAB_ID = 'eff184b2-59b7-41e9-b901-535bc936d777';
+export const RENT_LEDGER_WIDGET_ID = 'c16d9601-6167-4a6b-88a6-982653e88cf6';
+export const RENT_LEDGER_NAV_ITEM_ID = '03d9812b-6bfd-4447-86b8-19215c4a379d';
+export const CORRECT_RECEIPT_ROUTE_ID = 'ea8a9344-5183-4b60-b98a-88cc7e61b9c1';
+export const CORRECT_RECEIPT_FRONT_COMPONENT_ID = 'aa593646-23de-4d3a-9b32-3ec6b84db2e0';
+export const CORRECT_RECEIPT_COMMAND_ID = 'b878f6c6-f193-44bf-9ba5-8abb43542606';
+
 // Navigation
 export const PROPERTIES_NAV_ITEM_ID = 'b3b86ca7-07a7-4c1a-bf55-092c046f1515';
 export const PAYMENTS_NAV_ITEM_ID = 'fd1f8f1b-c962-473d-a4d5-6dcfd5029cb4';

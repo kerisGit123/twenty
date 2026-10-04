@@ -17,6 +17,14 @@ import {
   PROPERTY_OBJECT_ID,
   PROPERTY_STATUS_FIELD_ID,
 } from 'src/constants/universal-identifiers';
+import {
+  EXPENSE_AMOUNT_FIELD_ID,
+  EXPENSE_CATEGORY_FIELD_ID,
+  EXPENSE_DATE_FIELD_ID,
+  EXPENSE_OBJECT_ID,
+  EXPENSE_OWNER_FIELD_ID,
+  PAYMENT_OWNER_FIELD_ID,
+} from 'src/constants/universal-identifiers-v2';
 
 export const RENTAL_SUMMARY_PAGE_LAYOUT_ID = '0773a9de-78de-4a71-b350-4001ed272b13';
 
@@ -31,6 +39,12 @@ const RECEIVED = {
 };
 const THIS_YEAR = {
   fieldMetadataUniversalIdentifier: PAYMENT_PAID_ON_FIELD_ID,
+  operand: 'IS_RELATIVE',
+  value: `THIS_1_YEAR;;${TIME_ZONE};;`,
+};
+
+const EXPENSES_THIS_YEAR = {
+  fieldMetadataUniversalIdentifier: EXPENSE_DATE_FIELD_ID,
   operand: 'IS_RELATIVE',
   value: `THIS_1_YEAR;;${TIME_ZONE};;`,
 };
@@ -222,6 +236,70 @@ export default definePageLayout({
             displayLegend: true,
             ...COMMON,
             filter: { recordFilters: [RECEIVED, THIS_YEAR] },
+          },
+        },
+        {
+          universalIdentifier: '40208e78-9e5f-46f6-a51b-56d488c0c26f',
+          title: 'Expenses this year',
+          type: 'GRAPH',
+          objectUniversalIdentifier: EXPENSE_OBJECT_ID,
+          position: at(14, 0, 2, 4),
+          configuration: {
+            configurationType: 'AGGREGATE_CHART',
+            aggregateFieldMetadataUniversalIdentifier: EXPENSE_AMOUNT_FIELD_ID,
+            aggregateOperation: AggregateOperations.SUM,
+            displayDataLabel: true,
+            prefix: 'RM ',
+            ...COMMON,
+            filter: { recordFilters: [EXPENSES_THIS_YEAR] },
+          },
+        },
+        {
+          universalIdentifier: '8bd86fd0-b395-44d6-b5fe-7003809b15d2',
+          title: 'Income by owner (this year)',
+          type: 'GRAPH',
+          objectUniversalIdentifier: PAYMENT_OBJECT_ID,
+          position: at(16, 0, 6, 6),
+          configuration: {
+            configurationType: 'BAR_CHART',
+            aggregateFieldMetadataUniversalIdentifier: PAYMENT_AMOUNT_FIELD_ID,
+            aggregateOperation: AggregateOperations.SUM,
+            primaryAxisGroupByFieldMetadataUniversalIdentifier: PAYMENT_OWNER_FIELD_ID,
+            ...BAR,
+            primaryAxisOrderBy: 'VALUE_DESC',
+            filter: { recordFilters: [RECEIVED, THIS_YEAR] },
+          },
+        },
+        {
+          universalIdentifier: '591fe351-e9d6-497a-bade-84bf10255823',
+          title: 'Expenses by owner (this year)',
+          type: 'GRAPH',
+          objectUniversalIdentifier: EXPENSE_OBJECT_ID,
+          position: at(16, 6, 6, 6),
+          configuration: {
+            configurationType: 'BAR_CHART',
+            aggregateFieldMetadataUniversalIdentifier: EXPENSE_AMOUNT_FIELD_ID,
+            aggregateOperation: AggregateOperations.SUM,
+            primaryAxisGroupByFieldMetadataUniversalIdentifier: EXPENSE_OWNER_FIELD_ID,
+            ...BAR,
+            primaryAxisOrderBy: 'VALUE_DESC',
+            filter: { recordFilters: [EXPENSES_THIS_YEAR] },
+          },
+        },
+        {
+          universalIdentifier: '8b13622a-d693-4242-8974-a6181a549bb9',
+          title: 'Expenses by category (this year)',
+          type: 'GRAPH',
+          objectUniversalIdentifier: EXPENSE_OBJECT_ID,
+          position: at(22, 0, 6, 12),
+          configuration: {
+            configurationType: 'BAR_CHART',
+            aggregateFieldMetadataUniversalIdentifier: EXPENSE_AMOUNT_FIELD_ID,
+            aggregateOperation: AggregateOperations.SUM,
+            primaryAxisGroupByFieldMetadataUniversalIdentifier: EXPENSE_CATEGORY_FIELD_ID,
+            ...BAR,
+            primaryAxisOrderBy: 'VALUE_DESC',
+            filter: { recordFilters: [EXPENSES_THIS_YEAR] },
           },
         },
       ],

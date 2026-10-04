@@ -10,7 +10,7 @@ import {
 
 export default defineNavigationMenuItem({
   universalIdentifier: RENTALS_NAV_ITEM_ID,
-  position: 1,
+  position: 2,
   type: NavigationMenuItemType.OBJECT,
   targetObjectUniversalIdentifier: RENTAL_OBJECT_ID,
 });

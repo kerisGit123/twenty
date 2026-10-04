@@ -13,10 +13,12 @@ export type RentalRecord = {
   dueDay?: number | null;
   monthlyRent?: Money;
   depositAmount?: Money;
+  utilityDeposit?: Money;
   propertyId?: string | null;
   tenantId?: string | null;
   property?: {
     name?: string | null;
+    ownerId?: string | null;
     monthlyRent?: Money;
     depositAmount?: Money;
   } | null;
@@ -47,10 +49,12 @@ export const loadRental = async (
           dueDay: true,
           monthlyRent: { amountMicros: true, currencyCode: true },
           depositAmount: { amountMicros: true, currencyCode: true },
+          utilityDeposit: { amountMicros: true, currencyCode: true },
           propertyId: true,
           tenantId: true,
           property: {
             name: true,
+            ownerId: true,
             monthlyRent: { amountMicros: true, currencyCode: true },
             depositAmount: { amountMicros: true, currencyCode: true },
           },
@@ -153,6 +157,33 @@ export const nextRentPeriod = async (client: CoreApiClient, rental: RentalRecord
   return monthStart(todayIso());
 };
 
+// The rental's (non-void) rent payment for a month, if any.
+export const findRentPaymentForMonth = async (
+  client: CoreApiClient,
+  rentalId: string,
+  monthIso: string,
+): Promise<{ id: string; status?: string | null; receiptNumber?: string | null } | null> => {
+  const { rentPayments } = await client.query({
+    rentPayments: {
+      __args: {
+        filter: {
+          rentalId: { eq: rentalId },
+          paymentType: { eq: 'RENT' },
+          status: { neq: 'VOID' },
+          and: [
+            { rentPeriod: { gte: monthStart(monthIso) } },
+            { rentPeriod: { lt: nextMonthStart(monthIso) } },
+          ],
+        },
+        first: 1,
+      },
+      edges: { node: { id: true, status: true, receiptNumber: true } },
+    },
+  });
+
+  return rentPayments?.edges?.[0]?.node ?? null;
+};
+
 export const rentPaymentExistsForMonth = async (
   client: CoreApiClient,
   rentalId: string,
@@ -196,6 +227,7 @@ export const createDraftRentPayment = async (
           rentalId: rental.id,
           propertyId: rental.propertyId ?? null,
           tenantId: rental.tenantId ?? null,
+          ownerId: rental.property?.ownerId ?? null,
           rentPeriod: monthStart(periodIso),
           amount: toMoneyInput(rent),
           ...(method ? { method } : {}),
@@ -236,11 +268,15 @@ export const fillPaymentFromRental = async (client: CoreApiClient, paymentId: st
   const data: Record<string, unknown> = {
     propertyId: rental.propertyId ?? null,
     tenantId: rental.tenantId ?? null,
+    ...(rental.property?.ownerId ? { ownerId: rental.property.ownerId } : {}),
   };
-  const isDeposit = payment.paymentType === 'DEPOSIT';
+  const isDeposit = payment.paymentType === 'DEPOSIT' || payment.paymentType === 'UTILITY_DEPOSIT';
+  const isUtilityDeposit = payment.paymentType === 'UTILITY_DEPOSIT';
 
   if (!hasAmount(payment.amount)) {
-    const source = isDeposit
+    const source = isUtilityDeposit
+      ? rental.utilityDeposit
+      : isDeposit
       ? (hasAmount(rental.depositAmount) ? rental.depositAmount : rental.property?.depositAmount)
       : (hasAmount(rental.monthlyRent) ? rental.monthlyRent : rental.property?.monthlyRent);
 

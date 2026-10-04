@@ -10,7 +10,7 @@ import {
 
 export default defineNavigationMenuItem({
   universalIdentifier: PAYMENTS_NAV_ITEM_ID,
-  position: 2,
+  position: 3,
   type: NavigationMenuItemType.OBJECT,
   targetObjectUniversalIdentifier: PAYMENT_OBJECT_ID,
 });

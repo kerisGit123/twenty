@@ -10,6 +10,7 @@ import {
   PROPERTY_STATUS_FIELD_ID,
   PROPERTY_STATUS_OCCUPIED_OPTION_ID,
   PROPERTY_STATUS_VACANT_OPTION_ID,
+  PROPERTY_TYPE_FIELD_ID,
 } from 'src/constants/universal-identifiers';
 
 // A rentable unit, e.g. "Block A-3-2" or "No. 12, Jalan Mawar".
@@ -79,6 +80,20 @@ export default defineObject({
           position: 1,
           color: 'green',
         },
+      ],
+    },
+    {
+      universalIdentifier: PROPERTY_TYPE_FIELD_ID,
+      type: FieldType.SELECT,
+      name: 'propertyType',
+      label: 'Type',
+      icon: 'IconBuildingCommunity',
+      isNullable: true,
+      options: [
+        { id: '02a9de88-340b-4f13-8a1f-f84ac9fba1ed', value: 'CONDO', label: 'Condo / Apartment', position: 0, color: 'blue' },
+        { id: 'f15c2f8b-b772-4d81-b08b-0f16fec2be03', value: 'LANDED', label: 'Landed house', position: 1, color: 'green' },
+        { id: '143d2f68-86ba-4daf-96e3-7cf037c39a8f', value: 'SHOP', label: 'Shop / Office', position: 2, color: 'orange' },
+        { id: 'b85c42cb-4cf5-448b-86b3-8805ffe56137', value: 'ROOM', label: 'Room', position: 3, color: 'purple' },
       ],
     },
     {

@@ -41,8 +41,10 @@ const StyledDocumentViewerContainer = styled.div`
     display: none;
   }
 
+  /* PDF zoom in/out/reset and page controls are kept visible. */
   #react-doc-viewer #pdf-controls {
-    display: none !important;
+    background: ${themeCssVariables.background.secondary};
+    box-shadow: none;
   }
 
   #react-doc-viewer,

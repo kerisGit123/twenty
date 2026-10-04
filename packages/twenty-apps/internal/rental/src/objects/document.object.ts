@@ -1,0 +1,97 @@
+import { defineObject, FieldType } from 'twenty-sdk/define';
+
+import {
+  DOCUMENT_EXPIRY_FIELD_ID,
+  DOCUMENT_FILES_FIELD_ID,
+  DOCUMENT_GROUP_FIELD_ID,
+  DOCUMENT_NAME_FIELD_ID,
+  DOCUMENT_NOTES_FIELD_ID,
+  DOCUMENT_OBJECT_ID,
+  DOCUMENT_TYPE_FIELD_ID,
+} from 'src/constants/universal-identifiers-v3';
+
+// One place for paperwork: agreements, titles, licenses, bills... Kept simple:
+// a title, a group and a type to classify it, and the files (stored in R2).
+export default defineObject({
+  universalIdentifier: DOCUMENT_OBJECT_ID,
+  nameSingular: 'document',
+  namePlural: 'documents',
+  labelSingular: 'Document',
+  labelPlural: 'Documents',
+  description: 'Agreements, titles, licenses and other paperwork',
+  icon: 'IconFolder',
+  labelIdentifierFieldMetadataUniversalIdentifier: DOCUMENT_NAME_FIELD_ID,
+  fields: [
+    {
+      universalIdentifier: DOCUMENT_NAME_FIELD_ID,
+      type: FieldType.TEXT,
+      name: 'name',
+      label: 'Title',
+      icon: 'IconAbc',
+    },
+    {
+      universalIdentifier: DOCUMENT_GROUP_FIELD_ID,
+      type: FieldType.SELECT,
+      name: 'group',
+      label: 'Group',
+      icon: 'IconFolders',
+      isNullable: true,
+      defaultValue: "'MISC'",
+      options: [
+        { id: 'e358583a-f3cf-49d2-810f-9045dffab6fa', value: 'PROPERTY', label: 'Property', position: 0, color: 'blue' },
+        { id: 'ab44fae0-e88f-4ce9-b977-1d9b80e43241', value: 'PERSONAL', label: 'Personal', position: 1, color: 'green' },
+        { id: '847a3a2a-0c14-49b2-87cc-231cfc654a33', value: 'FAMILY', label: 'Family', position: 2, color: 'pink' },
+        { id: '0cc0f5a9-ddea-40df-b1e7-0df3cbcbd6a3', value: 'COMPANY', label: 'Company', position: 3, color: 'purple' },
+        { id: '94998e73-23fe-4e9f-adbd-737630dbc583', value: 'MISC', label: 'Misc', position: 4, color: 'gray' },
+      ],
+    },
+    {
+      universalIdentifier: DOCUMENT_TYPE_FIELD_ID,
+      type: FieldType.SELECT,
+      name: 'documentType',
+      label: 'Type',
+      icon: 'IconCategory',
+      isNullable: true,
+      defaultValue: "'OTHER'",
+      options: [
+        { id: '1d0bacc0-3a9f-487e-a35b-62355d3ded25', value: 'AGREEMENT', label: 'Agreement / contract', position: 0, color: 'blue' },
+        { id: 'f4a18e34-47b3-42c2-a1df-8c120b0c351e', value: 'TITLE', label: 'Title / grant', position: 1, color: 'purple' },
+        { id: '2058e43d-6d8b-46b5-b6c7-b3a055a2f716', value: 'LICENSE', label: 'License / permit', position: 2, color: 'orange' },
+        { id: 'a9f0d21d-b55a-407f-93c3-f9c75ae4b4e9', value: 'STAMP_DUTY', label: 'Stamp duty', position: 3, color: 'yellow' },
+        { id: 'a59a59f7-dcb8-4cfd-a1ac-221fa0d73491', value: 'TAX', label: 'Tax / assessment', position: 4, color: 'red' },
+        { id: '825605cc-5c76-4417-92b4-72d1911897e5', value: 'INSURANCE', label: 'Insurance', position: 5, color: 'green' },
+        { id: 'a82981cb-3a14-4e77-a48d-825e9937dbd6', value: 'LOAN', label: 'Loan / bank', position: 6, color: 'pink' },
+        { id: '3b405cc4-10f1-4d58-b008-b4f8e6806fed', value: 'BILL', label: 'Bill / utilities', position: 7, color: 'sky' },
+        { id: '419d0714-c1f2-4130-9a4f-ad0e66f8ffe4', value: 'HANDOVER', label: 'Inventory / handover', position: 8, color: 'orange' },
+        { id: '1393c520-c374-4f9e-ac5d-0b33663f2666', value: 'ID', label: 'ID / certificate', position: 9, color: 'turquoise' },
+        { id: '8cd00646-25ac-4da7-98e0-fb44d7736927', value: 'OTHER', label: 'Misc', position: 10, color: 'gray' },
+      ],
+    },
+    {
+      universalIdentifier: DOCUMENT_FILES_FIELD_ID,
+      type: FieldType.FILES,
+      name: 'files',
+      label: 'Files',
+      icon: 'IconPaperclip',
+      isNullable: true,
+      universalSettings: { maxNumberOfValues: 10 },
+    },
+    {
+      universalIdentifier: DOCUMENT_EXPIRY_FIELD_ID,
+      type: FieldType.DATE,
+      name: 'expiresOn',
+      label: 'Expires on',
+      description: 'Optional, e.g. for licenses, insurance, tenancy agreements',
+      icon: 'IconCalendarDue',
+      isNullable: true,
+    },
+    {
+      universalIdentifier: DOCUMENT_NOTES_FIELD_ID,
+      type: FieldType.TEXT,
+      name: 'notes',
+      label: 'Notes',
+      icon: 'IconNotes',
+      isNullable: true,
+    },
+  ],
+});

@@ -3,7 +3,12 @@ import { MetadataApiClient } from 'twenty-client-sdk/metadata';
 
 import { PAYMENT_RECEIPT_FILE_FIELD_ID } from 'src/constants/universal-identifiers';
 import { ringgitInWords } from 'src/logic-functions/utils/amount-in-words';
-import { daysInMonth, todayIso } from 'src/logic-functions/utils/dates';
+import { daysInMonth, toMalaysiaDate, todayIso } from 'src/logic-functions/utils/dates';
+import {
+  type ReceiptSettingsRecord,
+  resolveStyle,
+  resolveTitle,
+} from 'src/logic-functions/utils/receipt-settings';
 import {
   publicFileUrl,
   sendWhatsappReceipt,
@@ -12,6 +17,7 @@ import {
 } from 'src/logic-functions/utils/whatsapp';
 import {
   buildReceiptPdf,
+  type ReceiptData,
   type ReceiptPaymentMethod,
 } from 'src/logic-functions/utils/receipt-pdf';
 
@@ -19,13 +25,21 @@ import {
 // send:    assigns the receipt number, final PDF, emails the tenant →
 //          Sent (or Issued when it can't be emailed).
 // void:    keeps the number, VOID-watermarked PDF → Void.
-export type ReceiptAction = 'preview' | 'send' | 'void';
+// regenerate: rebuilds the PDF from the payment's current details, matching
+//          its status (Draft → DRAFT preview, Issued/Sent → final, Void →
+//          VOID). Never assigns a number, changes status or sends anything.
+// issue:   like send (number + final PDF), but doesn't deliver it.
+// view:    returns the receipt's content (as on the PDF) without creating a file.
+export type ReceiptAction = 'preview' | 'send' | 'issue' | 'void' | 'regenerate' | 'view';
 
 export type ReceiptResult = {
   success: boolean;
+  receipt?: ReceiptData;
   message: string;
   status?: number;
   receiptNumber?: string;
+  // Signed link to the receipt PDF that was just created.
+  fileUrl?: string;
   emailed?: boolean;
   whatsapped?: boolean;
 };
@@ -121,6 +135,38 @@ const memberName = async (client: CoreApiClient, workspaceMemberId?: string) => 
   }
 };
 
+// The workspace's Receipt settings record, if one has been saved.
+export const loadReceiptSettings = async (
+  client: CoreApiClient,
+): Promise<ReceiptSettingsRecord | null> => {
+  try {
+    const { receiptSettings } = await client.query({
+      receiptSettings: {
+        __args: { first: 1, orderBy: [{ createdAt: 'AscNullsLast' }] },
+        edges: {
+          node: {
+            id: true,
+            template: true,
+            accentColor: true,
+            businessName: true,
+            businessDetails: true,
+            rentTitle: true,
+            depositTitle: true,
+            receivedBy: true,
+            footerText: true,
+          },
+        },
+      },
+    });
+
+    return (receiptSettings?.edges?.[0]?.node as ReceiptSettingsRecord | undefined) ?? null;
+  } catch (error) {
+    console.warn('[rental] could not read receipt settings:', error);
+
+    return null;
+  }
+};
+
 const workspaceName = async () => {
   try {
     const result = (await new MetadataApiClient().query({
@@ -190,6 +236,8 @@ export const receiptHandler = async (
           id: true,
           status: true,
           receiptNumber: true,
+          receiptSentAt: true,
+          receiptSnapshot: true,
           paymentType: true,
           amount: { amountMicros: true, currencyCode: true },
           paidOn: true,
@@ -224,10 +272,24 @@ export const receiptHandler = async (
 
   const currentStatus = payment.status ?? 'DRAFT';
 
-  if (currentStatus === 'VOID') {
+  // Regenerating follows the status; everything below runs in that mode.
+  const mode: Exclude<ReceiptAction, 'regenerate' | 'issue' | 'view'> =
+    action === 'issue'
+      ? 'send'
+      : action !== 'regenerate' && action !== 'view'
+        ? action
+      : currentStatus === 'VOID'
+        ? 'void'
+        : currentStatus === 'DRAFT' || !payment.receiptNumber
+          ? 'preview'
+          : 'send';
+  // Viewing shows the receipt as it stands, like a regenerate would.
+  const isRegenerate = action === 'regenerate' || action === 'view';
+
+  if (currentStatus === 'VOID' && !isRegenerate) {
     return { success: false, status: 400, message: 'This receipt is void. Create a new payment instead.' };
   }
-  if (action === 'void' && !payment.receiptNumber) {
+  if (mode === 'void' && !payment.receiptNumber) {
     return {
       success: false,
       status: 400,
@@ -240,7 +302,7 @@ export const receiptHandler = async (
 
   const paidOn = payment.paidOn ?? todayIso();
   const receiptNumber =
-    action === 'preview'
+    mode === 'preview'
       ? payment.receiptNumber || 'DRAFT'
       : payment.receiptNumber || (await nextReceiptNumber(client, Number(paidOn.slice(0, 4))));
 
@@ -248,40 +310,66 @@ export const receiptHandler = async (
     .filter(Boolean)
     .join(' ');
   const propertyName = payment.property?.name ?? '';
-  const isDeposit = payment.paymentType === 'DEPOSIT';
+  const isDeposit = payment.paymentType === 'DEPOSIT' || payment.paymentType === 'UTILITY_DEPOSIT';
+  const depositLabel = payment.paymentType === 'UTILITY_DEPOSIT' ? 'Utility deposit' : 'Security deposit';
   const description = isDeposit
-    ? `Security deposit${propertyName ? ` - ${propertyName}` : ''}`
+    ? `${depositLabel}${propertyName ? ` - ${propertyName}` : ''}`
     : `Rent${payment.rentPeriod ? ` for ${formatMonth(payment.rentPeriod)}` : ''}${propertyName ? ` - ${propertyName}` : ''}`;
   const amountText = formatAmount(payment.amount.amountMicros, payment.amount.currencyCode);
-  const issuerName = process.env.RECEIPT_ISSUER_NAME?.trim() || (await workspaceName()) || 'Receipt';
+  const settings = await loadReceiptSettings(client);
+  const issuerName =
+    settings?.businessName?.trim() ||
+    process.env.RECEIPT_ISSUER_NAME?.trim() ||
+    (await workspaceName()) ||
+    'Receipt';
   const period = isDeposit ? { from: '', to: '' } : monthBounds(payment.rentPeriod);
   const propertyAddress = formatAddress(payment.property?.propertyAddress);
 
-  const pdf = await buildReceiptPdf({
-    title: isDeposit ? 'DEPOSIT RECEIPT' : 'RENT RECEIPT',
-    watermark: action === 'preview' ? 'DRAFT' : action === 'void' ? 'VOID' : null,
+  const receiptData: ReceiptData = {
+    title: resolveTitle(settings, isDeposit),
+    style: resolveStyle(settings),
+    watermark: mode === 'preview' ? 'DRAFT' : mode === 'void' ? 'VOID' : null,
     issuerName,
     receiptNumber,
-    date: formatDate(todayIso()),
+    date: formatDate(isRegenerate && payment.receiptSentAt ? toMalaysiaDate(payment.receiptSentAt) : isRegenerate && mode !== 'preview' ? paidOn : todayIso()),
     receivedFrom: tenantName,
     amountText,
     amountInWords: ringgitInWords(payment.amount.amountMicros / 1_000_000),
     forRentAt: [propertyName, propertyAddress].filter(Boolean).join(' - '),
     periodFrom: period.from,
     periodTo: period.to,
-    purpose: isDeposit ? 'Security deposit' : description,
+    purpose: isDeposit ? depositLabel : description,
     receivedBy:
+      settings?.receivedBy?.trim() ||
       process.env.RECEIPT_RECEIVED_BY?.trim() ||
       (await memberName(client, senderWorkspaceMemberId)) ||
       issuerName,
     method: (payment.method as ReceiptPaymentMethod | null) ?? null,
     paidOn: formatDate(paidOn),
     notes: payment.notes ?? '',
-  });
+  };
+
+  // Issued receipts are shown and voided exactly as they were printed.
+  const snapshot = (payment.receiptSnapshot as unknown as ReceiptData | null) ?? null;
+  const isFinal = currentStatus === 'ISSUED' || currentStatus === 'SENT' || currentStatus === 'VOID';
+
+  if (action === 'view') {
+    const shown =
+      isFinal && snapshot
+        ? { ...snapshot, watermark: currentStatus === 'VOID' ? ('VOID' as const) : null }
+        : receiptData;
+
+    return { success: true, message: 'ok', receiptNumber, receipt: shown };
+  }
+
+  const printed = mode === 'void' && snapshot ? { ...snapshot, watermark: 'VOID' as const } : receiptData;
+  const pdf = await buildReceiptPdf(printed);
+  // Saved with final receipts so they keep their look and wording.
+  const finalSnapshot = { ...receiptData, watermark: null };
   const fileName =
-    action === 'preview'
+    mode === 'preview'
       ? 'DRAFT-preview.pdf'
-      : action === 'void'
+      : mode === 'void'
         ? `${receiptNumber}-VOID.pdf`
         : `${receiptNumber}.pdf`;
 
@@ -292,18 +380,27 @@ export const receiptHandler = async (
   });
   const receiptFile = [{ fileId: uploaded.id, label: fileName }];
 
-  if (action === 'preview') {
+  if (mode === 'preview' || isRegenerate) {
     await client.mutation({
-      updateRentPayment: { __args: { id: payment.id, data: { receiptFile } }, id: true },
+      updateRentPayment: {
+        __args: {
+          id: payment.id,
+          data: { receiptFile, ...(mode === 'send' ? { receiptSnapshot: finalSnapshot } : {}) },
+        },
+        id: true,
+      },
     });
 
     return {
       success: true,
-      message: 'Preview ready: open "Receipt PDF" on this payment. No receipt number was used.',
+      fileUrl: uploaded.url,
+      message: isRegenerate
+        ? 'Receipt PDF updated with the latest details. Nothing was sent.'
+        : 'Preview ready: open "Receipt PDF" on this payment. No receipt number was used.',
     };
   }
 
-  if (action === 'void') {
+  if (mode === 'void') {
     await client.mutation({
       updateRentPayment: {
         __args: { id: payment.id, data: { status: 'VOID', receiptFile } },
@@ -314,6 +411,7 @@ export const receiptHandler = async (
     return {
       success: true,
       receiptNumber,
+      fileUrl: uploaded.url,
       message: `Receipt ${receiptNumber} is now void. It keeps its number; record a new payment if needed.`,
     };
   }
@@ -327,12 +425,22 @@ export const receiptHandler = async (
           receiptNumber,
           paidOn,
           receiptFile,
+          receiptSnapshot: finalSnapshot,
           ...(currentStatus === 'SENT' ? {} : { status: 'ISSUED' }),
         },
       },
       id: true,
     },
   });
+
+  if (action === 'issue') {
+    return {
+      success: true,
+      receiptNumber,
+      fileUrl: uploaded.url,
+      message: `Receipt ${receiptNumber} issued (not sent).`,
+    };
+  }
 
   // Deliver on every channel the tenant can be reached on. Each is tried
   // independently, so one failing doesn't block the other.
@@ -422,6 +530,7 @@ export const receiptHandler = async (
     emailed: delivered.some((channel) => channel.startsWith('email')),
     whatsapped: delivered.some((channel) => channel.startsWith('WhatsApp')),
     receiptNumber,
+    fileUrl: uploaded.url,
     message:
       delivered.length > 0
         ? `Receipt ${receiptNumber} sent by ${delivered.join(' and ')}.${issuesText}`
