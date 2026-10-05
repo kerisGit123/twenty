@@ -84,3 +84,42 @@ export const sendWhatsappReceipt = async (params: {
 
   return result.sid;
 };
+
+// Any WhatsApp message: an approved template when one is given (can be sent
+// at any time), otherwise plain text (WhatsApp only delivers that within 24h
+// of the person's last message to your number). Returns the Twilio message id.
+export const sendWhatsappMessage = async (params: {
+  to: string; // +60123456789
+  body: string;
+  templateSid?: string;
+  templateVariables?: Record<string, string>;
+}) => {
+  const config = whatsappConfig();
+
+  if (!config) throw new Error('WhatsApp is not set up: add the Twilio settings in Settings → Apps → Rental.');
+
+  const form = new URLSearchParams({ From: config.from, To: `whatsapp:${params.to}` });
+
+  if (params.templateSid) {
+    form.set('ContentSid', params.templateSid);
+    form.set('ContentVariables', JSON.stringify(params.templateVariables ?? {}));
+  } else {
+    form.set('Body', params.body);
+  }
+
+  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${config.accountSid}/Messages.json`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${config.accountSid}:${config.authToken}`).toString('base64')}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: form.toString(),
+  });
+  const result = (await response.json().catch(() => ({}))) as { sid?: string; message?: string; code?: number };
+
+  if (!response.ok) {
+    throw new Error(`Twilio rejected the WhatsApp message (${result.code ?? response.status}): ${result.message ?? 'unknown error'}`);
+  }
+
+  return result.sid;
+};

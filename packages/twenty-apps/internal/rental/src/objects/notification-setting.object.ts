@@ -1,0 +1,102 @@
+import { defineObject, FieldType } from 'twenty-sdk/define';
+
+import { NOTIFICATION_SETTING_OBJECT_ID } from 'src/constants/universal-identifiers-v3';
+
+// One record per workspace: what the assistant sends on WhatsApp and when.
+// Edited on the Notifications page (Setup → Notifications).
+export default defineObject({
+  universalIdentifier: NOTIFICATION_SETTING_OBJECT_ID,
+  nameSingular: 'notificationSetting',
+  namePlural: 'notificationSettings',
+  labelSingular: 'Notification setting',
+  labelPlural: 'Notification settings',
+  description: 'Morning summary and tenant rent reminders on WhatsApp',
+  icon: 'IconBellCog',
+  labelIdentifierFieldMetadataUniversalIdentifier: '557e7272-6bbc-4189-8fde-f72e4df72f65',
+  fields: [
+    { universalIdentifier: '557e7272-6bbc-4189-8fde-f72e4df72f65', type: FieldType.TEXT, name: 'name', label: 'Name', icon: 'IconAbc' },
+    {
+      universalIdentifier: '51830ad8-1bb1-4a9a-8779-883672e5fd42',
+      type: FieldType.BOOLEAN,
+      name: 'summaryEnabled',
+      label: 'Morning summary',
+      description: 'Send me a WhatsApp each morning with what needs doing.',
+      icon: 'IconSunrise',
+      defaultValue: false,
+    },
+    {
+      universalIdentifier: '507afb7e-e224-487b-b384-3fac031d7ada',
+      type: FieldType.TEXT,
+      name: 'summaryPhone',
+      label: 'My WhatsApp number',
+      description: 'International format, e.g. +60123456789',
+      icon: 'IconBrandWhatsapp',
+      isNullable: true,
+    },
+    {
+      universalIdentifier: '7e683c0c-2bb1-4aed-8f0b-09460cf7a98d',
+      type: FieldType.NUMBER,
+      name: 'summaryHour',
+      label: 'Summary at (hour)',
+      description: 'Hour of the day in Malaysia time, 0-23.',
+      icon: 'IconClock',
+      defaultValue: 8,
+    },
+    {
+      universalIdentifier: '2085fef5-f908-4786-a0ad-06d3b3bfae12',
+      type: FieldType.BOOLEAN,
+      name: 'remindersEnabled',
+      label: 'Tenant reminders',
+      description: 'Remind tenants about rent on WhatsApp.',
+      icon: 'IconBellRinging',
+      defaultValue: false,
+    },
+    {
+      universalIdentifier: '7674c741-6997-44da-bf2f-7575b2e72664',
+      type: FieldType.NUMBER,
+      name: 'reminderHour',
+      label: 'Reminders at (hour)',
+      description: 'Hour of the day in Malaysia time, 0-23.',
+      icon: 'IconClock',
+      defaultValue: 10,
+    },
+    {
+      universalIdentifier: '6a62f7e9-76f6-49c1-ae1c-7202992b46bf',
+      type: FieldType.NUMBER,
+      name: 'remindDaysBefore',
+      label: 'Remind days before due',
+      description: '0 = no reminder before the due day.',
+      icon: 'IconCalendarDue',
+      defaultValue: 3,
+    },
+    {
+      universalIdentifier: 'b98c4e78-7ee6-4e76-b181-d1318dbc6f9a',
+      type: FieldType.BOOLEAN,
+      name: 'remindOnDueDay',
+      label: 'Remind on the due day',
+      icon: 'IconCalendarEvent',
+      defaultValue: true,
+    },
+    {
+      universalIdentifier: 'a0efa295-8ae9-49d5-a6a1-16cffddc056b',
+      type: FieldType.NUMBER,
+      name: 'remindDaysAfter',
+      label: 'Overdue reminder days after due',
+      description: '0 = no overdue reminder.',
+      icon: 'IconAlertTriangle',
+      defaultValue: 3,
+    },
+    {
+      universalIdentifier: '2128b282-4519-4011-b11d-b09120a02609',
+      type: FieldType.SELECT,
+      name: 'tenantLanguage',
+      label: 'Tenant message language',
+      icon: 'IconLanguage',
+      defaultValue: "'EN'",
+      options: [
+        { id: 'a5f1b196-f488-4587-9367-55ea9cb3bcbe', value: 'EN', label: 'English', position: 0, color: 'gray' },
+        { id: 'e22f91eb-eb21-4f20-86b2-e16b32125779', value: 'MS', label: 'Bahasa Melayu', position: 1, color: 'green' },
+      ],
+    },
+  ],
+});

@@ -2,7 +2,13 @@ import { defineRole } from 'twenty-sdk/define';
 
 import { PAYMENT_OBJECT_ID, PROPERTY_OBJECT_ID, RENTAL_OBJECT_ID } from 'src/constants/universal-identifiers';
 import { EXPENSE_OBJECT_ID, OWNER_OBJECT_ID } from 'src/constants/universal-identifiers-v2';
-import { DOCUMENT_OBJECT_ID, MEMBERSHIP_OBJECT_ID, STAFF_ROLE_ID } from 'src/constants/universal-identifiers-v3';
+import {
+  DOCUMENT_OBJECT_ID,
+  MEMBERSHIP_OBJECT_ID,
+  NOTIFICATION_LOG_OBJECT_ID,
+  NOTIFICATION_SETTING_OBJECT_ID,
+  STAFF_ROLE_ID,
+} from 'src/constants/universal-identifiers-v3';
 import { DOCUMENT_TEMPLATE_OBJECT_ID } from 'src/objects/document-template.object';
 import { RECEIPT_SETTING_OBJECT_ID } from 'src/objects/receipt-setting.object';
 
@@ -20,6 +26,8 @@ const NO_ACCESS = [
   MEMBERSHIP_OBJECT_ID,
   RECEIPT_SETTING_OBJECT_ID,
   DOCUMENT_TEMPLATE_OBJECT_ID,
+  NOTIFICATION_SETTING_OBJECT_ID,
+  NOTIFICATION_LOG_OBJECT_ID,
 ];
 
 export default defineRole({

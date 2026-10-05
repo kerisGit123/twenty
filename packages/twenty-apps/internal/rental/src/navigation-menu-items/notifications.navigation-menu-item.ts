@@ -5,16 +5,16 @@ import {
 
 import {
   SETTINGS_FOLDER_NAV_ID,
-  TEMPLATE_EDITOR_NAV_ITEM_ID,
-  TEMPLATE_EDITOR_PAGE_LAYOUT_ID,
+  NOTIFICATIONS_NAV_ITEM_ID,
+  NOTIFICATIONS_PAGE_LAYOUT_ID,
 } from 'src/constants/universal-identifiers-v3';
 
 export default defineNavigationMenuItem({
-  universalIdentifier: TEMPLATE_EDITOR_NAV_ITEM_ID,
-  name: 'Templates',
-  icon: 'IconTemplate',
-  position: 0,
+  universalIdentifier: NOTIFICATIONS_NAV_ITEM_ID,
+  name: 'Notifications',
+  icon: 'IconBell',
+  position: 1,
   folderUniversalIdentifier: SETTINGS_FOLDER_NAV_ID,
   type: NavigationMenuItemType.PAGE_LAYOUT,
-  pageLayoutUniversalIdentifier: TEMPLATE_EDITOR_PAGE_LAYOUT_ID,
+  pageLayoutUniversalIdentifier: NOTIFICATIONS_PAGE_LAYOUT_ID,
 });

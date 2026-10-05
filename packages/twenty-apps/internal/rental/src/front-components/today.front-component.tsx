@@ -6,9 +6,10 @@ import { openSidePanelPage, SidePanelPages } from 'twenty-sdk/front-component';
 import { TODAY_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
 import { openList, openPage } from 'src/front-components/shared/open-page';
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
-import { dueDateInMonth, monthStart, nextMonthStart, todayIso } from 'src/logic-functions/utils/dates';
+import { todayIso } from 'src/logic-functions/utils/dates';
 import type { Contract, TodayData } from 'src/logic-functions/page-data/today-data';
 import { whatsappLink } from 'src/shared/whatsapp-link';
+import { agendaItems } from 'src/shared/agenda';
 
 // ---------------------------------------------------------------- types
 
@@ -31,7 +32,6 @@ type Item = {
 
 // ---------------------------------------------------------------- helpers
 
-const GRACE_DAYS = 3; // same as the Rent Ledger
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -68,127 +68,92 @@ const personName = (name: { firstName?: string | null; lastName?: string | null 
 
 const firstName = (full: string) => full.split(' ')[0] || full;
 
-// Next birthday on or after today (Feb 29 falls back to Feb 28).
-const nextBirthday = (today: string, birthday: string) => {
-  const year = Number(today.slice(0, 4));
-  const monthDay = birthday.slice(5, 10) === '02-29' ? '02-28' : birthday.slice(5, 10);
-  const thisYear = `${year}-${monthDay}`;
-
-  return thisYear >= today ? thisYear : `${year + 1}-${monthDay}`;
-};
-
 const openRecord = (objectNameSingular: string, recordId: string) =>
   openSidePanelPage({ page: SidePanelPages.ViewRecord, recordId, objectNameSingular });
 
 // ---------------------------------------------------------------- data
 
-// Everything that needs doing, plus what's coming in the next 30 days.
-const buildItems = (data: Data, today: string): Item[] => {
-  const items: Item[] = [];
-  const horizon = addDays(today, 30);
+// Everything that needs doing (rules in src/shared/agenda.ts), with the text,
+// WhatsApp message and link for each.
+const buildItems = (data: Data, today: string): Item[] =>
+  agendaItems(data, today).map((entry): Item => {
+    const contract = entry.contract;
 
-  for (const contract of data.contracts) {
-    const active = contract.status === 'ACTIVE';
-    const open = () => openRecord('rental', contract.id);
+    switch (entry.kind) {
+      case 'overdue':
+      case 'due': {
+        const c = contract as NonNullable<typeof contract>;
+        const month = entry.month as string;
+        const text =
+          entry.kind === 'overdue'
+            ? `Hi ${firstName(c.tenantName)}, a friendly reminder that the rent for ${c.propertyName} for ${monthName(month)} (${rm(c.rent)}) was due on ${shortDate(entry.date)}. Please let us know once it's paid. Thank you!`
+            : `Hi ${firstName(c.tenantName)}, a reminder that the rent for ${c.propertyName} for ${monthName(month)} (${rm(c.rent)}) is due on ${shortDate(entry.date)}. Thank you!`;
 
-    // Rent: unpaid months from up to 6 months back to the month after next.
-    if (active) {
-      let month = monthStart(addDays(today, -186));
-
-      if (contract.startDate && monthStart(contract.startDate) > month) month = monthStart(contract.startDate);
-
-      for (; month <= monthStart(horizon); month = nextMonthStart(month)) {
-        if (contract.endDate && contract.endDate < month) break;
-        if (data.paid.has(`${contract.id}|${month}`)) continue;
-
-        const due = dueDateInMonth(month, contract.dueDay);
-        const overdue = today > addDays(due, GRACE_DAYS);
-
-        if (!overdue && due > horizon) continue;
-
-        const text = overdue
-          ? `Hi ${firstName(contract.tenantName)}, a friendly reminder that the rent for ${contract.propertyName} for ${monthName(month)} (${rm(contract.rent)}) was due on ${shortDate(due)}. Please let us know once it's paid. Thank you!`
-          : `Hi ${firstName(contract.tenantName)}, a reminder that the rent for ${contract.propertyName} for ${monthName(month)} (${rm(contract.rent)}) is due on ${shortDate(due)}. Thank you!`;
-
-        items.push({
-          key: `rent-${contract.id}-${month}`,
-          kind: overdue ? 'overdue' : 'due',
-          date: due,
-          title: `${contract.propertyName} · ${monthName(month)} rent`,
-          detail: `${contract.tenantName} · due ${shortDate(due)}`,
-          amount: contract.rent,
-          whatsapp: whatsappLink(contract.tenantPhone, text),
+        return {
+          key: entry.key,
+          kind: entry.kind,
+          date: entry.date,
+          title: `${c.propertyName} · ${monthName(month)} rent`,
+          detail: `${c.tenantName} · due ${shortDate(entry.date)}`,
+          amount: c.rent,
+          whatsapp: whatsappLink(c.tenantPhone, text),
           open: () => openPage('Rent Ledger'),
           openLabel: 'Record',
-        });
+        };
       }
-    }
+      case 'ending': {
+        const c = contract as NonNullable<typeof contract>;
 
-    // Contract ending within 60 days (or ended but still marked active).
-    if (active && contract.endDate && daysBetween(today, contract.endDate) <= 60) {
-      items.push({
-        key: `end-${contract.id}`,
-        kind: 'ending',
-        date: contract.endDate,
-        title: `${contract.propertyName} · contract ${contract.endDate < today ? 'ended' : 'ends'}`,
-        detail: `${contract.tenantName} · ${shortDate(contract.endDate)}`,
-        whatsapp: whatsappLink(
-          contract.tenantPhone,
-          `Hi ${firstName(contract.tenantName)}, your tenancy for ${contract.propertyName} ends on ${shortDate(contract.endDate)}. Would you like to renew? Let me know and I'll prepare the agreement.`,
-        ),
-        open,
-        openLabel: 'Open',
-      });
-    }
-
-    // Stamping: due 30 days from the start; shown from a month before until done.
-    if (!contract.stampedOn && contract.startDate && daysBetween(contract.startDate, today) <= 400) {
-      const due = addDays(contract.startDate, 30);
-
-      if (daysBetween(today, due) <= 30) {
-        items.push({
-          key: `stamp-${contract.id}`,
-          kind: 'stamp',
-          date: due,
-          title: `${contract.propertyName} · stamp the agreement`,
-          detail: `LHDN e-Duti Setem, due ${shortDate(due)}. Set "Stamped on" when done.`,
-          open,
+        return {
+          key: entry.key,
+          kind: 'ending',
+          date: entry.date,
+          title: `${c.propertyName} · contract ${entry.date < today ? 'ended' : 'ends'}`,
+          detail: `${c.tenantName} · ${shortDate(entry.date)}`,
+          whatsapp: whatsappLink(
+            c.tenantPhone,
+            `Hi ${firstName(c.tenantName)}, your tenancy for ${c.propertyName} ends on ${shortDate(entry.date)}. Would you like to renew? Let me know and I'll prepare the agreement.`,
+          ),
+          open: () => openRecord('rental', c.id),
           openLabel: 'Open',
-        });
+        };
       }
+      case 'stamp': {
+        const c = contract as NonNullable<typeof contract>;
+
+        return {
+          key: entry.key,
+          kind: 'stamp',
+          date: entry.date,
+          title: `${c.propertyName} · stamp the agreement`,
+          detail: `LHDN e-Duti Setem, due ${shortDate(entry.date)}. Set "Stamped on" when done.`,
+          open: () => openRecord('rental', c.id),
+          openLabel: 'Open',
+        };
+      }
+      case 'document':
+        return {
+          key: entry.key,
+          kind: 'document',
+          date: entry.date,
+          title: `${entry.documentName} ${entry.date < today ? 'expired' : 'expires'}`,
+          detail: shortDate(entry.date),
+          open: () => openRecord('document', entry.documentId as string),
+          openLabel: 'Open',
+        };
+      case 'birthday':
+        return {
+          key: entry.key,
+          kind: 'birthday',
+          date: entry.date,
+          title: `${entry.personName}'s birthday`,
+          detail: shortDate(entry.date),
+          whatsapp: whatsappLink(entry.personPhone ?? null, `Happy birthday ${firstName(entry.personName ?? '')}! 🎉 Wishing you a wonderful year ahead.`),
+          open: () => openRecord('person', entry.personId as string),
+          openLabel: 'Open',
+        };
     }
-  }
-
-  for (const doc of data.documents) {
-    items.push({
-      key: `doc-${doc.id}`,
-      kind: 'document',
-      date: doc.expiresOn,
-      title: `${doc.name} ${doc.expiresOn < today ? 'expired' : 'expires'}`,
-      detail: shortDate(doc.expiresOn),
-      open: () => openRecord('document', doc.id),
-      openLabel: 'Open',
-    });
-  }
-
-  for (const person of data.people) {
-    const next = nextBirthday(today, person.birthday);
-
-    if (next > horizon) continue;
-    items.push({
-      key: `bday-${person.id}`,
-      kind: 'birthday',
-      date: next,
-      title: `${person.name}'s birthday`,
-      detail: shortDate(next),
-      whatsapp: whatsappLink(person.phone, `Happy birthday ${firstName(person.name)}! 🎉 Wishing you a wonderful year ahead.`),
-      open: () => openRecord('person', person.id),
-      openLabel: 'Open',
-    });
-  }
-
-  return items.sort((a, b) => a.date.localeCompare(b.date));
-};
+  });
 
 // ---------------------------------------------------------------- styles
 

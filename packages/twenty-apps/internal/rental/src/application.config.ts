@@ -6,6 +6,11 @@ import {
   RECEIPT_ISSUER_NAME_VARIABLE_ID,
   RESEND_API_KEY_VARIABLE_ID,
 } from 'src/constants/universal-identifiers';
+import {
+  TWILIO_OVERDUE_TEMPLATE_VARIABLE_ID,
+  TWILIO_REMINDER_TEMPLATE_VARIABLE_ID,
+  TWILIO_SUMMARY_TEMPLATE_VARIABLE_ID,
+} from 'src/constants/universal-identifiers-v3';
 
 // Variables are per workspace, so each landlord can use their own Resend
 // account and sender address. Set them in Settings → Apps → Rental.
@@ -50,6 +55,27 @@ export default defineApplication({
       universalIdentifier: 'a35f7703-8628-4418-a36f-9562c04783a8',
       description:
         'Approved WhatsApp template (Content SID, starts with HX) for receipts. Needed to message tenants who have not written to you in the last 24 hours. Variables: {{1}} tenant name, {{2}} amount, {{3}} receipt no., {{4}} PDF link.',
+      value: '',
+      isSecret: false,
+    },
+    TWILIO_SUMMARY_TEMPLATE_SID: {
+      universalIdentifier: TWILIO_SUMMARY_TEMPLATE_VARIABLE_ID,
+      description:
+        'Approved WhatsApp template (HX…) for your morning summary. Without it the summary is sent as plain text, which WhatsApp only delivers within 24h of your last message to the business number. Variables: {{1}} date, {{2}} overdue count, {{3}} overdue amount, {{4}} due this week, {{5}} other items.',
+      value: '',
+      isSecret: false,
+    },
+    TWILIO_REMINDER_TEMPLATE_SID: {
+      universalIdentifier: TWILIO_REMINDER_TEMPLATE_VARIABLE_ID,
+      description:
+        'Approved WhatsApp template (HX…) for rent reminders before / on the due day. Variables: {{1}} tenant first name, {{2}} property, {{3}} month, {{4}} amount, {{5}} due date.',
+      value: '',
+      isSecret: false,
+    },
+    TWILIO_OVERDUE_TEMPLATE_SID: {
+      universalIdentifier: TWILIO_OVERDUE_TEMPLATE_VARIABLE_ID,
+      description:
+        'Approved WhatsApp template (HX…) for overdue rent reminders. Same variables as the reminder template.',
       value: '',
       isSecret: false,
     },
