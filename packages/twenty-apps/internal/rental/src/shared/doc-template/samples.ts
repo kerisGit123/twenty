@@ -11,6 +11,7 @@ export type Letterhead = {
   footer: string;
   rentTitle: string;
   depositTitle: string;
+  signatureUrl?: string | null;
 };
 
 export const sampleReceipt = (letterhead: Letterhead, deposit: boolean, withNotes: boolean): ReceiptFacts => ({

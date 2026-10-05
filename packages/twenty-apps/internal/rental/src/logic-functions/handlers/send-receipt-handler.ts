@@ -158,12 +158,18 @@ export const loadReceiptSettings = async (
             depositTitle: true,
             receivedBy: true,
             footerText: true,
+            signature: { url: true },
           },
         },
       },
     });
+    const node = receiptSettings?.edges?.[0]?.node;
 
-    return (receiptSettings?.edges?.[0]?.node as ReceiptSettingsRecord | undefined) ?? null;
+    if (!node) return null;
+
+    const { signature, ...rest } = node as typeof node & { signature?: Array<{ url?: string | null }> | null };
+
+    return { ...(rest as ReceiptSettingsRecord), signatureUrl: signature?.[0]?.url ?? null };
   } catch (error) {
     console.warn('[rental] could not read receipt settings:', error);
 
@@ -400,7 +406,7 @@ export const receiptHandler = async (
         ? { ...snapshot, watermark: currentStatus === 'VOID' ? ('VOID' as const) : null }
         : receiptData;
 
-    return { success: true, message: 'ok', receiptNumber, receipt: shown };
+    return { success: true, message: 'ok', receiptNumber, receipt: { ...shown, signatureUrl: settings?.signatureUrl ?? null } };
   }
 
   const printed = mode === 'void' && snapshot ? { ...snapshot, watermark: 'VOID' as const } : receiptData;
@@ -408,7 +414,7 @@ export const receiptHandler = async (
     printed.template && printed.facts
       ? await buildTemplatePdf(
           printed.template,
-          receiptContext({ ...printed.facts, watermark: printed.watermark ?? null }, printed.template.language),
+          receiptContext({ ...printed.facts, watermark: printed.watermark ?? null }, printed.template.language, settings?.signatureUrl),
           `${printed.title} ${printed.receiptNumber}`,
         )
       : await buildReceiptPdf(printed);

@@ -64,6 +64,7 @@ type StatementResponse = {
   source?: StatementSource;
   templates?: SavedTemplate[];
   accent?: string;
+  signatureUrl?: string | null;
   message?: string;
 };
 
@@ -87,6 +88,7 @@ export const StatementPanel = ({
   const [templates, setTemplates] = useState<SavedTemplate[]>([]);
   const [templateId, setTemplateId] = useState('');
   const [accent, setAccent] = useState('BLACK');
+  const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
   const [tenantDetails, setTenantDetails] = useState('');
   const [note, setNote] = useState('');
   const [saved, setSaved] = useState({ tenantDetails: '', note: '' });
@@ -109,6 +111,7 @@ export const StatementPanel = ({
         setSource(result.source);
         setTemplates(result.templates ?? []);
         setAccent(result.accent ?? 'BLACK');
+        setSignatureUrl(result.signatureUrl ?? null);
         setTemplateId((current) => current || (result.templates ?? []).find((t) => t.isDefault)?.id || '');
         setTenantDetails(result.source.rental.tenantDetails);
         setNote(result.source.rental.statementNote);
@@ -127,9 +130,9 @@ export const StatementPanel = ({
   const context = useMemo(
     () =>
       source
-        ? statementContext({ ...source, rental: { ...source.rental, tenantDetails, statementNote: note } }, template.language, accent)
+        ? statementContext({ ...source, rental: { ...source.rental, tenantDetails, statementNote: note } }, template.language, accent, signatureUrl)
         : null,
-    [source, tenantDetails, note, template.language, accent],
+    [source, tenantDetails, note, template.language, accent, signatureUrl],
   );
   const dirty = tenantDetails !== saved.tenantDetails || note !== saved.note;
 

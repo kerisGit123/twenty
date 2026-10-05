@@ -101,5 +101,17 @@ export default defineObject({
       icon: 'IconAlignLeft',
       isNullable: true,
     },
+    {
+      // Uploaded here (Twenty's file box); printed above the signature line on
+      // template receipts and year statements.
+      universalIdentifier: '84914222-9fe6-4dfb-9ae3-adc952f57b55',
+      type: FieldType.FILES,
+      name: 'signature',
+      label: 'Signature image',
+      description: 'A PNG or JPG of your signature, ideally on a white or transparent background.',
+      icon: 'IconSignature',
+      isNullable: true,
+      universalSettings: { maxNumberOfValues: 1 },
+    },
   ],
 });

@@ -140,7 +140,7 @@ export type ReceiptFacts = {
   watermark: 'DRAFT' | 'VOID' | null;
 };
 
-export const receiptContext = (facts: ReceiptFacts, language: TemplateLanguage): TemplateContext => {
+export const receiptContext = (facts: ReceiptFacts, language: TemplateLanguage, signatureUrl?: string | null): TemplateContext => {
   const isDeposit = facts.depositKind !== null;
   const depositLabel =
     facts.depositKind === 'UTILITY_DEPOSIT'
@@ -189,12 +189,18 @@ export const receiptContext = (facts: ReceiptFacts, language: TemplateLanguage):
     notes: [],
     watermark: facts.watermark,
     accent: ACCENTS[facts.accent as keyof typeof ACCENTS] ?? ACCENTS.TEAL,
+    signatureUrl: signatureUrl ?? null,
   };
 };
 
 // ---------------------------------------------------------------- statements
 
-export const statementContext = (source: StatementSource, language: TemplateLanguage, accent = 'BLACK'): TemplateContext => {
+export const statementContext = (
+  source: StatementSource,
+  language: TemplateLanguage,
+  accent = 'BLACK',
+  signatureUrl?: string | null,
+): TemplateContext => {
   const facts = statementFacts(source);
   const ms = language === 'MS';
   const premises = facts.isShop ? (ms ? 'kedai' : 'shop') : ms ? 'premis' : 'premises';
@@ -246,6 +252,7 @@ export const statementContext = (source: StatementSource, language: TemplateLang
     notes,
     watermark: null,
     accent: ACCENTS[accent as keyof typeof ACCENTS] ?? ACCENTS.BLACK,
+    signatureUrl: signatureUrl ?? null,
   };
 };
 

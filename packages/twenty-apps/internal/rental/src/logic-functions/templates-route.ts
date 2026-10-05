@@ -19,6 +19,7 @@ const LANGUAGES: TemplateLanguage[] = ['EN', 'MS'];
 //   save { id?, name, kind, language, blocks }    -> creates or updates (admins)
 //   setDefault { id }                             -> makes it the one used (admins)
 //   delete { id }                                 -> removes it (admins)
+//   settingsRecord                                -> id of the Receipt settings record (admins)
 const handler = async (event: RoutePayload, context?: { workspaceMemberId?: string | null }): Promise<Response> => {
   const body = (event.body ?? {}) as {
     action?: string;
@@ -27,6 +28,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     kind?: string;
     language?: string;
     blocks?: Block[];
+    accent?: string;
   };
 
   try {
@@ -49,11 +51,25 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
           footer: settings?.footerText ?? '',
           rentTitle: settings?.rentTitle ?? '',
           depositTitle: settings?.depositTitle ?? '',
+          signatureUrl: settings?.signatureUrl ?? null,
         },
       });
     }
 
     if (!scope.all) return json({ success: false, message: 'Only admins can change templates.' }, 403);
+
+    // The Receipt settings record (made if missing), where the signature image is uploaded.
+    if (body.action === 'settingsRecord') {
+      const settings = await loadReceiptSettings(client);
+
+      if (settings?.id) return json({ success: true, id: settings.id });
+
+      const { createReceiptSetting } = await client.mutation({
+        createReceiptSetting: { __args: { data: { name: 'Receipt settings' } }, id: true },
+      });
+
+      return json({ success: true, id: createReceiptSetting?.id });
+    }
 
     if (body.action === 'save') {
       if (!kind) return json({ success: false, message: 'Pick receipt or year statement.' }, 400);
@@ -64,7 +80,12 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         name: body.name?.trim() || 'Template',
         kind,
         language,
-        content: { kind, language, blocks: body.blocks },
+        content: {
+          kind,
+          language,
+          blocks: body.blocks,
+          ...(['TEAL', 'NAVY', 'GREEN', 'MAROON', 'BLACK'].includes(body.accent ?? '') ? { accent: body.accent } : {}),
+        },
       };
 
       if (body.id) {

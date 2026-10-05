@@ -32,6 +32,7 @@ export type ReceiptViewData = {
   // Receipts made with a template (Reports -> Templates) are drawn with it.
   facts?: ReceiptFacts;
   template?: TemplateDoc;
+  signatureUrl?: string | null;
 };
 
 const INK = '#222429';
@@ -241,7 +242,7 @@ export const ReceiptView = ({ data, scale = 1 }: { data: ReceiptViewData; scale?
       <div style={{ fontSize: 11 * scale, width: `${100 * Math.max(scale, 1)}%` }}>
         <TemplatePreview
           template={data.template}
-          context={receiptContext({ ...data.facts, watermark: data.watermark ?? null }, data.template.language)}
+          context={receiptContext({ ...data.facts, watermark: data.watermark ?? null }, data.template.language, data.signatureUrl)}
         />
       </div>
     );

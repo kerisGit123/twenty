@@ -1,5 +1,6 @@
-import { degrees, PDFDocument, type PDFFont, type PDFPage, type RGB, rgb, StandardFonts } from 'pdf-lib';
+import { degrees, PDFDocument, type PDFFont, type PDFImage, type PDFPage, type RGB, rgb, StandardFonts } from 'pdf-lib';
 
+import { ACCENTS } from 'src/logic-functions/utils/receipt-settings';
 import { type Align, type Block, fill, isShown, type TemplateContext, type TemplateDoc } from 'src/shared/doc-template/types';
 
 // Draws a document template (receipt or year statement) as an A4 PDF. Blocks
@@ -68,6 +69,7 @@ class Writer {
     private doc: PDFDocument,
     readonly fonts: { regular: PDFFont; bold: PDFFont },
     readonly accent: { main: RGB; soft: RGB; grid: RGB },
+    readonly signature: PDFImage | null = null,
   ) {
     this.page = this.newPage();
   }
@@ -312,13 +314,25 @@ const drawBlock = (w: Writer, block: Block, context: TemplateContext) => {
       const colWidth = WIDTH * 0.42;
 
       w.ensure(height);
+      const side = block.signatureOn ?? 'left';
       const columns = [
-        { label: block.leftLabel, name: block.leftName, x: MARGIN },
-        ...(block.showRight ? [{ label: block.rightLabel, name: block.rightName, x: MARGIN + WIDTH - colWidth }] : []),
+        { label: block.leftLabel, name: block.leftName, x: MARGIN, image: side === 'left' },
+        ...(block.showRight ? [{ label: block.rightLabel, name: block.rightName, x: MARGIN + WIDTH - colWidth, image: side === 'right' }] : []),
       ];
 
       for (const column of columns) {
         w.textAt(v(column.label), column.x, w.y - 12, 10);
+        if (column.image && w.signature) {
+          // Fits the image in the space above the line.
+          const scale = Math.min(34 / w.signature.height, (colWidth * 0.7) / w.signature.width);
+
+          w.page.drawImage(w.signature, {
+            x: column.x,
+            y: w.y - 49,
+            width: w.signature.width * scale,
+            height: w.signature.height * scale,
+          });
+        }
         for (let dash = 0; dash < colWidth; dash += 5) {
           w.page.drawLine({ start: { x: column.x + dash, y: w.y - 50 }, end: { x: column.x + Math.min(dash + 3, colWidth), y: w.y - 50 }, thickness: 0.7, color: INK });
         }
@@ -340,10 +354,35 @@ const drawBlock = (w: Writer, block: Block, context: TemplateContext) => {
   }
 };
 
+// Downloads and embeds the signature image (PNG or JPG); none if it can't.
+const embedSignature = async (doc: PDFDocument, url: string | null | undefined): Promise<PDFImage | null> => {
+  if (!url) return null;
+  try {
+    const response = await fetch(url);
+
+    if (!response.ok) return null;
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const isPng = bytes[0] === 0x89 && bytes[1] === 0x50;
+    const isJpg = bytes[0] === 0xff && bytes[1] === 0xd8;
+
+    return isPng ? await doc.embedPng(bytes) : isJpg ? await doc.embedJpg(bytes) : null;
+  } catch (error) {
+    console.warn('[rental] could not add the signature image:', error);
+
+    return null;
+  }
+};
+
 export const buildTemplatePdf = async (template: TemplateDoc, context: TemplateContext, title: string): Promise<Uint8Array> => {
   const doc = await PDFDocument.create();
   const fonts = { regular: await doc.embedFont(StandardFonts.Helvetica), bold: await doc.embedFont(StandardFonts.HelveticaBold) };
-  const writer = new Writer(doc, fonts, { main: hex(context.accent.main), soft: hex(context.accent.soft), grid: hex(context.accent.grid) });
+  const accent = (template.accent && ACCENTS[template.accent]) || context.accent;
+  const writer = new Writer(
+    doc,
+    fonts,
+    { main: hex(accent.main), soft: hex(accent.soft), grid: hex(accent.grid) },
+    await embedSignature(doc, context.signatureUrl),
+  );
 
   doc.setTitle(safe(title));
   doc.setProducer('Rental');

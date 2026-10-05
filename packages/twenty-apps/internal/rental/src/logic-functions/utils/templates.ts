@@ -17,7 +17,9 @@ export type SavedTemplate = {
 const asDoc = (content: unknown, kind: TemplateKind, language: TemplateLanguage): TemplateDoc => {
   const doc = content as Partial<TemplateDoc> | null;
 
-  return Array.isArray(doc?.blocks) ? { kind, language, blocks: doc.blocks } : presetTemplate(kind, language);
+  return Array.isArray(doc?.blocks)
+    ? { kind, language, blocks: doc.blocks, ...(doc.accent ? { accent: doc.accent } : {}) }
+    : presetTemplate(kind, language);
 };
 
 export const loadTemplates = async (client: CoreApiClient, kind?: TemplateKind): Promise<SavedTemplate[]> => {

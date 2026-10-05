@@ -26,7 +26,16 @@ export type Block = Base &
     | { type: 'methods'; label: string } // payment method tick boxes
     | { type: 'months'; monthLabel: string; amountLabel: string; totalLabel: string; emptyText: string }
     | { type: 'notes'; title: string } // the statement's automatic notes
-    | { type: 'signature'; leftLabel: string; leftName: string; rightLabel: string; rightName: string; showRight: boolean }
+    | {
+        type: 'signature';
+        leftLabel: string;
+        leftName: string;
+        rightLabel: string;
+        rightName: string;
+        showRight: boolean;
+        // Where your signature image goes (Receipt settings); missing = left.
+        signatureOn?: 'left' | 'right' | 'none';
+      }
     | { type: 'divider' }
     | { type: 'spacer'; size: 'sm' | 'md' | 'lg' }
   );
@@ -37,6 +46,8 @@ export type TemplateDoc = {
   kind: TemplateKind;
   language: TemplateLanguage;
   blocks: Block[];
+  // Colour of this template; missing = the colour in Receipt settings.
+  accent?: 'TEAL' | 'NAVY' | 'GREEN' | 'MAROON' | 'BLACK';
 };
 
 // Everything a template is filled with: placeholder values, which ShowIf
@@ -51,6 +62,7 @@ export type TemplateContext = {
   notes: string[];
   watermark: 'DRAFT' | 'VOID' | null;
   accent: { main: string; soft: string; grid: string };
+  signatureUrl?: string | null; // your uploaded signature image
 };
 
 // Replaces {{name}} with its value; unknown names are left visible so a typo

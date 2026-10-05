@@ -35,7 +35,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
     if (!source) return html("<p>You don't have access to this contract.</p>", 403);
 
-    const ctx = statementContext(source, template.language, (settings?.accentColor as string | null) ?? 'BLACK');
+    const ctx = statementContext(source, template.language, (settings?.accentColor as string | null) ?? 'BLACK', settings?.signatureUrl);
     const tenant = ctx.values['tenant.name'] || 'tenant';
     const title = `${template.language === 'MS' ? 'Penyata sewa' : 'Rent statement'} ${year} - ${tenant}`;
     const pdf = await buildTemplatePdf(template, ctx, title);

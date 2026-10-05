@@ -50,7 +50,13 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
     const [templates, settings] = await Promise.all([loadTemplates(client, 'STATEMENT'), loadReceiptSettings(client)]);
 
-    return json({ success: true, source, templates, accent: (settings?.accentColor as string | null) ?? 'BLACK' });
+    return json({
+      success: true,
+      source,
+      templates,
+      accent: (settings?.accentColor as string | null) ?? 'BLACK',
+      signatureUrl: settings?.signatureUrl ?? null,
+    });
   } catch (error) {
     console.error('[rental] statement failed:', error);
 

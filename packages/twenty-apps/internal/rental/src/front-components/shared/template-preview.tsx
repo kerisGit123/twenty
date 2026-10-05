@@ -1,5 +1,6 @@
 import { type CSSProperties, type ReactNode } from 'react';
 
+import { ACCENTS } from 'src/logic-functions/utils/receipt-settings';
 import { type Block, fill, isShown, type TemplateContext, type TemplateDoc } from 'src/shared/doc-template/types';
 
 // A document template drawn in HTML, matching the PDF (src/logic-functions/
@@ -148,17 +149,23 @@ const BlockView = ({ block, context }: { block: Block; context: TemplateContext 
         </div>
       );
     case 'signature': {
-      const column = (label: string, name: string) => (
+      const side = block.signatureOn ?? 'left';
+      const column = (label: string, name: string, withImage: boolean) => (
         <div style={{ width: '42%' }}>
           <div>{v(label)}</div>
-          <div style={{ borderTop: `1px dashed ${INK}`, marginTop: '3em', paddingTop: '0.2em' }}>{v(name)}</div>
+          <div style={{ height: '3em', display: 'flex', alignItems: 'flex-end' }}>
+            {withImage && context.signatureUrl ? (
+              <img src={context.signatureUrl} alt="" style={{ maxHeight: '2.9em', maxWidth: '70%', objectFit: 'contain' }} />
+            ) : null}
+          </div>
+          <div style={{ borderTop: `1px dashed ${INK}`, paddingTop: '0.2em' }}>{v(name)}</div>
         </div>
       );
 
       return (
         <div style={{ display: 'flex', justifyContent: 'space-between', margin: '0.5em 0' }}>
-          {column(block.leftLabel, block.leftName)}
-          {block.showRight ? column(block.rightLabel, block.rightName) : null}
+          {column(block.leftLabel, block.leftName, side === 'left')}
+          {block.showRight ? column(block.rightLabel, block.rightName, side === 'right') : null}
         </div>
       );
     }
@@ -175,62 +182,86 @@ export const TemplatePreview = ({
   selectedId,
   onSelect,
   showHidden = false,
+  scale = 1,
+  renderAbove,
+  renderInPlace,
   renderEditor,
+  emptyText,
+  paperStyle,
 }: {
   template: TemplateDoc;
   context: TemplateContext;
   selectedId?: string | null;
   onSelect?: (id: string) => void;
   showHidden?: boolean;
-  // Editor tools shown right under the selected block.
+  scale?: number;
+  // Editor hooks for the selected block: a toolbar above it, an editable
+  // version in its place (null = draw it normally), settings under it.
+  renderAbove?: (block: Block) => ReactNode;
+  renderInPlace?: (block: Block) => ReactNode | null;
   renderEditor?: (block: Block) => ReactNode;
-}) => (
-  <div
-    style={{
-      position: 'relative',
-      background: '#fff',
-      color: INK,
-      fontFamily: 'Helvetica, Arial, sans-serif',
-      fontSize: 11,
-      lineHeight: 1.42,
-      padding: '2.2em 2.6em',
-      borderRadius: 6,
-      boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
-      overflow: 'hidden',
-    }}
-  >
-    {template.blocks.map((block) => {
-      const shown = isShown(block, context);
+  emptyText?: ReactNode;
+  // Overrides for the sheet itself, e.g. a fit-to-width font size.
+  paperStyle?: CSSProperties;
+}) => {
+  // The template's own colour wins over the one in Receipt settings.
+  const accent = (template.accent && ACCENTS[template.accent]) || context.accent;
+  const ctx = accent === context.accent ? context : { ...context, accent };
 
-      if (!shown && !showHidden) return null;
+  return (
+    <div
+      style={{
+        position: 'relative',
+        background: '#fff',
+        color: INK,
+        fontFamily: 'Helvetica, Arial, sans-serif',
+        fontSize: 11 * scale,
+        lineHeight: 1.42,
+        padding: '2.2em 2.6em',
+        borderRadius: 4,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.10), 0 8px 28px rgba(0,0,0,0.08)',
+        overflow: 'hidden',
+        minHeight: onSelect ? '30em' : undefined,
+        boxSizing: 'border-box',
+        ...paperStyle,
+      }}
+    >
+      {template.blocks.length === 0 && emptyText ? emptyText : null}
+      {template.blocks.map((block) => {
+        const shown = isShown(block, ctx);
 
-      const selected = block.id === selectedId;
+        if (!shown && !showHidden) return null;
 
-      return (
-        <div key={block.id}>
-          <div
-            onClick={onSelect ? () => onSelect(block.id) : undefined}
-            style={{
-              position: 'relative',
-              cursor: onSelect ? 'pointer' : 'default',
-              opacity: shown ? 1 : 0.35,
-              outline: selected ? '2px solid #3b82f6' : 'none',
-              outlineOffset: 3,
-              borderRadius: 2,
-            }}
-          >
-            <BlockView block={block} context={context} />
+        const selected = block.id === selectedId;
+        const inPlace = selected && renderInPlace ? renderInPlace(block) : null;
+
+        return (
+          <div key={block.id}>
+            {selected && renderAbove ? renderAbove(block) : null}
+            <div
+              onClick={onSelect && !selected ? () => onSelect(block.id) : undefined}
+              style={{
+                position: 'relative',
+                cursor: onSelect && !selected ? 'pointer' : 'default',
+                opacity: shown || selected ? 1 : 0.35,
+                outline: selected ? '2px solid #3b82f6' : 'none',
+                outlineOffset: 3,
+                borderRadius: 2,
+              }}
+            >
+              {inPlace ?? <BlockView block={block} context={ctx} />}
+            </div>
+            {selected && renderEditor ? renderEditor(block) : null}
           </div>
-          {selected && renderEditor ? renderEditor(block) : null}
+        );
+      })}
+      {ctx.watermark ? (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+          <span style={{ transform: 'rotate(-28deg)', fontSize: '7em', fontWeight: 700, color: ctx.watermark === 'VOID' ? '#cc1f1f' : '#888', opacity: 0.18 }}>
+            {ctx.watermark}
+          </span>
         </div>
-      );
-    })}
-    {context.watermark ? (
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-        <span style={{ transform: 'rotate(-28deg)', fontSize: '7em', fontWeight: 700, color: context.watermark === 'VOID' ? '#cc1f1f' : '#888', opacity: 0.18 }}>
-          {context.watermark}
-        </span>
-      </div>
-    ) : null}
-  </div>
-);
+      ) : null}
+    </div>
+  );
+};

@@ -45,6 +45,7 @@ export type ReceiptData = {
   // Set when a receipt template is the default: drawn with it instead.
   facts?: ReceiptFacts;
   template?: TemplateDoc;
+  signatureUrl?: string | null;
 };
 
 const A4 = { width: 595.28, height: 841.89 };

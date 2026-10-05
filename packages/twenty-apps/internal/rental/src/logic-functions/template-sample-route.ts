@@ -38,8 +38,8 @@ const handler = async (event: RoutePayload): Promise<Response> => {
     const alternative = query.variant === 'b';
     const context =
       template.kind === 'RECEIPT'
-        ? receiptContext({ ...sampleReceipt(letterhead, alternative, true), watermark: 'DRAFT' }, template.language)
-        : statementContext(sampleStatement(letterhead, alternative), template.language, letterhead.accent);
+        ? receiptContext({ ...sampleReceipt(letterhead, alternative, true), watermark: 'DRAFT' }, template.language, settings?.signatureUrl)
+        : statementContext(sampleStatement(letterhead, alternative), template.language, letterhead.accent, settings?.signatureUrl);
     const pdf = await buildTemplatePdf(template.content, context, `${template.name} (sample)`);
 
     return pdfPageResponse(pdf, `${template.name.replace(/[^\w\- ()]+/g, '').trim()} - sample.pdf`, `${template.name} — sample`);
