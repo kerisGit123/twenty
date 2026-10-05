@@ -35,6 +35,7 @@ const loadRentals = async (client: CoreApiClient) => {
             depositRefundedOn: true,
             depositNotes: true,
             stampedOn: true,
+            agreement: { label: true, url: true },
             renewalOfId: true,
             tenantDetails: true,
             tenantId: true,
@@ -130,6 +131,9 @@ export const loadContractsData = async (client: CoreApiClient, scope: Scope): Pr
         newRent: money(node.newRent) || null,
         newRentFrom: node.newRentFrom ?? null,
         stampedOn: node.stampedOn ?? null,
+        agreement: ((node.agreement as unknown as Array<{ label?: string | null; url?: string | null }> | null) ?? [])
+          .filter((file) => file?.url)
+          .map((file) => ({ label: file.label || 'Agreement', url: file.url as string })),
         renewalOfId: (node.renewalOfId as string | null) ?? null,
         renewedById: renewedBy.get(node.id) ?? null,
         deposit: {

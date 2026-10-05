@@ -199,3 +199,6 @@ export const CONTRACTS_NAV_ITEM_ID = 'f00971e8-605a-40a1-ad6a-98c84b3cf92a';
 
 // LHDN tax pack.
 export const TAX_PACK_ROUTE_FUNCTION_ID = '43d49c4c-f997-42a4-849b-7d6e928e76f2';
+
+// Signed tenancy agreement on the contract (stored with the other files, in R2).
+export const RENTAL_AGREEMENT_FILES_FIELD_ID = 'fd0cd005-1c87-4fc4-ba2e-759ea27485a4';

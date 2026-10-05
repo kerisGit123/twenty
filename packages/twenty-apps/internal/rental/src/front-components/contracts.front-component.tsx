@@ -372,6 +372,24 @@ const ContractRow = ({
         {statusPill}
       </div>
 
+      {/* Signed agreement: open it, or upload it on the contract */}
+      {x.agreement.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {x.agreement.map((file, index) => (
+            <a
+              key={`${file.url}-${index}`}
+              href={file.url}
+              target="_blank"
+              rel="noreferrer"
+              title={file.label}
+              style={{ ...button(), height: 30, fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', maxWidth: '100%', overflow: 'hidden' }}
+            >
+              📄 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.label}</span>
+            </a>
+          ))}
+        </div>
+      )}
+
       {/* Term */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12.5, color: c.text2 }}>
@@ -397,6 +415,7 @@ const ContractRow = ({
         <span style={{ flex: '1 1 180px', fontSize: 12.5, color: c.text3, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ color: held > 0 ? 'var(--t-color-sky11)' : c.text3 }}>🛡 {depositText}</span>
           {x.status === 'ACTIVE' && !x.stampedOn && <span style={{ color: 'var(--t-color-orange11)' }}>§ Not stamped</span>}
+          {x.agreement.length === 0 && x.status !== 'ENDED' && <span style={{ color: 'var(--t-color-amber11)' }}>📄 No agreement uploaded</span>}
           {renewal && <span>→ renewed to {day(renewal.endDate)}</span>}
         </span>
         {x.status === 'ACTIVE' && !renewal && stage !== 'none' && offer && (
@@ -404,8 +423,8 @@ const ContractRow = ({
             Ask to renew
           </a>
         )}
-        <button onClick={() => openContract(x.id)} style={{ ...button(), color: c.text2 }}>
-          Open
+        <button onClick={() => openContract(x.id)} style={{ ...button(), color: c.text2 }} title={x.agreement.length ? 'Open the contract' : 'Open the contract to upload the signed agreement'}>
+          {x.agreement.length || x.status === 'ENDED' ? 'Open' : '📎 Upload agreement'}
         </button>
         {(held > 0 || x.deposit.refunded > 0 || x.deposit.status === 'FORFEITED') && (
           <button onClick={onDeposit} style={button()}>
