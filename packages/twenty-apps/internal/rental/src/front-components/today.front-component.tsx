@@ -18,7 +18,7 @@ import { occasionOf, upcomingOccasions } from 'src/shared/campaigns';
 // Server data with paid months as a set for quick lookups.
 type Data = Omit<TodayData, 'paid'> & { paid: Set<string> };
 
-type Kind = 'overdue' | 'due' | 'rentChange' | 'ending' | 'stamp' | 'document' | 'birthday' | 'bills' | 'repeat' | 'campaign';
+type Kind = 'overdue' | 'due' | 'rentChange' | 'ending' | 'stamp' | 'document' | 'birthday' | 'bills' | 'repeat' | 'campaign' | 'followup';
 
 type Item = {
   key: string;
@@ -270,6 +270,7 @@ const KIND: Record<Kind, { label: string; color: string; icon: string }> = {
   bills: { label: 'Bills', color: 'amber', icon: '📎' },
   repeat: { label: 'Bill', color: 'iris', icon: '🔁' },
   campaign: { label: 'Campaign', color: 'pink', icon: '🎉' },
+  followup: { label: 'Follow-up', color: 'purple', icon: '⏰' },
 };
 
 const smallButton: CSSProperties = {
@@ -430,6 +431,7 @@ const Today = () => {
       expenses: data.expenses.filter((x) => scope.matches(x.ownerId)),
       bills: (data.bills ?? []).filter((x) => scope.matches(x.ownerId)),
       campaigns: (data.campaigns ?? []).filter((x) => scope.matches(x.ownerId)),
+      followUps: (data.followUps ?? []).filter((x) => !x.ownerId || scope.matches(x.ownerId)),
     };
     // Repeating bills due in the next 30 days.
     const repeatItems: Item[] = scoped.bills
@@ -466,7 +468,18 @@ const Today = () => {
         open: () => openPage('Campaigns'),
         openLabel: 'Plan',
       }));
-    const items = [...buildItems(scoped, today), ...repeatItems, ...campaignItems, ...holidayItems].sort((a, b) => a.date.localeCompare(b.date));
+    // WhatsApp follow-ups you set after a reply.
+    const followUpItems: Item[] = scoped.followUps.map((f) => ({
+      key: `followup-${f.id}`,
+      kind: 'followup',
+      date: f.followUpOn,
+      title: `Follow up with ${f.personName}`,
+      detail: f.note || 'WhatsApp follow-up',
+      whatsapp: f.phone ? `https://wa.me/${f.phone.replace(/^\+/, '')}` : null,
+      open: () => openRecord('person', f.personId),
+      openLabel: 'Open',
+    }));
+    const items = [...buildItems(scoped, today), ...repeatItems, ...campaignItems, ...holidayItems, ...followUpItems].sort((a, b) => a.date.localeCompare(b.date));
     const scopedEntries = agendaItems(scoped, today);
     const week = addDays(today, 7);
     const overdue = items.filter((i) => i.kind === 'overdue');
@@ -482,6 +495,7 @@ const Today = () => {
         (i.kind === 'due' && i.date <= week) ||
         (i.kind === 'repeat' && i.date <= week) ||
         (i.kind === 'campaign' && i.date <= today && i.key.startsWith('campaign-')) ||
+        (i.kind === 'followup' && i.date <= today) ||
         (i.kind === 'ending' && i.date < today) ||
         (i.kind === 'document' && i.date < today),
     );

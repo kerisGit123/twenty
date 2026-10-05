@@ -3,9 +3,10 @@ import { type CoreApiClient } from 'twenty-client-sdk/core';
 import { monthStart, todayIso } from 'src/logic-functions/utils/dates';
 import { inScope, type Scope } from 'src/logic-functions/utils/scope';
 import { loadRepeatingBills } from 'src/logic-functions/utils/repeating-bills';
+import { type FollowUp } from 'src/shared/contacts';
 import { type RepeatingBill } from 'src/shared/repeating';
 import { ARREARS_MONTHS, rentForMonth, settleMonth, type MonthPayment } from 'src/shared/rent-month';
-import { type TenantPhone } from 'src/shared/whatsapp-link';
+import { toE164, type TenantPhone } from 'src/shared/whatsapp-link';
 
 // Today page data, limited to the caller's workspaces. Birthdays are personal
 // and always included.
@@ -54,6 +55,7 @@ export type TodayData = {
   expenses: Expense[];
   bills: RepeatingBill[]; // next bills of repeating expenses, not yet added
   campaigns: TodayCampaign[]; // scheduled or being sent, due within 30 days
+  followUps: FollowUp[]; // WhatsApp follow-ups not done, due within 7 days (or late)
 };
 
 export type TodayCampaign = { id: string; name: string; kind: string; occasion: string; sendOn: string; status: string; sent: number; ownerId: string | null };
@@ -61,7 +63,7 @@ export type TodayCampaign = { id: string; name: string; kind: string; occasion: 
 const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData> => {
   const since = `${Number(today.slice(0, 4)) - Math.ceil(ARREARS_MONTHS / 12)}${today.slice(4, 7)}-01`;
 
-  const [{ rentals }, { rentPayments }, { people }, { documents }, { expenses }, bills, campaignResult] = await Promise.all([
+  const [{ rentals }, { rentPayments }, { people }, { documents }, { expenses }, bills, campaignResult, followUpResult] = await Promise.all([
     client.query({
       rentals: {
         __args: { filter: { status: { neq: 'DRAFT' } }, first: 200 },
@@ -128,6 +130,22 @@ const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData>
         edges: { node: { id: true, name: true, kind: true, occasion: true, sendOn: true, status: true, progress: true, ownerId: true } },
       },
     } as never) as Promise<{ campaigns?: { edges?: Array<{ node: Record<string, unknown> }> } }>,
+    client.query({
+      contactActivities: {
+        __args: { first: 200, filter: { done: { eq: false }, followUpOn: { lte: addDays(today, 7) } }, orderBy: [{ followUpOn: 'AscNullsLast' }] },
+        edges: {
+          node: {
+            id: true,
+            note: true,
+            followUpOn: true,
+            campaignId: true,
+            ownerId: true,
+            personId: true,
+            person: { name: { firstName: true, lastName: true }, phones: { primaryPhoneNumber: true, primaryPhoneCallingCode: true } },
+          },
+        },
+      },
+    } as never) as Promise<{ contactActivities?: { edges?: Array<{ node: Record<string, unknown> }> } }>,
   ]);
 
   const renewedIds = new Set((rentals?.edges ?? []).map(({ node }) => node.renewalOfId as string | null).filter(Boolean));
@@ -212,6 +230,22 @@ const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData>
       sent: Object.keys(((node.progress as { sent?: Record<string, string> } | null)?.sent) ?? {}).length,
       ownerId: (node.ownerId as string | null) ?? null,
     })),
+    followUps: (followUpResult.contactActivities?.edges ?? [])
+      .filter(({ node }) => node.personId && node.followUpOn)
+      .map(({ node }) => {
+        const person = node.person as { name?: { firstName?: string; lastName?: string }; phones?: never } | null;
+
+        return {
+          id: node.id as string,
+          personId: node.personId as string,
+          personName: [person?.name?.firstName, person?.name?.lastName].filter(Boolean).join(' ') || 'Someone',
+          phone: toE164(person?.phones ?? null),
+          note: (node.note as string) ?? '',
+          followUpOn: node.followUpOn as string,
+          campaignId: (node.campaignId as string | null) ?? null,
+          ownerId: (node.ownerId as string | null) ?? null,
+        };
+      }),
   };
 };
 
@@ -229,5 +263,6 @@ export const loadTodayData = async (client: CoreApiClient, scope: Scope): Promis
     expenses: data.expenses.filter((expense) => inScope(scope, expense.ownerId)),
     bills: data.bills.filter((bill) => inScope(scope, bill.ownerId)),
     campaigns: data.campaigns.filter((campaign) => inScope(scope, campaign.ownerId)),
+    followUps: data.followUps.filter((f) => scope.all || inScope(scope, f.ownerId)),
   };
 };

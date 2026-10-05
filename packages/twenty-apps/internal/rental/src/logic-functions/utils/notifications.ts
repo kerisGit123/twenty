@@ -142,6 +142,7 @@ export const buildSummary = (data: Data, today: string, to: string | null): Outg
   const missingBills = data.expenses.filter((e) => !e.hasBill && !e.noBillNeeded);
   const repeatBills = (data.bills ?? []).filter((b) => b.nextDate <= week);
   const campaignsDue = (data.campaigns ?? []).filter((x) => x.sendOn <= today);
+  const followUpsDue = (data.followUps ?? []).filter((x) => x.followUpOn <= today);
   const overdueAmount = overdue.reduce((sum, i) => sum + (i.amount ?? i.contract?.rent ?? 0), 0);
   const date = new Date(`${today}T00:00:00Z`);
   const heading = `${DAYS[date.getUTCDay()]}, ${day(today)}`;
@@ -170,10 +171,15 @@ export const buildSummary = (data: Data, today: string, to: string | null): Outg
       return `${bill.name} – ${bill.currency === 'MYR' ? rm(bill.amount) : `${bill.currency} ${bill.amount}`}, ${day(bill.nextDate)}`;
     }),
     ...list(`🎉 Campaigns to send (${campaignsDue.length})`, campaignsDue as never[], (i) => (i as unknown as (typeof campaignsDue)[number]).name),
+    ...list(`⏰ Follow-ups (${followUpsDue.length})`, followUpsDue as never[], (i) => {
+      const f = i as unknown as (typeof followUpsDue)[number];
+
+      return `${f.personName}${f.note ? ` – ${f.note.slice(0, 60)}` : ''}`;
+    }),
     ...(missingBills.length ? [`🧾 ${missingBills.length} expense${missingBills.length === 1 ? '' : 's'} without a bill`] : []),
   ].filter((line, index, all) => !(line === '' && all[index - 1] === ''));
 
-  const nothing = overdue.length + dueSoon.length + ending.length + stamping.length + documents.length + birthdays.length + missingBills.length + repeatBills.length + campaignsDue.length === 0;
+  const nothing = overdue.length + dueSoon.length + ending.length + stamping.length + documents.length + birthdays.length + missingBills.length + repeatBills.length + campaignsDue.length + followUpsDue.length === 0;
   const body = (nothing ? [`☀️ Good morning! ${heading}`, '', '✅ Nothing needs your attention today.'] : lines).join('\n').slice(0, 1500);
   const others = ending.length + stamping.length + documents.length + birthdays.length + missingBills.length;
 

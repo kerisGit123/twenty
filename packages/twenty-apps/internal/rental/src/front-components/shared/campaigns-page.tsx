@@ -3,6 +3,8 @@ import { RestApiClient } from 'twenty-client-sdk/rest';
 import { AppPath, copyToClipboard, enqueueSnackbar, navigate } from 'twenty-sdk/front-component';
 
 import { CampaignEditor } from 'src/front-components/shared/campaign-editor';
+import { ContactCleanup } from 'src/front-components/shared/contact-cleanup';
+import { ContactLogger } from 'src/front-components/shared/contact-log';
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { todayIso } from 'src/logic-functions/utils/dates';
@@ -26,6 +28,7 @@ import {
   isVideo,
   upcomingOccasions,
 } from 'src/shared/campaigns';
+import { activityKind, type CampaignResults, OUTCOMES } from 'src/shared/contacts';
 
 // Campaigns: holiday greetings, newsletters and announcements, sent from your
 // own WhatsApp — one tap per person, each in their language, with who's been
@@ -171,6 +174,8 @@ export const Campaigns = () => {
   const [editing, setEditing] = useState<Partial<CampaignRow> | null>(null);
   const [sending, setSending] = useState<CampaignRow | null>(null);
   const [confirmDelete, setConfirmDelete] = useState('');
+  const [results, setResults] = useState<Record<string, CampaignResults>>({});
+  const [cleanup, setCleanup] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -180,6 +185,10 @@ export const Campaigns = () => {
       setCampaigns(result.campaigns ?? []);
       setOwners(result.owners ?? []);
       setCanUseTags(Boolean(result.canUseTags));
+      new RestApiClient()
+        .post<{ success: boolean; results?: Record<string, CampaignResults> }>('/s/contacts', { action: 'allResults' })
+        .then((res) => res.success && setResults(res.results ?? {}))
+        .catch(() => undefined);
     } catch (error) {
       await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not load campaigns.', variant: 'error' });
     } finally {
@@ -250,8 +259,20 @@ export const Campaigns = () => {
           <span style={pill(isReady ? 'green' : status.color)}>{isReady ? 'Ready to send' : status.label}</span>
         </div>
         {(sent > 0 || skipped > 0) && (
-          <div style={{ fontSize: 12.5, color: c.text2 }}>
-            ✅ {sent} sent{skipped ? ` · ${skipped} skipped` : ''}
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 12.5, color: c.text2, alignItems: 'center' }}>
+            <span>✅ {sent} sent{skipped ? ` · ${skipped} skipped` : ''}</span>
+            {results[x.id] && sent > 0 && (
+              <>
+                <span style={{ fontWeight: 600, color: results[x.id].replyRate >= 0.3 ? 'var(--t-color-green11)' : c.text2 }}>
+                  {Math.round(results[x.id].replyRate * 100)}% replied
+                </span>
+                {OUTCOMES.filter((o) => results[x.id].outcomes[o.value]).map((o) => (
+                  <span key={o.value} title={o.label}>
+                    {o.icon} {results[x.id].outcomes[o.value]}
+                  </span>
+                ))}
+              </>
+            )}
           </div>
         )}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -313,6 +334,11 @@ export const Campaigns = () => {
           />
         </Sheet>
       )}
+      {cleanup && (
+        <Sheet width={720} onClose={() => setCleanup(false)}>
+          <ContactCleanup onClose={() => setCleanup(false)} />
+        </Sheet>
+      )}
       {sending && (
         <Sheet width={600} onClose={() => setSending(null)}>
           <SendPanel
@@ -330,6 +356,9 @@ export const Campaigns = () => {
             <div style={{ fontSize: 20, fontWeight: 650 }}>Campaigns</div>
             <div style={{ fontSize: 13, color: c.text3 }}>Holiday greetings, newsletters and announcements — sent from your WhatsApp, one tap per person.</div>
           </div>
+          <button onClick={() => setCleanup(true)} style={button()} title="People without a number, opted out, wrong numbers, languages">
+            🧹 Contacts
+          </button>
           <OwnerSwitcher scope={scope} />
         </div>
 
@@ -415,7 +444,9 @@ const SendPanel = ({ campaignId, onClose, onChanged }: { campaignId: string; onC
   const [campaign, setCampaign] = useState<CampaignRow | null>(null);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [extra, setExtra] = useState({ optedOut: 0, noPhone: 0 });
-  const [filter, setFilter] = useState<'pending' | 'sent' | 'skipped' | 'all'>('pending');
+  const [filter, setFilter] = useState<'pending' | 'sent' | 'skipped' | 'replies' | 'all'>('pending');
+  const [outcomes, setOutcomes] = useState<Record<string, string>>({});
+  const [logging, setLogging] = useState('');
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -425,6 +456,10 @@ const SendPanel = ({ campaignId, onClose, onChanged }: { campaignId: string; onC
       setCampaign(result.campaign ?? null);
       setRecipients(result.recipients ?? []);
       setExtra({ optedOut: result.optedOut ?? 0, noPhone: result.noPhone ?? 0 });
+
+      const res = await new RestApiClient().post<{ success: boolean; results?: CampaignResults }>('/s/contacts', { action: 'campaignResults', campaignId });
+
+      if (res.success) setOutcomes(res.results?.byPerson ?? {});
     } else {
       await enqueueSnackbar({ message: result.message ?? 'Could not load.', variant: 'error' });
     }
@@ -467,14 +502,19 @@ const SendPanel = ({ campaignId, onClose, onChanged }: { campaignId: string; onC
     sent: recipients.filter((r) => r.status === 'sent').length,
     skipped: recipients.filter((r) => r.status === 'skipped').length,
   };
-  const rows = recipients.filter((r) => filter === 'all' || r.status === filter);
+  const rows = recipients.filter((r) => (filter === 'all' ? true : filter === 'replies' ? r.status === 'sent' : r.status === filter));
+  const replied = Object.keys(outcomes).filter((id) => recipients.some((r) => r.id === id)).length;
   const next = recipients.find((r) => r.status === 'pending' && r.phone);
   const languagesUsed = LANGUAGES.filter((l) => campaign.messages[l.value]?.trim());
   const progress = recipients.length ? (counts.sent + counts.skipped) / recipients.length : 0;
 
   return (
     <div style={{ height: '100%', background: c.bg, display: 'flex', flexDirection: 'column', fontFamily: c.font, color: c.text }}>
-      <SheetHeader title={campaign.name} sub={`${recipients.length} people · ${counts.sent} sent · ${counts.pending} to go`} onClose={onClose} />
+      <SheetHeader
+        title={campaign.name}
+        sub={`${recipients.length} people · ${counts.sent} sent · ${counts.pending} to go${counts.sent ? ` · ${replied} repl${replied === 1 ? 'y' : 'ies'} logged` : ''}`}
+        onClose={onClose}
+      />
       <div style={{ flex: 1, overflow: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
         <span style={{ height: 8, background: c.bg2, borderRadius: 4, display: 'block' }}>
           <span style={{ display: 'block', height: 8, width: `${progress * 100}%`, background: 'var(--t-color-green9)', borderRadius: 4 }} />
@@ -507,6 +547,7 @@ const SendPanel = ({ campaignId, onClose, onChanged }: { campaignId: string; onC
               </button>
             </div>
             <span style={{ fontSize: 12, color: c.text3 }}>
+              {counts.sent > 0 ? 'When people reply, log it under “💬 Log replies” — it keeps their history and follow-ups. ' : ''}
               {hasMedia
                 ? 'Opens a page with the photo and message: on your phone tap Share → WhatsApp → the person; on a computer copy the photo, open the chat and paste.'
                 : 'WhatsApp opens with the message written — press Send there, then come back for the next one.'}
@@ -540,10 +581,10 @@ const SendPanel = ({ campaignId, onClose, onChanged }: { campaignId: string; onC
         </div>
 
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto' }}>
-          {(['pending', 'sent', 'skipped', 'all'] as const).map((f) => (
+          {(['pending', 'sent', 'replies', 'skipped', 'all'] as const).map((f) => (
             <button key={f} onClick={() => setFilter(f)} style={chip(filter === f)}>
-              {f === 'pending' ? 'To send' : f === 'sent' ? 'Sent' : f === 'skipped' ? 'Skipped' : 'All'}
-              <span style={{ opacity: 0.7, marginLeft: 6 }}>{f === 'all' ? recipients.length : counts[f]}</span>
+              {f === 'pending' ? 'To send' : f === 'sent' ? 'Sent' : f === 'replies' ? '💬 Log replies' : f === 'skipped' ? 'Skipped' : 'All'}
+              <span style={{ opacity: 0.7, marginLeft: 6 }}>{f === 'all' ? recipients.length : f === 'replies' ? `${replied}/${counts.sent}` : counts[f]}</span>
             </button>
           ))}
         </div>
@@ -580,9 +621,34 @@ const SendPanel = ({ campaignId, onClose, onChanged }: { campaignId: string; onC
                   </button>
                 </>
               ) : (
-                <button onClick={() => mark(r.id, 'pending')} style={{ ...button(), height: 32, color: c.text3 }}>
-                  Undo
-                </button>
+                <>
+                  {r.status === 'sent' && outcomes[r.id] && (
+                    <span style={pill(activityKind(outcomes[r.id]).color)}>
+                      {activityKind(outcomes[r.id]).icon} {activityKind(outcomes[r.id]).label}
+                    </span>
+                  )}
+                  {r.status === 'sent' && logging !== r.id && (
+                    <button onClick={() => setLogging(r.id)} style={{ ...button(), height: 32 }}>
+                      {outcomes[r.id] ? 'Change' : '＋ Reply'}
+                    </button>
+                  )}
+                  <button onClick={() => mark(r.id, 'pending')} style={{ ...button(), height: 32, color: c.text3 }}>
+                    Undo
+                  </button>
+                </>
+              )}
+              {(logging === r.id || (filter === 'replies' && !outcomes[r.id])) && r.status === 'sent' && (
+                <div style={{ flexBasis: '100%' }}>
+                  <ContactLogger
+                    personId={r.id}
+                    campaignId={campaign.id}
+                    current={outcomes[r.id]}
+                    onLogged={(kind) => {
+                      setLogging('');
+                      if (activityKind(kind).outcome) setOutcomes((o) => ({ ...o, [r.id]: kind }));
+                    }}
+                  />
+                </div>
               )}
             </div>
           ))}
