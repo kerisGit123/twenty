@@ -44,6 +44,18 @@ export type ContractDoc = {
   rentalId: string | null; // the contract it's filed on (may be the previous one)
 };
 
+// A document on the Documents page.
+export type LibraryDoc = ContractDoc & {
+  group: string;
+  notes: string;
+  propertyId: string | null;
+  propertyName: string;
+  rentalName: string;
+  personName: string;
+  ownerId: string | null;
+  ownerName: string;
+};
+
 // Guess the type from a file name, e.g. "Perjanjian sewa.pdf" → Agreement.
 export const guessDocType = (fileName: string, fallback = 'OTHER') => {
   const name = fileName.toLowerCase();
@@ -54,6 +66,13 @@ export const guessDocType = (fileName: string, fallback = 'OTHER') => {
   if (/inventory|condition|handover|inventori|checklist/.test(name)) return 'HANDOVER';
   if (/addendum|letter|surat/.test(name)) return 'ADDENDUM';
   if (/move.?out|keluar/.test(name)) return 'MOVE_OUT';
+  if (/move.?in|masuk/.test(name)) return 'MOVE_IN';
+  if (/insurance|insurans|takaful|policy|polisi/.test(name)) return 'INSURANCE';
+  if (/cukai|assessment|taksiran|quit.?rent|tax/.test(name)) return 'TAX';
+  if (/geran|title|hakmilik|spa\b|s&p/.test(name)) return 'TITLE';
+  if (/loan|pinjaman|bank|statement|penyata/.test(name)) return 'LOAN';
+  if (/\btnb\b|\bbil\b|\bbill|water|\bair\b|\biwk\b|indah water|unifi|maxis|celcom|\bdigi\b/.test(name)) return 'BILL';
+  if (/license|lesen|permit|permit/.test(name)) return 'LICENSE';
 
   return fallback;
 };

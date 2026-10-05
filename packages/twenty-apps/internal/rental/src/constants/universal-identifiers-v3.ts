@@ -212,3 +212,11 @@ export const DOCUMENT_TYPE_ADDENDUM_OPTION_ID = '98189f9e-e84e-441a-b0d3-46b4dd3
 export const DOCUMENT_TYPE_MOVE_IN_OPTION_ID = '38d3e791-c7ef-4cd6-953b-9911f483c42b';
 export const DOCUMENT_TYPE_MOVE_OUT_OPTION_ID = 'd85b4301-c969-4d59-b66d-53c50a6efea4';
 export const FILES_ROUTE_FUNCTION_ID = '4e2a9d0d-8e74-466f-9395-533e5c6c87f7';
+
+// File viewer and the Documents page.
+export const FILE_VIEW_ROUTE_FUNCTION_ID = 'c7446510-ee2e-4043-9e25-5dd9ee13dc89';
+export const DOCUMENTS_FRONT_COMPONENT_ID = '5b1da566-4527-455f-91fa-72d237a00b83';
+export const DOCUMENTS_PAGE_LAYOUT_ID = '12738c8b-b640-4906-88bc-fe5ea12e3a92';
+export const DOCUMENTS_TAB_ID = '413664c3-504e-49b6-98d8-6c2b38b1ce1b';
+export const DOCUMENTS_WIDGET_ID = '797cd810-65d3-451d-b9ce-1085b4ebebe1';
+export const DOCUMENTS_PAGE_NAV_ITEM_ID = 'fd07d629-fd96-4dea-bbf6-66f66f4fcbaf';

@@ -5,11 +5,13 @@ import { Response } from 'twenty-sdk/logic-function';
 import { EXPENSE_RECEIPT_FIELD_ID } from 'src/constants/universal-identifiers-v2';
 import { DOCUMENT_FILES_FIELD_ID, FILES_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers-v3';
 import { appClient, appUploadClient } from 'src/logic-functions/utils/app-client';
+import { propertyOwnerId } from 'src/logic-functions/utils/owner-sync';
 import { inScope, NOT_ALLOWED, resolveScope, type Scope } from 'src/logic-functions/utils/scope';
 import {
   ALLOWED_EXTENSIONS,
   CONTRACT_CHECKLIST,
   type ContractDoc,
+  type LibraryDoc,
   DOC_TYPES,
   docType,
   extensionOf,
@@ -40,6 +42,8 @@ type Body = {
   name?: string;
   type?: string;
   expiresOn?: string | null;
+  propertyId?: string | null;
+  notes?: string;
   file?: { name?: string; type?: string; data?: string };
   newDocument?: { type?: string; name?: string; rentalId?: string | null; propertyId?: string | null; personId?: string | null; ownerId?: string | null };
 };
@@ -165,6 +169,67 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       return json({ success: true, own: result.own, carried: result.carried, property: result.property });
     }
 
+    // ---- every document in the caller's workspaces (the Documents page)
+    if (body.action === 'listAll') {
+      const rows: Array<Record<string, unknown>> = [];
+      let after: string | undefined;
+
+      for (;;) {
+        const { documents: page } = await client.query({
+          documents: {
+            __args: { first: 200, ...(after ? { after } : {}), orderBy: [{ createdAt: 'DescNullsLast' }] },
+            edges: {
+              node: {
+                ...DOC_FIELDS,
+                group: true,
+                notes: true,
+                property: { name: true },
+                rental: { name: true },
+                person: { name: { firstName: true, lastName: true } },
+                owner: { name: true },
+              },
+            },
+            pageInfo: { hasNextPage: true, endCursor: true },
+          },
+        });
+
+        rows.push(...((page?.edges ?? []).map(({ node }) => node) as unknown as Array<Record<string, unknown>>));
+        if (!page?.pageInfo?.hasNextPage || !page.pageInfo.endCursor || rows.length >= 2000) break;
+        after = page.pageInfo.endCursor;
+      }
+
+      const [{ owners }, { properties }] = await Promise.all([
+        client.query({ owners: { __args: { first: 200, orderBy: [{ name: 'AscNullsLast' }] }, edges: { node: { id: true, name: true } } } }),
+        client.query({ properties: { __args: { first: 500, orderBy: [{ name: 'AscNullsLast' }] }, edges: { node: { id: true, name: true, ownerId: true } } } }),
+      ]);
+      const docs: LibraryDoc[] = rows
+        .filter((row) => inScope(scope, (row.ownerId as string | null) ?? null))
+        .map((row) => {
+          const person = row.person as { name?: { firstName?: string; lastName?: string } } | null;
+
+          return {
+            ...toDoc(row as unknown as DocRow),
+            group: (row.group as string | null) ?? 'MISC',
+            notes: (row.notes as string | null) ?? '',
+            propertyId: (row.propertyId as string | null) ?? null,
+            propertyName: (row.property as { name?: string } | null)?.name ?? '',
+            rentalName: (row.rental as { name?: string } | null)?.name ?? '',
+            personName: [person?.name?.firstName, person?.name?.lastName].filter(Boolean).join(' '),
+            ownerId: (row.ownerId as string | null) ?? null,
+            ownerName: (row.owner as { name?: string } | null)?.name ?? '',
+          };
+        });
+
+      return json({
+        success: true,
+        documents: docs,
+        owners: (owners?.edges ?? []).map(({ node }) => ({ id: node.id, name: node.name ?? 'Workspace' })).filter((o) => inScope(scope, o.id)),
+        properties: (properties?.edges ?? [])
+          .map(({ node }) => ({ id: node.id, name: node.name ?? 'Property', ownerId: node.ownerId ?? null }))
+          .filter((p) => inScope(scope, p.ownerId)),
+      });
+    }
+
     // ---- upload one file
     if (body.action === 'upload') {
       const file = body.file;
@@ -222,7 +287,8 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
         if (spec.rentalId && !contract) return fail('Contract not found.', 404);
 
-        const ownerId = contract?.property?.ownerId ?? spec.ownerId ?? null;
+        // The workspace: the contract's, else the property's, else the one picked.
+        const ownerId = contract?.property?.ownerId ?? (spec.propertyId ? await propertyOwnerId(client, spec.propertyId) : null) ?? spec.ownerId ?? null;
 
         if (!inScope(scope, ownerId)) return json(NOT_ALLOWED, 403);
 
@@ -275,6 +341,8 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
       if (typeof body.name === 'string' && body.name.trim()) data.name = body.name.trim().slice(0, 200);
       if (body.type && DOC_TYPES.some((t) => t.value === body.type)) data.documentType = body.type;
+      if (body.propertyId !== undefined) data.propertyId = body.propertyId || null;
+      if (typeof body.notes === 'string') data.notes = body.notes.slice(0, 2000);
       if (body.expiresOn === null || /^\d{4}-\d{2}-\d{2}$/.test(body.expiresOn ?? '')) data.expiresOn = body.expiresOn ?? null;
       await client.mutation({ updateDocument: { __args: { id: doc.id, data: data as never }, id: true } });
 

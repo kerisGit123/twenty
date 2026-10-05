@@ -19,6 +19,7 @@ export type Expense = {
   ownerId: string | null;
   ownerName: string;
   files: number;
+  fileList: Array<{ label: string; url: string; extension: string | null }>; // the bill / receipt files
   noBillNeeded: boolean;
   repeatEvery: string;
 };
@@ -48,7 +49,7 @@ const loadExpenses = async (client: CoreApiClient, from: string, to: string): Pr
             amount: { amountMicros: true, currencyCode: true },
             category: true,
             paidTo: true,
-            receipt: { fileId: true },
+            receipt: { fileId: true, label: true, url: true, extension: true },
             noBillNeeded: true,
             repeatEvery: true,
             propertyId: true,
@@ -62,7 +63,7 @@ const loadExpenses = async (client: CoreApiClient, from: string, to: string): Pr
     });
 
     for (const { node } of page?.edges ?? []) {
-      const files = (node.receipt as unknown as Array<{ isDeleted?: boolean }> | null) ?? [];
+      const files = ((node.receipt as unknown as Array<{ isDeleted?: boolean; label?: string; url?: string; extension?: string | null }> | null) ?? []).filter((file) => !file?.isDeleted);
 
       rows.push({
         id: node.id,
@@ -76,7 +77,14 @@ const loadExpenses = async (client: CoreApiClient, from: string, to: string): Pr
         propertyName: node.property?.name ?? '',
         ownerId: node.ownerId ?? null,
         ownerName: node.owner?.name ?? '',
-        files: files.filter((file) => !file?.isDeleted).length,
+        files: files.length,
+        fileList: files
+          .filter((file) => file?.url)
+          .map((file) => ({
+            label: file.label || 'Bill',
+            url: file.url as string,
+            extension: (file.extension ?? '').replace(/^\./, '').toLowerCase() || (file.label?.split('.').pop()?.toLowerCase() ?? null),
+          })),
         noBillNeeded: Boolean(node.noBillNeeded),
         repeatEvery: (node.repeatEvery as string | null) ?? 'NONE',
       });

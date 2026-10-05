@@ -5,6 +5,8 @@ import { AppPath, enqueueSnackbar, navigate, openSidePanelPage, SidePanelPages }
 
 import { EXPENSE_TRACKER_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
+import { FileDrop, filesFromEvent, type PickedFile, uploadFile } from 'src/front-components/shared/file-drop';
+import { FileViewer, type ViewerFile } from 'src/front-components/shared/file-viewer';
 import { Sheet } from 'src/front-components/shared/sheet';
 import type { Expense, ExpensesData, Option } from 'src/logic-functions/page-data/expenses-data';
 import { monthStart, nextMonthStart, todayIso } from 'src/logic-functions/utils/dates';
@@ -182,6 +184,11 @@ const ExpenseTracker = () => {
   const [billBusy, setBillBusy] = useState('');
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  // Viewing an expense's bills; adding bills to one; a row being dropped on.
+  const [viewing, setViewing] = useState<{ files: ViewerFile[]; title: string } | null>(null);
+  const [billFor, setBillFor] = useState<Expense | null>(null);
+  const [dropRow, setDropRow] = useState('');
+  const [rowBusy, setRowBusy] = useState('');
 
   const [from, to] = useMemo(() => {
     if (mode === 'month') return [monthStart(anchor), nextMonthStart(anchor)];
@@ -190,7 +197,9 @@ const ExpenseTracker = () => {
     return [monthStart(rangeFrom), nextMonthStart(rangeTo)];
   }, [mode, anchor, rangeFrom, rangeTo]);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (): Promise<Expense[] | null> => {
+    let fresh: Expense[] | null = null;
+
     setLoading(true);
     try {
       // The server reads the expenses and keeps only the caller's workspaces.
@@ -202,6 +211,7 @@ const ExpenseTracker = () => {
 
       if (!result.success || !result.data) throw new Error(result.message ?? 'Could not load expenses.');
       setExpenses(result.data.expenses);
+      fresh = result.data.expenses;
       setOwners(result.data.owners);
       setProperties(result.data.properties);
       setRepeating(result.data.repeating ?? []);
@@ -210,6 +220,8 @@ const ExpenseTracker = () => {
     } finally {
       setLoading(false);
     }
+
+    return fresh;
   }, [from, to]);
 
   useEffect(() => {
@@ -363,14 +375,36 @@ const ExpenseTracker = () => {
           defaultArea={area === 'ALL' ? 'EVERYDAY' : area}
           recent={recentCategories}
           onClose={() => setAdding(false)}
-          onSaved={async (id, again) => {
+          onSaved={async (id, again, withBill) => {
             await reload();
             if (!again) {
               setAdding(false);
-              await openExpense(id);
+              // Without a bill, open it so one can be attached later.
+              if (!withBill) await openExpense(id);
             }
           }}
         />
+      )}
+      {viewing && (
+        <Sheet width={900} onClose={() => setViewing(null)}>
+          <FileViewer files={viewing.files} title={viewing.title} onClose={() => setViewing(null)} />
+        </Sheet>
+      )}
+      {billFor && (
+        <Sheet width={480} onClose={() => setBillFor(null)}>
+          <BillSheet
+            key={billFor.id}
+            expense={billFor}
+            onClose={() => setBillFor(null)}
+            onView={(files, title) => setViewing({ files, title })}
+            onChanged={async () => {
+              const fresh = await reload();
+              const updated = fresh?.find((x) => x.id === billFor.id);
+
+              if (updated) setBillFor(updated);
+            }}
+          />
+        </Sheet>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: 'clamp(4px, 2vw, 16px)', maxWidth: 980 }}>
         {/* Title + add */}
@@ -605,11 +639,53 @@ const ExpenseTracker = () => {
                 const category = expenseCategory(e.category);
                 const hasBill = e.files > 0 || e.noBillNeeded;
 
+                const dropOn = async (files: PickedFile[]) => {
+                  setRowBusy(e.id);
+
+                  let added = 0;
+                  let problem = '';
+
+                  for (const file of files.slice(0, 5)) {
+                    const result = await uploadFile(file, { expenseId: e.id });
+
+                    if (result.success) added += 1;
+                    else problem = result.message ?? 'Upload failed.';
+                  }
+                  setRowBusy('');
+                  await enqueueSnackbar({
+                    message: added ? `Attached ${added} file${added === 1 ? '' : 's'} to ${e.name || category.label}${problem ? ` — ${problem}` : ''}` : problem,
+                    variant: added ? 'success' : 'error',
+                  });
+                  if (added) await reload();
+                };
+
                 return (
-                  <button
+                  <div
                     key={e.id}
+                    onDragOver={() => dropRow !== e.id && setDropRow(e.id)}
+                    onDragEnter={() => setDropRow(e.id)}
+                    onDragLeave={() => setDropRow('')}
+                    onDrop={(event) => {
+                      setDropRow('');
+
+                      const files = filesFromEvent(event);
+
+                      if (files.length) dropOn(files);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      paddingRight: 10,
+                      borderTop: `1px solid ${c.border}`,
+                      background: dropRow === e.id ? 'var(--t-color-blue2)' : 'transparent',
+                      outline: dropRow === e.id ? '2px dashed var(--t-color-blue8)' : 'none',
+                      outlineOffset: -2,
+                    }}
+                  >
+                  <button
                     onClick={() => openExpense(e.id)}
-                    style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderTop: `1px solid ${c.border}`, boxSizing: 'border-box', width: '100%' }}
+                    style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, padding: '10px 4px 10px 14px', boxSizing: 'border-box', flex: 1, minWidth: 0 }}
                   >
                     <span style={iconBubble(category.group)}>{groupByKey(category.group).icon}</span>
                     <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -622,10 +698,28 @@ const ExpenseTracker = () => {
                     <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1, flexShrink: 0 }}>
                       <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: c.text }}>{formatMoney(e.amount, e.currency)}</span>
                       <span style={{ fontSize: 12, color: hasBill ? c.text3 : c.amber }}>
-                        {shortDate(e.date)} {e.files ? '· 📎' : e.noBillNeeded ? '' : '· no bill'}
+                        {dropRow === e.id ? 'Drop to attach' : rowBusy === e.id ? 'Uploading…' : `${shortDate(e.date)}${e.files || e.noBillNeeded ? '' : ' · no bill'}`}
                       </span>
                     </span>
                   </button>
+                  {e.files > 0 ? (
+                    <button
+                      onClick={() => setViewing({ files: e.fileList, title: `${e.name || category.label} · ${formatMoney(e.amount, e.currency)}` })}
+                      title="View the bill"
+                      style={{ ...button(), height: 30, padding: '0 8px', fontSize: 12.5, flexShrink: 0 }}
+                    >
+                      📎{e.files > 1 ? ` ${e.files}` : ''}
+                    </button>
+                  ) : !e.noBillNeeded ? (
+                    <button
+                      onClick={() => setBillFor(e)}
+                      title="Attach the bill or receipt — or drop it on this row"
+                      style={{ ...button(), height: 30, padding: '0 8px', fontSize: 12.5, flexShrink: 0, color: c.amber, borderColor: 'var(--t-color-amber7)' }}
+                    >
+                      ＋ Bill
+                    </button>
+                  ) : null}
+                  </div>
                 );
               })}
             </div>
@@ -636,6 +730,86 @@ const ExpenseTracker = () => {
         </button>
       </div>
 
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------- bill sheet
+
+// Attach (more) bills to one expense, and see what's there.
+const BillSheet = ({
+  expense,
+  onClose,
+  onView,
+  onChanged,
+}: {
+  expense: Expense;
+  onClose: () => void;
+  onView: (files: ViewerFile[], title: string) => void;
+  onChanged: () => Promise<void>;
+}) => {
+  const [busy, setBusy] = useState(false);
+  const [errors, setErrors] = useState<string[]>([]);
+  const title = `${expense.name || expenseCategory(expense.category).label} · ${formatMoney(expense.amount, expense.currency)}`;
+
+  const add = async (files: PickedFile[]) => {
+    setBusy(true);
+    setErrors([]);
+
+    const problems: string[] = [];
+    let added = 0;
+
+    for (const file of files.slice(0, Math.max(0, 5 - expense.files))) {
+      const result = await uploadFile(file, { expenseId: expense.id });
+
+      if (result.success) added += 1;
+      else problems.push(result.message ?? `${file.name}: upload failed`);
+    }
+    setErrors(problems);
+    setBusy(false);
+    if (added) {
+      await enqueueSnackbar({ message: `Attached ${added} file${added === 1 ? '' : 's'}.`, variant: 'success' });
+      await onChanged();
+    }
+  };
+
+  return (
+    <div style={{ height: '100%', background: c.bg, display: 'flex', flexDirection: 'column', fontFamily: c.font, color: c.text }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 16px', borderBottom: `1px solid ${c.border}` }}>
+        <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <span style={{ fontSize: 16, fontWeight: 650 }}>Bill / receipt</span>
+          <span style={{ fontSize: 13, color: c.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
+        </span>
+        <button onClick={onClose} style={{ ...button('ghost'), width: 36, padding: 0, fontSize: 18 }} aria-label="Close">
+          ×
+        </button>
+      </div>
+      <div style={{ flex: 1, overflow: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {expense.fileList.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {expense.fileList.map((file, index) => (
+              <button
+                key={`${file.url}-${index}`}
+                onClick={() => onView(expense.fileList, title)}
+                title={file.label}
+                style={{ ...button(), height: 34, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
+              >
+                {file.extension === 'pdf' ? '📕' : '🖼️'} {file.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {expense.files < 5 ? (
+          <FileDrop onFiles={add} disabled={busy} title={busy ? 'Uploading…' : 'Drop the bill or receipt here'} hint="or tap to choose / take a photo — PDF or photos, up to 20 MB" />
+        ) : (
+          <span style={{ fontSize: 13, color: c.text3 }}>This expense already has 5 files.</span>
+        )}
+        {errors.map((message) => (
+          <span key={message} style={{ fontSize: 12.5, color: 'var(--t-color-red11)' }}>
+            {message}
+          </span>
+        ))}
+      </div>
     </div>
   );
 };
@@ -677,8 +851,10 @@ const AddExpenseSheet = ({
   defaultArea: ExpenseArea;
   recent: string[];
   onClose: () => void;
-  onSaved: (id: string, again: boolean) => Promise<void>;
+  onSaved: (id: string, again: boolean, withBill: boolean) => Promise<void>;
 }) => {
+  // Bill / receipt picked before saving; uploaded once the expense exists.
+  const [bills, setBills] = useState<PickedFile[]>([]);
   const today = todayIso();
   const personal = owners.find((o) => /^personal$/i.test(o.name))?.id ?? '';
   // The workspace picked in the sidebar is where the expense goes.
@@ -743,7 +919,20 @@ const AddExpenseSheet = ({
 
       if (!result.success || !result.id) throw new Error(result.message ?? 'Could not save.');
       rememberCurrency(currency);
-      await enqueueSnackbar({ message: `Saved ${formatMoney(amountValue, currency)} · ${name.trim()}`, variant: 'success' });
+
+      let attached = 0;
+      let problem = '';
+
+      for (const file of bills.slice(0, 5)) {
+        const upload = await uploadFile(file, { expenseId: result.id });
+
+        if (upload.success) attached += 1;
+        else problem = upload.message ?? 'A file could not be attached.';
+      }
+      await enqueueSnackbar({
+        message: `Saved ${formatMoney(amountValue, currency)} · ${name.trim()}${attached ? ` · ${attached} file${attached === 1 ? '' : 's'} attached` : ''}${problem ? ` — ${problem}` : ''}`,
+        variant: problem && !attached ? 'warning' : 'success',
+      });
       if (again) {
         setAmount('');
         setName('');
@@ -751,9 +940,10 @@ const AddExpenseSheet = ({
         setNotes('');
         setCategory(null);
         setRepeatEvery('NONE');
+        setBills([]);
         setSavedCount(savedCount + 1);
       }
-      await onSaved(result.id, again);
+      await onSaved(result.id, again, attached > 0);
     } catch (error) {
       await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not save.', variant: 'error' });
     } finally {
@@ -1039,6 +1229,30 @@ const AddExpenseSheet = ({
             </div>,
           )}
 
+          {/* Bill / receipt: drop it or take a photo now */}
+          {section(
+            'Bill / receipt',
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {bills.map((file, index) => (
+                <div key={`${file.name}-${index}`} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '6px 10px', borderRadius: 10, background: c.bg2 }}>
+                  <span>{/\.pdf$/i.test(file.name) ? '📕' : '🖼️'}</span>
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
+                  <button onClick={() => setBills(bills.filter((_, i) => i !== index))} style={{ ...button('ghost'), width: 28, height: 28, padding: 0 }} aria-label="Remove">
+                    ×
+                  </button>
+                </div>
+              ))}
+              {bills.length < 5 && (
+                <FileDrop
+                  compact
+                  onFiles={(files) => setBills([...bills, ...files].slice(0, 5))}
+                  title={bills.length ? 'Add another page' : 'Drop the bill here'}
+                  hint="or tap to choose / take a photo"
+                />
+              )}
+            </div>,
+          )}
+
           {/* More */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <button onClick={() => setMore(!more)} style={{ ...button('ghost'), alignSelf: 'flex-start', height: 28, fontSize: 13, padding: '0 4px' }}>
@@ -1052,7 +1266,7 @@ const AddExpenseSheet = ({
             )}
           </div>
 
-          <div style={{ fontSize: 12, color: c.text3 }}>📎 After saving, the expense opens so you can attach the bill or receipt.</div>
+          {bills.length === 0 && <div style={{ fontSize: 12, color: c.text3 }}>No bill now? Save — you can drop it on the expense later.</div>}
         </div>
 
         {/* Actions stay at the bottom */}

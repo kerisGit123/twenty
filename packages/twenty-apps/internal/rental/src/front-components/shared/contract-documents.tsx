@@ -3,6 +3,7 @@ import { RestApiClient } from 'twenty-client-sdk/rest';
 import { enqueueSnackbar } from 'twenty-sdk/front-component';
 
 import { FileDrop, type PickedFile, uploadFile } from 'src/front-components/shared/file-drop';
+import { FileViewer, type ViewerFile } from 'src/front-components/shared/file-viewer';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { type ContractCard } from 'src/shared/contracts';
 import {
@@ -104,6 +105,7 @@ export const ContractDocumentsPanel = ({
   const [stampDate, setStampDate] = useState(todayIso());
   const [stampedNow, setStampedNow] = useState(Boolean(contract.stampedOn));
   const started = useRef(false);
+  const [viewing, setViewing] = useState<{ files: ViewerFile[]; start: number; title: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -205,14 +207,14 @@ export const ContractDocumentsPanel = ({
     }
   };
 
-  const fileTile = (doc: ContractDoc, file: ContractDoc['files'][number], removable: boolean) => (
+  const fileTile = (doc: ContractDoc, file: ContractDoc['files'][number], removable: boolean, index: number) => (
     <div key={file.fileId} style={{ position: 'relative', width: 84, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <a
-        href={file.url}
-        target="_blank"
-        rel="noreferrer"
-        title={file.label}
+      <button
+        onClick={() => setViewing({ files: doc.files, start: index, title: doc.name || docType(doc.type).label })}
+        title={`View ${file.label}`}
         style={{
+          padding: 0,
+          cursor: 'pointer',
           width: 84,
           height: 84,
           borderRadius: 10,
@@ -227,7 +229,7 @@ export const ContractDocumentsPanel = ({
         }}
       >
         {isImage(file.extension) ? <img src={file.url} alt={file.label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : file.extension === 'pdf' ? '📕' : '📄'}
-      </a>
+      </button>
       <span style={{ fontSize: 11, color: c.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.label}</span>
       {removable && (
         <button
@@ -310,7 +312,7 @@ export const ContractDocumentsPanel = ({
           )}
         </div>
         {doc.files.length > 0 ? (
-          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>{doc.files.map((file) => fileTile(doc, file, mode === 'own'))}</div>
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>{doc.files.map((file, index) => fileTile(doc, file, mode === 'own', index))}</div>
         ) : (
           <span style={{ fontSize: 12.5, color: c.text3 }}>No files yet.</span>
         )}
@@ -324,7 +326,12 @@ export const ContractDocumentsPanel = ({
   const busy = queue.some((q) => q.state === 'uploading' || q.state === 'waiting');
 
   return (
-    <div style={{ height: '100%', background: c.bg, display: 'flex', flexDirection: 'column', fontFamily: c.font, color: c.text }}>
+    <div style={{ height: '100%', background: c.bg, display: 'flex', flexDirection: 'column', fontFamily: c.font, color: c.text, position: 'relative' }}>
+      {viewing && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 5 }}>
+          <FileViewer files={viewing.files} start={viewing.start} title={viewing.title} onClose={() => setViewing(null)} />
+        </div>
+      )}
       <div style={{ padding: '14px 16px', borderBottom: `1px solid ${c.border}`, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 650, fontSize: 16 }}>Documents</div>
