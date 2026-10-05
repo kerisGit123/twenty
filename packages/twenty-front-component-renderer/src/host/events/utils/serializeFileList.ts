@@ -33,6 +33,7 @@ export const serializeFileList = (
       size: fileRecord.size,
       type: fileRecord.type,
       lastModified: fileRecord.lastModified,
+      ...(typeof Blob !== 'undefined' && file instanceof Blob ? { blob: file } : {}),
     });
   }
 

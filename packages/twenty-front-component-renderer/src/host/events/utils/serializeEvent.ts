@@ -181,5 +181,15 @@ export const serializeEvent = (event: unknown): SerializedEventData => {
     }
   }
 
+  // Files dropped onto an element (drag and drop).
+  if (!isDefined(serialized.files) && isObject(domEvent.dataTransfer)) {
+    const droppedFiles = serializeFileList(
+      (domEvent.dataTransfer as Record<string, unknown>).files,
+    );
+    if (isDefined(droppedFiles) && droppedFiles.length > 0) {
+      serialized.files = droppedFiles;
+    }
+  }
+
   return serialized;
 };
