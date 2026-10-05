@@ -306,6 +306,24 @@ export const DocumentViewer = ({
     );
   }
 
+  // Fork: PDFs stored on this server open in the rental app's viewer page
+  // (/s/files/view, pdf.js drawing every page) — react-doc-viewer's PDF
+  // renderer left them as an empty page here.
+  if (fileExtension === 'pdf' && documentUrl.includes('/file/')) {
+    const viewerUrl = `/s/files/view?${new URLSearchParams({ u: documentUrl, name: documentName }).toString()}`;
+
+    return (
+      <StyledDocumentViewerContainer>
+        <iframe
+          key={documentUrl}
+          src={viewerUrl}
+          title={documentName}
+          style={{ width: '100%', height: '100%', border: 'none', background: '#2b2d31' }}
+        />
+      </StyledDocumentViewerContainer>
+    );
+  }
+
   return (
     <StyledDocumentViewerContainer>
       <DocViewer
