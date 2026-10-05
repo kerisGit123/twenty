@@ -29,7 +29,6 @@ import {
 import {
   DEPOSIT_STATUS_CARRIED_OPTION_ID,
   RENTAL_DEPOSIT_CARRIED_IN_FIELD_ID,
-  RENTAL_AGREEMENT_FILES_FIELD_ID,
   RENTAL_NEW_RENT_FIELD_ID,
   RENTAL_RENEWAL_OF_FIELD_ID,
   RENTAL_NEW_RENT_FROM_FIELD_ID,
@@ -197,16 +196,6 @@ export default defineObject({
       description: 'The contract this one renews (set by Renew on the Contracts page).',
       icon: 'IconRefresh',
       isNullable: true,
-    },
-    {
-      universalIdentifier: RENTAL_AGREEMENT_FILES_FIELD_ID,
-      type: FieldType.FILES,
-      name: 'agreement',
-      label: 'Signed agreement',
-      description: 'The signed (and stamped) tenancy agreement, plus any addendum — PDF or photos.',
-      icon: 'IconFileCertificate',
-      isNullable: true,
-      universalSettings: { maxNumberOfValues: 10 },
     },
     {
       universalIdentifier: RENTAL_STAMPED_ON_FIELD_ID,

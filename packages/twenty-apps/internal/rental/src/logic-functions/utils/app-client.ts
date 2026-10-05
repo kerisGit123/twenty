@@ -7,3 +7,8 @@ import { MetadataApiClient } from 'twenty-client-sdk/metadata';
 export const appClient = () => new CoreApiClient({ runAs: 'application' });
 
 export const appMetadataClient = () => new MetadataApiClient({ runAs: 'application' });
+
+// File uploads (createFileUpload / completeFileUpload) live on the metadata
+// API in this server, so the upload helper is pointed there.
+export const appUploadClient = () =>
+  new CoreApiClient({ runAs: 'application', url: `${process.env.TWENTY_API_URL}/metadata` });

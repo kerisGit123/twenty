@@ -2,6 +2,9 @@ import { type CoreApiClient } from 'twenty-client-sdk/core';
 
 import { inScope, type Scope } from 'src/logic-functions/utils/scope';
 import { type ContractCard, type ContractsData } from 'src/shared/contracts';
+import { CONTRACT_CHECKLIST } from 'src/shared/documents';
+
+const CARRIES_OVER = CONTRACT_CHECKLIST.filter((c) => c.carriesOver).map((c) => c.type);
 
 // Contracts page data: every contract in the caller's workspaces, with what
 // its deposit received, carried over and paid towards rent.
@@ -35,7 +38,6 @@ const loadRentals = async (client: CoreApiClient) => {
             depositRefundedOn: true,
             depositNotes: true,
             stampedOn: true,
-            agreement: { label: true, url: true },
             renewalOfId: true,
             tenantDetails: true,
             tenantId: true,
@@ -97,8 +99,34 @@ const loadDepositPayments = async (client: CoreApiClient) => {
   return rows;
 };
 
+// Which document types each contract has on file.
+const loadContractDocs = async (client: CoreApiClient) => {
+  const byRental = new Map<string, string[]>();
+  let after: string | undefined;
+
+  for (;;) {
+    const { documents: page } = await client.query({
+      documents: {
+        __args: { first: 200, ...(after ? { after } : {}), filter: { rentalId: { is: 'NOT_NULL' } } as never },
+        edges: { node: { rentalId: true, documentType: true } },
+        pageInfo: { hasNextPage: true, endCursor: true },
+      },
+    });
+
+    for (const { node } of page?.edges ?? []) {
+      const id = node.rentalId as string | null;
+
+      if (id) byRental.set(id, [...(byRental.get(id) ?? []), (node.documentType as string | null) ?? 'OTHER']);
+    }
+    if (!page?.pageInfo?.hasNextPage || !page.pageInfo.endCursor) break;
+    after = page.pageInfo.endCursor;
+  }
+
+  return byRental;
+};
+
 export const loadContractsData = async (client: CoreApiClient, scope: Scope): Promise<ContractsData> => {
-  const [rentals, payments] = await Promise.all([loadRentals(client), loadDepositPayments(client)]);
+  const [rentals, payments, docs] = await Promise.all([loadRentals(client), loadDepositPayments(client), loadContractDocs(client)]);
   const renewedBy = new Map<string, string>();
 
   for (const node of rentals) {
@@ -131,9 +159,14 @@ export const loadContractsData = async (client: CoreApiClient, scope: Scope): Pr
         newRent: money(node.newRent) || null,
         newRentFrom: node.newRentFrom ?? null,
         stampedOn: node.stampedOn ?? null,
-        agreement: ((node.agreement as unknown as Array<{ label?: string | null; url?: string | null }> | null) ?? [])
-          .filter((file) => file?.url)
-          .map((file) => ({ label: file.label || 'Agreement', url: file.url as string })),
+        docCount: (docs.get(node.id) ?? []).length,
+        docTypes: [
+          ...new Set([
+            ...(docs.get(node.id) ?? []),
+            // IC, inventory and move-in photos carry over from the renewed contract.
+            ...(node.renewalOfId ? (docs.get(node.renewalOfId as string) ?? []).filter((t) => CARRIES_OVER.includes(t)) : []),
+          ]),
+        ],
         renewalOfId: (node.renewalOfId as string | null) ?? null,
         renewedById: renewedBy.get(node.id) ?? null,
         deposit: {

@@ -202,3 +202,13 @@ export const TAX_PACK_ROUTE_FUNCTION_ID = '43d49c4c-f997-42a4-849b-7d6e928e76f2'
 
 // Signed tenancy agreement on the contract (stored with the other files, in R2).
 export const RENTAL_AGREEMENT_FILES_FIELD_ID = 'fd0cd005-1c87-4fc4-ba2e-759ea27485a4';
+
+// Documents on contracts and tenants; uploads from the rental pages.
+export const DOCUMENT_RENTAL_FIELD_ID = '6b3ffcb4-041f-4427-b267-f42069c7c56e';
+export const RENTAL_DOCUMENTS_FIELD_ID = 'fd07be16-47c9-49e2-97ee-1bc57ede7718';
+export const DOCUMENT_TENANT_FIELD_ID = '54eceb04-f6b5-40ab-9f83-37db77d3f328';
+export const PERSON_DOCUMENTS_FIELD_ID = 'db12a6e8-c496-46be-a384-5fdd88ffd92b';
+export const DOCUMENT_TYPE_ADDENDUM_OPTION_ID = '98189f9e-e84e-441a-b0d3-46b4dd3dc0fd';
+export const DOCUMENT_TYPE_MOVE_IN_OPTION_ID = '38d3e791-c7ef-4cd6-953b-9911f483c42b';
+export const DOCUMENT_TYPE_MOVE_OUT_OPTION_ID = 'd85b4301-c969-4d59-b66d-53c50a6efea4';
+export const FILES_ROUTE_FUNCTION_ID = '4e2a9d0d-8e74-466f-9395-533e5c6c87f7';

@@ -4,6 +4,8 @@ import { defineFrontComponent } from 'twenty-sdk/define';
 import { AppPath, enqueueSnackbar, navigate, openSidePanelPage, SidePanelPages } from 'twenty-sdk/front-component';
 
 import { CONTRACTS_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
+import { ContractDocumentsPanel } from 'src/front-components/shared/contract-documents';
+import { filesFromEvent, type PickedFile } from 'src/front-components/shared/file-drop';
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { todayIso } from 'src/logic-functions/utils/dates';
@@ -19,6 +21,7 @@ import {
   settleDeposit,
   termEnd,
 } from 'src/shared/contracts';
+import { CONTRACT_CHECKLIST, docType } from 'src/shared/documents';
 import { rentForMonth } from 'src/shared/rent-month';
 import { whatsappLink } from 'src/shared/whatsapp-link';
 
@@ -143,6 +146,7 @@ const Contracts = () => {
   const [search, setSearch] = useState('');
   const [renewing, setRenewing] = useState<ContractCard | null>(null);
   const [depositFor, setDepositFor] = useState<ContractCard | null>(null);
+  const [docsFor, setDocsFor] = useState<{ contract: ContractCard; files?: PickedFile[] } | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -209,6 +213,21 @@ const Contracts = () => {
             onDone={async () => {
               setRenewing(null);
               await reload();
+            }}
+          />
+        </Sheet>
+      )}
+      {docsFor && (
+        <Sheet width={600} onClose={() => setDocsFor(null)}>
+          <ContractDocumentsPanel
+            key={docsFor.contract.id}
+            contract={docsFor.contract}
+            initialFiles={docsFor.files}
+            onClose={() => setDocsFor(null)}
+            onChanged={() => {
+              post<{ data?: ContractsData }>({ action: 'list' }).then((result) => {
+                if (result.success && result.data) setContracts(result.data.contracts);
+              });
             }}
           />
         </Sheet>
@@ -283,7 +302,15 @@ const Contracts = () => {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {rows.map((x) => (
-              <ContractRow key={x.id} contract={x} today={today} all={contracts} onRenew={() => setRenewing(x)} onDeposit={() => setDepositFor(x)} />
+              <ContractRow
+                key={x.id}
+                contract={x}
+                today={today}
+                all={contracts}
+                onRenew={() => setRenewing(x)}
+                onDeposit={() => setDepositFor(x)}
+                onDocuments={(files) => setDocsFor({ contract: x, files })}
+              />
             ))}
           </div>
         )}
@@ -304,13 +331,17 @@ const ContractRow = ({
   all,
   onRenew,
   onDeposit,
+  onDocuments,
 }: {
   contract: ContractCard;
   today: string;
   all: ContractCard[];
   onRenew: () => void;
   onDeposit: () => void;
+  onDocuments: (files?: PickedFile[]) => void;
 }) => {
+  const [dropping, setDropping] = useState(false);
+  const missingDocs = CONTRACT_CHECKLIST.filter((item) => item.required && !x.docTypes.includes(item.type));
   const stage = endingStage(x, today);
   const days = x.endDate ? daysUntil(today, x.endDate) : null;
   const held = depositHeld(x.deposit);
@@ -357,7 +388,28 @@ const ContractRow = ({
   );
 
   return (
-    <div style={{ ...card, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+    // Drop files anywhere on the card to file them on this contract.
+    <div
+      onDragOver={() => !dropping && setDropping(true)}
+      onDragEnter={() => setDropping(true)}
+      onDragLeave={() => setDropping(false)}
+      onDrop={(event) => {
+        setDropping(false);
+
+        const files = filesFromEvent(event);
+
+        if (files.length) onDocuments(files);
+      }}
+      style={{
+        ...card,
+        padding: 14,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        ...(dropping ? { border: '2px dashed var(--t-color-blue8)', background: 'var(--t-color-blue2)' } : {}),
+      }}
+    >
+      {dropping && <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--t-color-blue11)' }}>📥 Drop to add to this contract’s documents</div>}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <span style={{ width: 40, height: 40, borderRadius: 10, background: c.bg2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
           {x.propertyType === 'SHOP' ? '🏪' : x.propertyType === 'LANDED' ? '🏡' : x.propertyType === 'ROOM' ? '🛏️' : '🏢'}
@@ -371,24 +423,6 @@ const ContractRow = ({
         </div>
         {statusPill}
       </div>
-
-      {/* Signed agreement: open it, or upload it on the contract */}
-      {x.agreement.length > 0 && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {x.agreement.map((file, index) => (
-            <a
-              key={`${file.url}-${index}`}
-              href={file.url}
-              target="_blank"
-              rel="noreferrer"
-              title={file.label}
-              style={{ ...button(), height: 30, fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', maxWidth: '100%', overflow: 'hidden' }}
-            >
-              📄 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.label}</span>
-            </a>
-          ))}
-        </div>
-      )}
 
       {/* Term */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -415,7 +449,11 @@ const ContractRow = ({
         <span style={{ flex: '1 1 180px', fontSize: 12.5, color: c.text3, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ color: held > 0 ? 'var(--t-color-sky11)' : c.text3 }}>🛡 {depositText}</span>
           {x.status === 'ACTIVE' && !x.stampedOn && <span style={{ color: 'var(--t-color-orange11)' }}>§ Not stamped</span>}
-          {x.agreement.length === 0 && x.status !== 'ENDED' && <span style={{ color: 'var(--t-color-amber11)' }}>📄 No agreement uploaded</span>}
+          {x.status !== 'ENDED' && missingDocs.length > 0 ? (
+            <span style={{ color: 'var(--t-color-amber11)' }}>📁 Missing: {missingDocs.map((m) => docType(m.type).label).join(', ')}</span>
+          ) : x.docCount > 0 ? (
+            <span>📁 {x.docCount} document{x.docCount === 1 ? '' : 's'}</span>
+          ) : null}
           {renewal && <span>→ renewed to {day(renewal.endDate)}</span>}
         </span>
         {x.status === 'ACTIVE' && !renewal && stage !== 'none' && offer && (
@@ -423,8 +461,11 @@ const ContractRow = ({
             Ask to renew
           </a>
         )}
-        <button onClick={() => openContract(x.id)} style={{ ...button(), color: c.text2 }} title={x.agreement.length ? 'Open the contract' : 'Open the contract to upload the signed agreement'}>
-          {x.agreement.length || x.status === 'ENDED' ? 'Open' : '📎 Upload agreement'}
+        <button onClick={() => openContract(x.id)} style={{ ...button(), color: c.text2 }}>
+          Open
+        </button>
+        <button onClick={() => onDocuments()} style={button()} title="Agreement, stamp certificate, IC, photos — or drop files on this card">
+          📁 Documents{missingDocs.length && x.status !== 'ENDED' ? ` (${missingDocs.length} missing)` : ''}
         </button>
         {(held > 0 || x.deposit.refunded > 0 || x.deposit.status === 'FORFEITED') && (
           <button onClick={onDeposit} style={button()}>

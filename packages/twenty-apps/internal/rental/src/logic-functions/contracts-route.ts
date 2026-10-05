@@ -8,7 +8,8 @@ import { resolveScope } from 'src/logic-functions/utils/scope';
 import { type Deduction, depositHeld, deductionLine, settleDeposit } from 'src/shared/contracts';
 
 type Body = {
-  action?: 'list' | 'renew' | 'settleDeposit' | 'reopenDeposit';
+  action?: 'list' | 'renew' | 'settleDeposit' | 'reopenDeposit' | 'setStamped';
+  stampedOn?: string;
   rentalId?: string;
   // renew
   startDate?: string;
@@ -134,6 +135,13 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
             ? 'Deposit fully used for deductions — nothing to refund.'
             : `Deposit settled: refund ${rm(result.refund)}${result.deducted ? ` after ${rm(result.deducted)} in deductions` : ''}.`,
       });
+    }
+
+    if (body.action === 'setStamped') {
+      if (!isIsoDate(body.stampedOn)) return json({ success: false, message: 'Pick the stamping date.' }, 400);
+      await client.mutation({ updateRental: { __args: { id: contract.id, data: { stampedOn: body.stampedOn } }, id: true } });
+
+      return json({ success: true, message: 'Marked as stamped.' });
     }
 
     if (body.action === 'reopenDeposit') {

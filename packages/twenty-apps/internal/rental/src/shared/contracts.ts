@@ -36,7 +36,8 @@ export type ContractCard = {
   newRent: number | null;
   newRentFrom: string | null;
   stampedOn: string | null;
-  agreement: Array<{ label: string; url: string }>; // signed agreement files
+  docTypes: string[]; // document types on file (incl. ones carried from the renewed contract)
+  docCount: number; // documents filed on this contract
   renewalOfId: string | null;
   renewedById: string | null; // the contract that renews this one
   deposit: DepositInfo;
