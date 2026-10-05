@@ -190,10 +190,10 @@ const Contracts = () => {
   const kpi = (label: string, value: string, hint: string, target: Filter, color: string) => (
     <button
       onClick={() => setFilter(filter === target ? 'active' : target)}
-      style={{ all: 'unset', boxSizing: 'border-box', cursor: 'pointer', border: `1px solid ${filter === target ? c.accent : c.border}`, borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, borderLeft: `3px solid var(--t-color-${color}9)` }}
+      style={{ all: 'unset', boxSizing: 'border-box', cursor: 'pointer', border: `1px solid ${filter === target ? c.accent : c.border}`, borderRadius: 12, padding: 'clamp(10px, 3cqw, 14px)', display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, borderLeft: `3px solid var(--t-color-${color}9)` }}
     >
       <span style={{ fontSize: 12.5, color: c.text3 }}>{label}</span>
-      <span style={{ fontSize: 22, fontWeight: 700 }}>{value}</span>
+      <span style={{ fontSize: 'clamp(18px, 5.5cqw, 22px)', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</span>
       <span style={{ fontSize: 12, color: c.text3 }}>{hint}</span>
     </button>
   );
@@ -246,7 +246,8 @@ const Contracts = () => {
           <OwnerSwitcher scope={scope} />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(160px, 100%), 1fr))', gap: 10 }}>
+        {/* Two per row on a phone, four on a wide screen */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(150px, calc(50% - 5px)), 1fr))', gap: 10 }}>
           {kpi('Active contracts', String(active.length), `${rm(active.reduce((s, x) => s + rentForMonth(x, today), 0))}/month in rent`, 'active', 'green')}
           {kpi('Ending soon', String(ending.length), 'within 120 days', 'ending', ending.length ? 'amber' : 'gray')}
           {kpi('Deposits held', rm(heldTotal), `${withDeposit.length} contract${withDeposit.length === 1 ? '' : 's'} · not your income`, 'deposits', 'sky')}
