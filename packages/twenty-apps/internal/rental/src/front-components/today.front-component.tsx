@@ -11,13 +11,14 @@ import { todayIso } from 'src/logic-functions/utils/dates';
 import type { Contract, TodayData } from 'src/logic-functions/page-data/today-data';
 import { whatsappLink } from 'src/shared/whatsapp-link';
 import { type AgendaItem, agendaItems } from 'src/shared/agenda';
+import { occasionOf, upcomingOccasions } from 'src/shared/campaigns';
 
 // ---------------------------------------------------------------- types
 
 // Server data with paid months as a set for quick lookups.
 type Data = Omit<TodayData, 'paid'> & { paid: Set<string> };
 
-type Kind = 'overdue' | 'due' | 'rentChange' | 'ending' | 'stamp' | 'document' | 'birthday' | 'bills' | 'repeat';
+type Kind = 'overdue' | 'due' | 'rentChange' | 'ending' | 'stamp' | 'document' | 'birthday' | 'bills' | 'repeat' | 'campaign';
 
 type Item = {
   key: string;
@@ -268,6 +269,7 @@ const KIND: Record<Kind, { label: string; color: string; icon: string }> = {
   birthday: { label: 'Birthday', color: 'pink', icon: '✦' },
   bills: { label: 'Bills', color: 'amber', icon: '📎' },
   repeat: { label: 'Bill', color: 'iris', icon: '🔁' },
+  campaign: { label: 'Campaign', color: 'pink', icon: '🎉' },
 };
 
 const smallButton: CSSProperties = {
@@ -427,6 +429,7 @@ const Today = () => {
       documents: data.documents.filter((x) => scope.matches(x.ownerId)),
       expenses: data.expenses.filter((x) => scope.matches(x.ownerId)),
       bills: (data.bills ?? []).filter((x) => scope.matches(x.ownerId)),
+      campaigns: (data.campaigns ?? []).filter((x) => scope.matches(x.ownerId)),
     };
     // Repeating bills due in the next 30 days.
     const repeatItems: Item[] = scoped.bills
@@ -441,7 +444,29 @@ const Today = () => {
         open: () => openPage('Expenses'),
         openLabel: 'Add',
       }));
-    const items = [...buildItems(scoped, today), ...repeatItems].sort((a, b) => a.date.localeCompare(b.date));
+    // Campaigns due (ready to send) or coming up; holidays with nothing planned.
+    const campaignItems: Item[] = scoped.campaigns.map((x) => ({
+      key: `campaign-${x.id}`,
+      kind: 'campaign',
+      date: x.sendOn,
+      title: x.sendOn <= today ? `${x.name} — ready to send` : x.name,
+      detail: x.sent ? `${x.sent} sent so far` : x.kind === 'GREETING' ? `${occasionOf(x.occasion).icon} Greeting on WhatsApp` : 'On WhatsApp',
+      open: () => openPage('Campaigns'),
+      openLabel: x.sendOn <= today ? 'Send' : 'Open',
+    }));
+    const planned = new Set(scoped.campaigns.map((x) => `${x.occasion}|${x.sendOn.slice(0, 4)}`));
+    const holidayItems: Item[] = upcomingOccasions(today, 14)
+      .filter(({ occasion, date }) => !planned.has(`${occasion.value}|${date.slice(0, 4)}`))
+      .map(({ occasion, date }) => ({
+        key: `holiday-${occasion.value}-${date}`,
+        kind: 'campaign',
+        date,
+        title: `${occasion.icon} ${occasion.label}`,
+        detail: 'No greeting planned yet',
+        open: () => openPage('Campaigns'),
+        openLabel: 'Plan',
+      }));
+    const items = [...buildItems(scoped, today), ...repeatItems, ...campaignItems, ...holidayItems].sort((a, b) => a.date.localeCompare(b.date));
     const scopedEntries = agendaItems(scoped, today);
     const week = addDays(today, 7);
     const overdue = items.filter((i) => i.kind === 'overdue');
@@ -456,6 +481,7 @@ const Today = () => {
         (i.kind === 'stamp' && daysBetween(today, i.date) <= 14) ||
         (i.kind === 'due' && i.date <= week) ||
         (i.kind === 'repeat' && i.date <= week) ||
+        (i.kind === 'campaign' && i.date <= today && i.key.startsWith('campaign-')) ||
         (i.kind === 'ending' && i.date < today) ||
         (i.kind === 'document' && i.date < today),
     );

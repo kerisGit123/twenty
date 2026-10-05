@@ -17,7 +17,7 @@ const loadPageIds = async (): Promise<Record<string, string>> => {
   }
 };
 
-export const openPage = async (name: 'Today' | 'Rent Ledger' | 'Expenses' | 'Rental Summary' | 'Contracts') => {
+export const openPage = async (name: 'Today' | 'Rent Ledger' | 'Expenses' | 'Rental Summary' | 'Contracts' | 'Campaigns') => {
   pageIds ??= loadPageIds();
   const id = (await pageIds)[name];
 

@@ -53,12 +53,15 @@ export type TodayData = {
   documents: Doc[];
   expenses: Expense[];
   bills: RepeatingBill[]; // next bills of repeating expenses, not yet added
+  campaigns: TodayCampaign[]; // scheduled or being sent, due within 30 days
 };
+
+export type TodayCampaign = { id: string; name: string; kind: string; occasion: string; sendOn: string; status: string; sent: number; ownerId: string | null };
 
 const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData> => {
   const since = `${Number(today.slice(0, 4)) - Math.ceil(ARREARS_MONTHS / 12)}${today.slice(4, 7)}-01`;
 
-  const [{ rentals }, { rentPayments }, { people }, { documents }, { expenses }, bills] = await Promise.all([
+  const [{ rentals }, { rentPayments }, { people }, { documents }, { expenses }, bills, campaignResult] = await Promise.all([
     client.query({
       rentals: {
         __args: { filter: { status: { neq: 'DRAFT' } }, first: 200 },
@@ -119,6 +122,12 @@ const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData>
       },
     }),
     loadRepeatingBills(client),
+    client.query({
+      campaigns: {
+        __args: { first: 100, filter: { status: { in: ['SCHEDULED', 'SENDING'] }, sendOn: { lte: addDays(today, 30) } } },
+        edges: { node: { id: true, name: true, kind: true, occasion: true, sendOn: true, status: true, progress: true, ownerId: true } },
+      },
+    } as never) as Promise<{ campaigns?: { edges?: Array<{ node: Record<string, unknown> }> } }>,
   ]);
 
   const renewedIds = new Set((rentals?.edges ?? []).map(({ node }) => node.renewalOfId as string | null).filter(Boolean));
@@ -193,6 +202,16 @@ const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData>
       ownerId: node.ownerId ?? null,
     })),
     bills,
+    campaigns: (campaignResult.campaigns?.edges ?? []).map(({ node }) => ({
+      id: node.id as string,
+      name: (node.name as string) ?? 'Campaign',
+      kind: (node.kind as string) ?? 'GREETING',
+      occasion: (node.occasion as string) ?? 'CUSTOM',
+      sendOn: (node.sendOn as string) ?? today,
+      status: (node.status as string) ?? 'SCHEDULED',
+      sent: Object.keys(((node.progress as { sent?: Record<string, string> } | null)?.sent) ?? {}).length,
+      ownerId: (node.ownerId as string | null) ?? null,
+    })),
   };
 };
 
@@ -209,5 +228,6 @@ export const loadTodayData = async (client: CoreApiClient, scope: Scope): Promis
     documents: data.documents.filter((doc) => inScope(scope, doc.ownerId)),
     expenses: data.expenses.filter((expense) => inScope(scope, expense.ownerId)),
     bills: data.bills.filter((bill) => inScope(scope, bill.ownerId)),
+    campaigns: data.campaigns.filter((campaign) => inScope(scope, campaign.ownerId)),
   };
 };

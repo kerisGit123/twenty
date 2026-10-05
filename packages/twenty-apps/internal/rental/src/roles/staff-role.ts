@@ -9,6 +9,7 @@ import {
   NOTIFICATION_SETTING_OBJECT_ID,
   STAFF_ROLE_ID,
 } from 'src/constants/universal-identifiers-v3';
+import { CAMPAIGN_OBJECT_ID } from 'src/constants/universal-identifiers-v4';
 import { DOCUMENT_TEMPLATE_OBJECT_ID } from 'src/objects/document-template.object';
 import { RECEIPT_SETTING_OBJECT_ID } from 'src/objects/receipt-setting.object';
 
@@ -28,6 +29,7 @@ const NO_ACCESS = [
   DOCUMENT_TEMPLATE_OBJECT_ID,
   NOTIFICATION_SETTING_OBJECT_ID,
   NOTIFICATION_LOG_OBJECT_ID,
+  CAMPAIGN_OBJECT_ID,
 ];
 
 export default defineRole({
