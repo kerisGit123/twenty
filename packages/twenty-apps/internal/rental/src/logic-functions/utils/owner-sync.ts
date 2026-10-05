@@ -60,6 +60,30 @@ export const personalOwnerId = async (client: CoreApiClient): Promise<string> =>
   return createOwner?.id as string;
 };
 
+// A team member's own Personal workspace (they host it), created on first use.
+export const memberPersonalOwnerId = async (client: CoreApiClient, memberId: string, name: string): Promise<string> => {
+  const { memberships } = await client.query({
+    memberships: {
+      __args: { filter: { memberId: { eq: memberId }, memberRole: { eq: 'HOST' } }, first: 100 },
+      edges: { node: { owner: { id: true, ownerType: true } } },
+    },
+  });
+  const existing = (memberships?.edges ?? []).find(({ node }) => (node.owner?.ownerType as string | null) === 'PERSONAL');
+
+  if (existing?.node.owner?.id) return existing.node.owner.id;
+
+  const { createOwner } = await client.mutation({
+    createOwner: { __args: { data: { name: 'Personal', ownerType: 'PERSONAL' } }, id: true },
+  });
+  const ownerId = createOwner?.id as string;
+
+  await client.mutation({
+    createMembership: { __args: { data: { ownerId, memberId, name, memberRole: 'HOST' } }, id: true },
+  });
+
+  return ownerId;
+};
+
 export const propertyOwnerId = async (client: CoreApiClient, propertyId?: string | null) => {
   if (!propertyId) return null;
 
@@ -132,6 +156,18 @@ export const backfillPropertyOwner = async (client: CoreApiClient, propertyId: s
   if (!ownerId) return;
 
   const personalId = await personalOwnerId(client);
+
+  // Contracts always follow their property.
+  const { rentals } = await client.query({
+    rentals: {
+      __args: { filter: { propertyId: { eq: propertyId } }, first: 200 },
+      edges: { node: { id: true, ownerId: true } },
+    },
+  });
+
+  for (const { node } of (rentals?.edges ?? []).filter((edge) => edge.node.ownerId !== ownerId)) {
+    await client.mutation({ updateRental: { __args: { id: node.id, data: { ownerId } }, id: true } });
+  }
   const unassigned = { or: [{ ownerId: { is: 'NULL' as const } }, { ownerId: { eq: personalId } }] };
 
   const { rentPayments } = await client.query({

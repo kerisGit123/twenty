@@ -114,3 +114,25 @@ export const WORKSPACES_PAGE_LAYOUT_ID = 'd3d834b4-429f-4672-bfad-23316c28c07a';
 export const WORKSPACES_TAB_ID = '0dcc94fa-3895-4a9e-bd55-6be41b4465f4';
 export const WORKSPACES_WIDGET_ID = 'ce9dd43f-f558-4274-bec9-c0a1c2002710';
 export const WORKSPACES_NAV_ITEM_ID = '5bfa4399-a909-4a93-ae30-725eeb33e656';
+export const WORKSPACE_PAYMENTS_VIEW_ID = '72a9fd1f-7349-4969-a1f6-721ab81c00f7';
+export const WORKSPACE_EXPENSES_VIEW_ID = '3fe3063e-7175-45c3-a836-6840f115f8b9';
+export const WORKSPACE_DOCUMENTS_VIEW_ID = 'b429ff66-44f3-4f78-80fc-b6b475869902';
+
+// Contract workspace (copied from its property)
+export const RENTAL_OWNER_FIELD_ID = 'b3df06a4-deba-4171-95e0-7f7e7667750a';
+export const OWNER_RENTALS_FIELD_ID = 'b7f67dfb-2166-4bb2-ae7a-8dd40cd793d4';
+
+// Workspace hosts: the person who made (or runs) a workspace can rename it and
+// manage its members.
+export const MEMBERSHIP_ROLE_FIELD_ID = 'a71f563b-5c6e-409a-9d30-37b333525df4';
+export const MEMBERSHIP_ROLE_HOST_OPTION_ID = '3f29326c-d435-47a5-8b93-2b94a42bad2a';
+export const MEMBERSHIP_ROLE_MEMBER_OPTION_ID = '947811ac-9ec9-4431-a020-ed9050b02029';
+
+// Year summary page and the Reports sidebar folder.
+export const YEAR_SUMMARY_FRONT_COMPONENT_ID = 'b7385b9a-15fe-4489-a7ef-ed1a0aba931f';
+export const YEAR_SUMMARY_PAGE_LAYOUT_ID = 'cc1d02de-3d64-406b-bd56-2f4b3ee9eb55';
+export const YEAR_SUMMARY_TAB_ID = 'f079d02a-c42c-425e-9aac-65b5cc678fa2';
+export const YEAR_SUMMARY_WIDGET_ID = '9e79f2f7-02ec-44a7-9140-9fae242044cd';
+export const YEAR_SUMMARY_NAV_ITEM_ID = 'c6b1db89-3ed7-486f-90a0-2a37ec574cfe';
+export const REPORTS_FOLDER_NAV_ID = 'b4a44080-5fd0-4cb9-975e-5d36ebd0e8ad';
+export const YEAR_REPORT_ROUTE_FUNCTION_ID = '09ec2d24-82ea-4b78-b545-6d9fbcbf6ed5';

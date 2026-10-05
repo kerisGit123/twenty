@@ -4,6 +4,7 @@ import { Response } from 'twenty-sdk/logic-function';
 import { SCOPE_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers-v3';
 import { appClient } from 'src/logic-functions/utils/app-client';
 import { inScope, resolveScope } from 'src/logic-functions/utils/scope';
+import { workspaceLabel } from 'src/logic-functions/utils/workspace-label';
 
 // POST {} -> { all, owners }: the rental workspaces the caller may switch
 // between (all of them for admins).
@@ -11,12 +12,22 @@ const handler = async (_event: RoutePayload, context?: { workspaceMemberId?: str
   try {
     const client = appClient();
     const scope = await resolveScope(client, context?.workspaceMemberId);
-    const { owners } = await client.query({
-      owners: {
-        __args: { first: 200, orderBy: [{ name: 'AscNullsLast' }] },
-        edges: { node: { id: true, name: true, ownerType: true } },
-      },
-    });
+    const [{ owners }, { memberships }] = await Promise.all([
+      client.query({
+        owners: {
+          __args: { first: 200, orderBy: [{ name: 'AscNullsLast' }] },
+          edges: { node: { id: true, name: true, ownerType: true } },
+        },
+      }),
+      client.query({
+        memberships: {
+          __args: { filter: { memberRole: { eq: 'HOST' }, memberId: { is: 'NOT_NULL' } }, first: 1000 },
+          edges: { node: { ownerId: true, name: true } },
+        },
+      }),
+    ]);
+    const hostNames = (ownerId: string) =>
+      (memberships?.edges ?? []).filter(({ node }) => node.ownerId === ownerId).map(({ node }) => node.name ?? '');
 
     return new Response(
       JSON.stringify({
@@ -24,7 +35,16 @@ const handler = async (_event: RoutePayload, context?: { workspaceMemberId?: str
         all: scope.all,
         owners: (owners?.edges ?? [])
           .filter(({ node }) => inScope(scope, node.id))
-          .map(({ node }) => ({ id: node.id, name: node.name ?? 'Workspace', type: (node.ownerType as string | null) ?? '' })),
+          .map(({ node }) => {
+            const type = (node.ownerType as string | null) ?? '';
+
+            return {
+              id: node.id,
+              name: workspaceLabel({ id: node.id, name: node.name ?? 'Workspace', type }, scope, hostNames(node.id)),
+              type,
+              mine: scope.hostIds.has(node.id),
+            };
+          }),
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );

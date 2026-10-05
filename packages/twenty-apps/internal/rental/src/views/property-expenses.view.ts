@@ -1,4 +1,4 @@
-import { defineView, ViewSortDirection, ViewType } from 'twenty-sdk/define';
+import { defineView, ViewFilterOperand, ViewSortDirection, ViewType } from 'twenty-sdk/define';
 
 import {
   EXPENSE_AMOUNT_FIELD_ID,
@@ -7,6 +7,7 @@ import {
   EXPENSE_NAME_FIELD_ID,
   EXPENSE_OBJECT_ID,
   EXPENSE_PAID_TO_FIELD_ID,
+  EXPENSE_PROPERTY_FIELD_ID,
   EXPENSE_RECEIPT_FIELD_ID,
 } from 'src/constants/universal-identifiers-v2';
 import {
@@ -26,6 +27,15 @@ export default defineView({
     { universalIdentifier: '5b33b470-a7a6-4842-b51a-94720232e4a7', fieldMetadataUniversalIdentifier: EXPENSE_AMOUNT_FIELD_ID, position: 3, isVisible: true },
     { universalIdentifier: 'e149e453-9b3f-43fa-828c-43d54e17923e', fieldMetadataUniversalIdentifier: EXPENSE_PAID_TO_FIELD_ID, position: 4, isVisible: true },
     { universalIdentifier: 'b1cc3c4b-fbba-44c7-b41a-78ffbeae2694', fieldMetadataUniversalIdentifier: EXPENSE_RECEIPT_FIELD_ID, position: 5, isVisible: true },
+  ],
+  // Only the rows of the record the page is showing.
+  filters: [
+    {
+      universalIdentifier: '97046cb3-0eb2-41ad-9177-d416f2a93017',
+      fieldMetadataUniversalIdentifier: EXPENSE_PROPERTY_FIELD_ID,
+      operand: ViewFilterOperand.IS,
+      value: '{"selectedRecordIds":[],"isCurrentRecordSelected":true}',
+    },
   ],
   sorts: [
     { universalIdentifier: 'e70fee26-0833-4bf7-a8e9-28a300af2deb', fieldMetadataUniversalIdentifier: EXPENSE_DATE_FIELD_ID, direction: ViewSortDirection.DESC },

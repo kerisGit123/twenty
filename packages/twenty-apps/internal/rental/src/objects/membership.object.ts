@@ -5,6 +5,9 @@ import {
   MEMBERSHIP_EMAIL_FIELD_ID,
   MEMBERSHIP_NAME_FIELD_ID,
   MEMBERSHIP_OBJECT_ID,
+  MEMBERSHIP_ROLE_FIELD_ID,
+  MEMBERSHIP_ROLE_HOST_OPTION_ID,
+  MEMBERSHIP_ROLE_MEMBER_OPTION_ID,
 } from 'src/constants/universal-identifiers-v3';
 
 // Link table: which team members belong to which rental workspace (Family,
@@ -44,6 +47,19 @@ export default defineObject({
       description: 'This person sees every rental workspace (admins).',
       icon: 'IconWorld',
       defaultValue: false,
+    },
+    {
+      universalIdentifier: MEMBERSHIP_ROLE_FIELD_ID,
+      type: FieldType.SELECT,
+      name: 'memberRole',
+      label: 'Role',
+      description: 'Hosts can rename the workspace and add or remove its members.',
+      icon: 'IconCrown',
+      defaultValue: "'MEMBER'",
+      options: [
+        { id: MEMBERSHIP_ROLE_HOST_OPTION_ID, value: 'HOST', label: 'Host', position: 0, color: 'orange' },
+        { id: MEMBERSHIP_ROLE_MEMBER_OPTION_ID, value: 'MEMBER', label: 'Member', position: 1, color: 'gray' },
+      ],
     },
   ],
 });

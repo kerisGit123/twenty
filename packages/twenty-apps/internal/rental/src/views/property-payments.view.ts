@@ -1,4 +1,4 @@
-import { defineView, ViewSortDirection, ViewType } from 'twenty-sdk/define';
+import { defineView, ViewFilterOperand, ViewSortDirection, ViewType } from 'twenty-sdk/define';
 
 import {
   PAYMENT_AMOUNT_FIELD_ID,
@@ -6,6 +6,7 @@ import {
   PAYMENT_OBJECT_ID,
   PAYMENT_PAID_ON_FIELD_ID,
   PAYMENT_PERIOD_FIELD_ID,
+  PAYMENT_PROPERTY_FIELD_ID,
   PAYMENT_RECEIPT_NUMBER_FIELD_ID,
   PAYMENT_STATUS_FIELD_ID,
   PAYMENT_TYPE_FIELD_ID,
@@ -28,6 +29,15 @@ export default defineView({
     { universalIdentifier: '328b0f79-4538-4503-8e3f-ebd5a9ca25a3', fieldMetadataUniversalIdentifier: PAYMENT_AMOUNT_FIELD_ID, position: 4, isVisible: true },
     { universalIdentifier: '47820a6f-0cf3-4526-be01-edaff5ea1da0', fieldMetadataUniversalIdentifier: PAYMENT_PAID_ON_FIELD_ID, position: 5, isVisible: true },
     { universalIdentifier: '7257fa08-75ee-4df8-89b8-69a29526202d', fieldMetadataUniversalIdentifier: PAYMENT_METHOD_FIELD_ID, position: 6, isVisible: true },
+  ],
+  // Only the rows of the record the page is showing.
+  filters: [
+    {
+      universalIdentifier: 'd771e65a-78db-4809-96ad-78b615083949',
+      fieldMetadataUniversalIdentifier: PAYMENT_PROPERTY_FIELD_ID,
+      operand: ViewFilterOperand.IS,
+      value: '{"selectedRecordIds":[],"isCurrentRecordSelected":true}',
+    },
   ],
   sorts: [
     { universalIdentifier: 'bd836734-675e-4d88-ac2c-459bbed4491e', fieldMetadataUniversalIdentifier: PAYMENT_PERIOD_FIELD_ID, direction: ViewSortDirection.DESC },

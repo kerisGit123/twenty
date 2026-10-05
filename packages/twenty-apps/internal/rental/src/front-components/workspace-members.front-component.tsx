@@ -1,21 +1,17 @@
-import { type CSSProperties, useCallback, useEffect, useState } from 'react';
-import { CoreApiClient } from 'twenty-client-sdk/core';
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useState } from 'react';
 import { MetadataApiClient } from 'twenty-client-sdk/metadata';
+import { RestApiClient } from 'twenty-client-sdk/rest';
 import { defineFrontComponent } from 'twenty-sdk/define';
 import { enqueueSnackbar, useRecordId } from 'twenty-sdk/front-component';
 
 import { WORKSPACE_MEMBERS_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
+import type { WorkspaceMembersResponse } from 'src/logic-functions/workspaces-route';
 
-// Members tab on a rental workspace (Family, Company A...): the team, with a
-// switch per person. Members of a workspace see only their workspaces on the
-// rental pages; people marked "All workspaces" (admins) see everything, and
-// everyone else sees nothing.
-// Inviting by email sends Twenty's invitation and keeps a pending membership
-// that is linked when the person joins (see on-member-joined).
-
-type Member = { id: string; name: string; email: string };
-type Membership = { id: string; ownerId: string; memberId: string | null; email: string };
-type AllAccess = { id: string; memberId: string };
+// Members tab on a rental workspace (Family, Company A...). Its hosts (and
+// admins) add and remove people and choose who else hosts; everyone else sees
+// the list. Members see only their workspaces on the rental pages; admins
+// ("All workspaces") see everything. All changes go through /s/workspaces,
+// which checks who's asking.
 
 const c = {
   font: 'var(--t-font-family)',
@@ -29,7 +25,6 @@ const c = {
   radius: 'var(--t-border-radius-md)',
 };
 
-
 const initials = (name: string) =>
   name
     .split(' ')
@@ -38,106 +33,36 @@ const initials = (name: string) =>
     .map((part) => part[0]?.toUpperCase())
     .join('') || '?';
 
+const call = (body: Record<string, unknown>) =>
+  new RestApiClient().post<{ success: boolean; message?: string; joined?: boolean; name?: string }>('/s/workspaces', body);
+
 const WorkspaceMembers = () => {
   const ownerId = useRecordId();
-  const [members, setMembers] = useState<Member[]>([]);
-  const [memberships, setMemberships] = useState<Membership[]>([]);
-  const [allAccess, setAllAccess] = useState<AllAccess[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<WorkspaceMembersResponse | null>(null);
   const [busy, setBusy] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
 
   const load = useCallback(async () => {
-    const client = new CoreApiClient();
-    const [{ workspaceMembers }, { memberships: page }] = await Promise.all([
-      client.query({
-        workspaceMembers: {
-          __args: { first: 200 },
-          edges: { node: { id: true, name: { firstName: true, lastName: true }, userEmail: true } },
-        },
-      }),
-      client.query({
-        memberships: {
-          __args: { first: 500 },
-          edges: { node: { id: true, ownerId: true, memberId: true, email: true, allWorkspaces: true } },
-        },
-      }),
-    ]);
-
-    setMembers(
-      (workspaceMembers?.edges ?? [])
-        .map(({ node }) => ({
-          id: node.id,
-          name: [node.name?.firstName, node.name?.lastName].filter(Boolean).join(' ') || node.userEmail || 'Member',
-          email: node.userEmail ?? '',
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    );
-    setMemberships(
-      (page?.edges ?? [])
-        .filter(({ node }) => !node.allWorkspaces && node.ownerId && (node.memberId || node.email))
-        .map(({ node }) => ({
-          id: node.id,
-          ownerId: node.ownerId as string,
-          memberId: node.memberId ?? null,
-          email: node.email ?? '',
-        })),
-    );
-    setAllAccess(
-      (page?.edges ?? [])
-        .filter(({ node }) => node.allWorkspaces && node.memberId)
-        .map(({ node }) => ({ id: node.id, memberId: node.memberId as string })),
-    );
-  }, []);
+    if (!ownerId) return;
+    try {
+      setData(await new RestApiClient().post<WorkspaceMembersResponse>('/s/workspaces', { action: 'members', id: ownerId }));
+    } catch (error) {
+      setData({ success: false, message: error instanceof Error ? error.message : 'Could not load members.' });
+    }
+  }, [ownerId]);
 
   useEffect(() => {
-    load()
-      .catch((error) =>
-        enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not load members.', variant: 'error' }),
-      )
-      .finally(() => setLoading(false));
+    load();
   }, [load]);
 
-  const flip = async (member: Member) => {
-    if (!ownerId) return;
-    const existing = memberships.find((m) => m.ownerId === ownerId && m.memberId === member.id);
-
-    setBusy(member.id);
+  // Runs one change, then reloads; `key` dims the row while it runs.
+  const run = async (key: string, body: Record<string, unknown>, done?: string) => {
+    setBusy(key);
     try {
-      const client = new CoreApiClient();
+      const result = await call({ id: ownerId, ...body });
 
-      if (existing) {
-        await client.mutation({ deleteMembership: { __args: { id: existing.id }, id: true } });
-      } else {
-        await client.mutation({
-          createMembership: { __args: { data: { ownerId, memberId: member.id, name: member.name } }, id: true },
-        });
-      }
-      await load();
-    } catch (error) {
-      await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not update.', variant: 'error' });
-    } finally {
-      setBusy('');
-    }
-  };
-
-  const flipAll = async (member: Member) => {
-    const existing = allAccess.find((a) => a.memberId === member.id);
-
-    setBusy(member.id);
-    try {
-      const client = new CoreApiClient();
-
-      if (existing) {
-        await client.mutation({ deleteMembership: { __args: { id: existing.id }, id: true } });
-      } else {
-        await client.mutation({
-          createMembership: {
-            __args: { data: { memberId: member.id, allWorkspaces: true, name: `${member.name} (all workspaces)` } },
-            id: true,
-          },
-        });
-      }
+      if (!result.success) throw new Error(result.message ?? 'Could not update.');
+      if (done) await enqueueSnackbar({ message: done, variant: 'success' });
       await load();
     } catch (error) {
       await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not update.', variant: 'error' });
@@ -149,51 +74,38 @@ const WorkspaceMembers = () => {
   const invite = async () => {
     const email = inviteEmail.trim().toLowerCase();
 
-    if (!ownerId || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
       await enqueueSnackbar({ message: 'Enter a valid email address.', variant: 'error' });
 
       return;
     }
 
-    const existingMember = members.find((m) => m.email.toLowerCase() === email);
-
     setBusy('invite');
     try {
-      const client = new CoreApiClient();
+      const result = await call({ action: 'add', id: ownerId, email });
 
-      if (existingMember) {
-        // Already on the team: just add them to this workspace.
-        if (!memberships.some((m) => m.ownerId === ownerId && m.memberId === existingMember.id)) {
-          await client.mutation({
-            createMembership: {
-              __args: { data: { ownerId, memberId: existingMember.id, name: existingMember.name } },
-              id: true,
-            },
-          });
-        }
-        await enqueueSnackbar({ message: `${existingMember.name} added to this workspace.`, variant: 'success' });
+      if (!result.success) throw new Error(result.message ?? 'Could not invite.');
+
+      if (result.joined) {
+        await enqueueSnackbar({ message: `${result.name ?? email} added to this workspace.`, variant: 'success' });
       } else {
+        // Not on the team yet: send Twenty's invitation (needs invite
+        // permission); the kept membership is linked when they join.
         let sent = false;
 
         try {
-          const result = (await new MetadataApiClient().mutation({
+          const response = (await new MetadataApiClient().mutation({
             sendInvitations: { __args: { emails: [email] }, success: true, errors: true },
           } as never)) as { sendInvitations?: { success?: boolean; errors?: string[] } };
 
-          sent = Boolean(result.sendInvitations?.success) && !(result.sendInvitations?.errors ?? []).length;
+          sent = Boolean(response.sendInvitations?.success) && !(response.sendInvitations?.errors ?? []).length;
         } catch {
           sent = false;
-        }
-
-        if (!memberships.some((m) => m.ownerId === ownerId && m.email === email)) {
-          await client.mutation({
-            createMembership: { __args: { data: { ownerId, email, name: email } }, id: true },
-          });
         }
         await enqueueSnackbar({
           message: sent
             ? `Invitation sent to ${email}. They'll get this workspace when they join.`
-            : `Saved ${email} for this workspace. Send the invitation from Settings → Members → Invite; they'll get this workspace when they join.`,
+            : `Saved ${email} for this workspace. An admin needs to invite them to the CRM (Settings → Members); they'll get this workspace when they join.`,
           variant: sent ? 'success' : 'warning',
         });
       }
@@ -206,24 +118,17 @@ const WorkspaceMembers = () => {
     }
   };
 
-  const cancelInvite = async (membership: Membership) => {
-    setBusy(membership.id);
-    try {
-      await new CoreApiClient().mutation({ deleteMembership: { __args: { id: membership.id }, id: true } });
-      await load();
-    } finally {
-      setBusy('');
-    }
-  };
+  if (!data) return <div style={{ padding: 16, fontFamily: c.font, color: c.text3, fontSize: 13 }}>Loading…</div>;
+  if (!data.success) {
+    return <div style={{ padding: 16, fontFamily: c.font, color: 'var(--t-color-red11)', fontSize: 13 }}>{data.message}</div>;
+  }
 
-  if (loading) return <div style={{ padding: 16, fontFamily: c.font, color: c.text3, fontSize: 13 }}>Loading…</div>;
-
-  const inThis = new Set(memberships.filter((m) => m.ownerId === ownerId).map((m) => m.memberId));
-  const admins = new Set(allAccess.map((a) => a.memberId));
-  const pending = memberships.filter((m) => m.ownerId === ownerId && !m.memberId);
-  // Admins see every workspace, so they count as members here too.
-  const current = members.filter((m) => inThis.has(m.id) || admins.has(m.id));
-  const others = members.filter((m) => !inThis.has(m.id) && !admins.has(m.id));
+  const manage = Boolean(data.canManage);
+  const members = data.members ?? [];
+  const admins = data.admins ?? [];
+  const pending = data.pending ?? [];
+  const team = data.team ?? [];
+  const hostCount = members.filter((m) => m.role === 'HOST').length;
 
   const smallButton = (tone: 'danger' | 'add' | 'plain'): CSSProperties => ({
     fontFamily: c.font,
@@ -249,7 +154,23 @@ const WorkspaceMembers = () => {
     borderTop: `1px solid ${c.border}`,
   };
 
-  const person = (member: Member, note: string) => (
+  const tag = (label: string, color: string) => (
+    <span
+      style={{
+        fontSize: 11,
+        fontWeight: 600,
+        padding: '1px 6px',
+        borderRadius: 4,
+        background: `var(--t-color-${color}3)`,
+        color: `var(--t-color-${color}11)`,
+        marginLeft: 6,
+      }}
+    >
+      {label}
+    </span>
+  );
+
+  const person = (name: string, email: string, badge?: ReactNode) => (
     <>
       <span
         style={{
@@ -266,13 +187,15 @@ const WorkspaceMembers = () => {
           flexShrink: 0,
         }}
       >
-        {initials(member.name)}
+        {initials(name)}
       </span>
       <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <span style={{ fontSize: 13, fontWeight: 500 }}>{member.name}</span>
+        <span style={{ fontSize: 13, fontWeight: 500 }}>
+          {name}
+          {badge}
+        </span>
         <span style={{ fontSize: 12, color: c.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {member.email}
-          {note ? ` · ${note}` : ''}
+          {email}
         </span>
       </span>
     </>
@@ -281,74 +204,85 @@ const WorkspaceMembers = () => {
   return (
     <div style={{ fontFamily: c.font, color: c.text, padding: 4, display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ fontSize: 13, color: c.text2, lineHeight: 1.5 }}>
-        People in this workspace see its properties, rent and expenses on the Today, Rent Ledger and Expenses pages —
-        nothing from other workspaces. Admins marked "All workspaces" see everything.
+        People in this workspace see its properties, rent and expenses — nothing from other workspaces.
+        {manage
+          ? ' As a host you can add or remove people and choose who else hosts.'
+          : ' Only the hosts can add or remove people.'}
       </div>
 
-      <div style={{ display: 'flex', gap: 8 }}>
-        <input
-          value={inviteEmail}
-          onChange={(e) => {
-            const object = e as unknown as { detail?: { value?: string }; target?: { value?: string } };
+      {manage && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            value={inviteEmail}
+            onChange={(e) => {
+              const object = e as unknown as { detail?: { value?: string }; target?: { value?: string } };
 
-            setInviteEmail(object.detail?.value ?? object.target?.value ?? '');
-          }}
-          placeholder="Invite by email, e.g. ali@company-a.com"
-          style={{
-            flex: 1,
-            fontFamily: c.font,
-            fontSize: 13,
-            color: c.text,
-            background: c.bg,
-            border: `1px solid ${c.border2}`,
-            borderRadius: c.radius,
-            height: 32,
-            padding: '0 10px',
-            boxSizing: 'border-box',
-          }}
-        />
-        <button
-          onClick={invite}
-          disabled={busy !== ''}
-          style={{
-            fontFamily: c.font,
-            fontSize: 13,
-            fontWeight: 500,
-            color: '#fff',
-            background: 'var(--t-color-blue9)',
-            border: '1px solid var(--t-color-blue9)',
-            borderRadius: c.radius,
-            height: 32,
-            padding: '0 14px',
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {busy === 'invite' ? 'Inviting…' : 'Invite to this workspace'}
-        </button>
-      </div>
+              setInviteEmail(object.detail?.value ?? object.target?.value ?? '');
+            }}
+            placeholder="Invite by email, e.g. ali@company-a.com"
+            style={{
+              flex: 1,
+              fontFamily: c.font,
+              fontSize: 13,
+              color: c.text,
+              background: c.bg,
+              border: `1px solid ${c.border2}`,
+              borderRadius: c.radius,
+              height: 32,
+              padding: '0 10px',
+              boxSizing: 'border-box',
+            }}
+          />
+          <button
+            onClick={invite}
+            disabled={busy !== ''}
+            style={{
+              fontFamily: c.font,
+              fontSize: 13,
+              fontWeight: 500,
+              color: '#fff',
+              background: 'var(--t-color-blue9)',
+              border: '1px solid var(--t-color-blue9)',
+              borderRadius: c.radius,
+              height: 32,
+              padding: '0 14px',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {busy === 'invite' ? 'Inviting…' : 'Invite to this workspace'}
+          </button>
+        </div>
+      )}
 
       <div style={section}>
-        <div style={sectionTitle}>Members · {current.length}</div>
-        {current.length === 0 && (
-          <div style={{ ...rowStyle, fontSize: 13, color: c.text3 }}>Nobody yet. Invite someone or add them from your team below.</div>
+        <div style={sectionTitle}>Members · {members.length}</div>
+        {members.length === 0 && (
+          <div style={{ ...rowStyle, fontSize: 13, color: c.text3 }}>Nobody yet.</div>
         )}
-        {current.map((member) => {
-          const isAdmin = admins.has(member.id);
+        {members.map((member) => {
+          const isHost = member.role === 'HOST';
+          const lastHost = isHost && hostCount <= 1;
 
           return (
-            <div key={member.id} style={{ ...rowStyle, opacity: busy === member.id ? 0.5 : 1 }}>
-              {person(member, isAdmin ? 'Admin — all workspaces' : '')}
-              {isAdmin ? (
-                <button onClick={() => flipAll(member)} disabled={busy !== ''} style={smallButton('plain')}>
-                  Remove admin
-                </button>
-              ) : (
+            <div key={member.membershipId} style={{ ...rowStyle, opacity: busy === member.membershipId ? 0.5 : 1 }}>
+              {person(member.name, member.email, isHost ? tag('Host', 'orange') : undefined)}
+              {manage && !lastHost && (
                 <>
-                  <button onClick={() => flipAll(member)} disabled={busy !== ''} style={smallButton('plain')}>
-                    Make admin
+                  <button
+                    onClick={() =>
+                      run(member.membershipId, { action: 'setRole', membershipId: member.membershipId, role: isHost ? 'MEMBER' : 'HOST' })
+                    }
+                    disabled={busy !== ''}
+                    style={smallButton('plain')}
+                  >
+                    {isHost ? 'Make member' : 'Make host'}
                   </button>
-                  <button onClick={() => flip(member)} disabled={busy !== ''} style={smallButton('danger')}>
+                  <button
+                    onClick={() => run(member.membershipId, { action: 'remove', membershipId: member.membershipId })}
+                    disabled={busy !== ''}
+                    style={smallButton('danger')}
+                  >
                     Remove
                   </button>
                 </>
@@ -358,13 +292,37 @@ const WorkspaceMembers = () => {
         })}
       </div>
 
+      {admins.length > 0 && (
+        <div style={section}>
+          <div style={sectionTitle}>Admins — see every workspace · {admins.length}</div>
+          {admins.map((admin) => (
+            <div key={admin.membershipId} style={{ ...rowStyle, opacity: busy === admin.membershipId ? 0.5 : 1 }}>
+              {person(admin.name, admin.email, tag('Admin', 'blue'))}
+              {data.isAdmin && admin.memberId !== data.me && (
+                <button
+                  onClick={() => run(admin.membershipId, { action: 'setAdmin', memberId: admin.memberId, on: false })}
+                  disabled={busy !== ''}
+                  style={smallButton('plain')}
+                >
+                  Remove admin
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {pending.length > 0 && (
         <div style={section}>
           <div style={sectionTitle}>Invited — waiting to join · {pending.length}</div>
           {pending.map((membership) => (
-            <div key={membership.id} style={{ ...rowStyle, fontSize: 13 }}>
+            <div key={membership.membershipId} style={{ ...rowStyle, fontSize: 13 }}>
               <span style={{ flex: 1 }}>{membership.email}</span>
-              <button onClick={() => cancelInvite(membership)} disabled={busy !== ''} style={smallButton('plain')}>
+              <button
+                onClick={() => run(membership.membershipId, { action: 'remove', membershipId: membership.membershipId })}
+                disabled={busy !== ''}
+                style={smallButton('plain')}
+              >
                 Cancel invite
               </button>
             </div>
@@ -372,13 +330,26 @@ const WorkspaceMembers = () => {
         </div>
       )}
 
-      {others.length > 0 && (
+      {team.length > 0 && (
         <div style={section}>
-          <div style={sectionTitle}>Add from your team · {others.length}</div>
-          {others.map((member) => (
-            <div key={member.id} style={{ ...rowStyle, opacity: busy === member.id ? 0.5 : 1 }}>
-              {person(member, '')}
-              <button onClick={() => flip(member)} disabled={busy !== ''} style={smallButton('add')}>
+          <div style={sectionTitle}>Add from your team · {team.length}</div>
+          {team.map((member) => (
+            <div key={member.memberId} style={{ ...rowStyle, opacity: busy === member.memberId ? 0.5 : 1 }}>
+              {person(member.name, member.email)}
+              {data.isAdmin && (
+                <button
+                  onClick={() => run(member.memberId, { action: 'setAdmin', memberId: member.memberId, on: true })}
+                  disabled={busy !== ''}
+                  style={smallButton('plain')}
+                >
+                  Make admin
+                </button>
+              )}
+              <button
+                onClick={() => run(member.memberId, { action: 'add', memberId: member.memberId })}
+                disabled={busy !== ''}
+                style={smallButton('add')}
+              >
                 Add
               </button>
             </div>
@@ -386,10 +357,11 @@ const WorkspaceMembers = () => {
         </div>
       )}
 
-      <div style={{ fontSize: 12, color: c.text3, lineHeight: 1.5 }}>
-        Removing someone here takes this workspace away from them. To remove them from the CRM completely, use
-        Settings → Members.
-      </div>
+      {manage && (
+        <div style={{ fontSize: 12, color: c.text3, lineHeight: 1.5 }}>
+          Removing someone here takes this workspace away from them. A workspace always keeps at least one host.
+        </div>
+      )}
     </div>
   );
 };
@@ -397,6 +369,6 @@ const WorkspaceMembers = () => {
 export default defineFrontComponent({
   universalIdentifier: WORKSPACE_MEMBERS_FRONT_COMPONENT_ID,
   name: 'workspace-members',
-  description: 'Choose which team members belong to a rental workspace',
+  description: "A rental workspace's members; its hosts add and remove people",
   component: WorkspaceMembers,
 });

@@ -16,6 +16,7 @@ export type RentalRecord = {
   utilityDeposit?: Money;
   propertyId?: string | null;
   tenantId?: string | null;
+  ownerId?: string | null;
   property?: {
     name?: string | null;
     ownerId?: string | null;
@@ -52,6 +53,7 @@ export const loadRental = async (
           utilityDeposit: { amountMicros: true, currencyCode: true },
           propertyId: true,
           tenantId: true,
+          ownerId: true,
           property: {
             name: true,
             ownerId: true,
@@ -67,7 +69,8 @@ export const loadRental = async (
   return (rentals?.edges?.[0]?.node as RentalRecord | undefined) ?? null;
 };
 
-// Name "Property · Tenant" and rent/deposit from the property, only where empty.
+// Name "Property · Tenant" and rent/deposit from the property, only where
+// empty; the workspace always follows the property.
 export const fillRentalDefaults = async (client: CoreApiClient, rental: RentalRecord) => {
   const data: Record<string, unknown> = {};
   const tenantName = [rental.tenant?.name?.firstName, rental.tenant?.name?.lastName]
@@ -84,6 +87,9 @@ export const fillRentalDefaults = async (client: CoreApiClient, rental: RentalRe
   }
   if (!hasAmount(rental.depositAmount) && hasAmount(rental.property?.depositAmount)) {
     data.depositAmount = toMoneyInput(rental.property?.depositAmount);
+  }
+  if (rental.property?.ownerId && rental.ownerId !== rental.property.ownerId) {
+    data.ownerId = rental.property.ownerId;
   }
 
   if (Object.keys(data).length > 0) {

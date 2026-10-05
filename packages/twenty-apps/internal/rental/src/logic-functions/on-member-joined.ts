@@ -5,10 +5,12 @@ import {
 import { type DatabaseEventBatchPayload } from 'twenty-sdk/logic-function';
 
 import { appClient } from 'src/logic-functions/utils/app-client';
+import { memberPersonalOwnerId } from 'src/logic-functions/utils/owner-sync';
 import { ON_MEMBER_JOINED_FUNCTION_ID } from 'src/constants/universal-identifiers-v3';
 
-// Someone accepted an invite: link the rental workspaces they were invited to
-// (pending memberships with their email) to their new team-member record.
+// Someone joined the team: give them their own Personal workspace, and link
+// the rental workspaces they were invited to (pending memberships with their
+// email) to their new team-member record.
 const handler = async (
   batch: DatabaseEventBatchPayload<ObjectRecordCreateEvent<{ id?: string | null }>>,
 ): Promise<void> => {
@@ -28,7 +30,13 @@ const handler = async (
     const member = workspaceMembers?.edges?.[0]?.node;
     const email = member?.userEmail?.trim().toLowerCase();
 
-    if (!member || !email) continue;
+    if (!member) continue;
+
+    const name = [member.name?.firstName, member.name?.lastName].filter(Boolean).join(' ') || email || 'Member';
+
+    await memberPersonalOwnerId(client, member.id, name);
+
+    if (!email) continue;
 
     const { memberships } = await client.query({
       memberships: {
@@ -36,7 +44,6 @@ const handler = async (
         edges: { node: { id: true } },
       },
     });
-    const name = [member.name?.firstName, member.name?.lastName].filter(Boolean).join(' ') || email;
 
     for (const { node } of memberships?.edges ?? []) {
       await client.mutation({
@@ -49,7 +56,7 @@ const handler = async (
 export default defineLogicFunction({
   universalIdentifier: ON_MEMBER_JOINED_FUNCTION_ID,
   name: 'on-member-joined',
-  description: 'Links pending rental-workspace invites to a new team member.',
+  description: 'Gives a new team member a Personal workspace and links their pending invites.',
   timeoutSeconds: 60,
   databaseEventTriggerSettings: {
     eventName: 'workspaceMember.created',

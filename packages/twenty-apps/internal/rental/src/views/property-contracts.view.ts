@@ -1,10 +1,11 @@
-import { defineView, ViewSortDirection, ViewType } from 'twenty-sdk/define';
+import { defineView, ViewFilterOperand, ViewSortDirection, ViewType } from 'twenty-sdk/define';
 
 import {
   RENTAL_END_DATE_FIELD_ID,
   RENTAL_MONTHLY_RENT_FIELD_ID,
   RENTAL_NAME_FIELD_ID,
   RENTAL_OBJECT_ID,
+  RENTAL_PROPERTY_FIELD_ID,
   RENTAL_START_DATE_FIELD_ID,
   RENTAL_STATUS_FIELD_ID,
   RENTAL_TENANT_FIELD_ID,
@@ -30,6 +31,15 @@ export default defineView({
     { universalIdentifier: '0a8ed643-b804-44a9-b8c6-d9130bea6d27', fieldMetadataUniversalIdentifier: RENTAL_END_DATE_FIELD_ID, position: 4, isVisible: true },
     { universalIdentifier: '8389b289-0e45-42d2-a8fb-d25972a6bb11', fieldMetadataUniversalIdentifier: RENTAL_MONTHLY_RENT_FIELD_ID, position: 5, isVisible: true },
     { universalIdentifier: 'fc8ae57a-dcf8-4291-9c26-a71aebef2383', fieldMetadataUniversalIdentifier: RENTAL_DEPOSIT_STATUS_FIELD_ID, position: 6, isVisible: true },
+  ],
+  // Only the rows of the record the page is showing.
+  filters: [
+    {
+      universalIdentifier: '4c389b6e-b85f-403b-83a0-9bcce6fe03f4',
+      fieldMetadataUniversalIdentifier: RENTAL_PROPERTY_FIELD_ID,
+      operand: ViewFilterOperand.IS,
+      value: '{"selectedRecordIds":[],"isCurrentRecordSelected":true}',
+    },
   ],
   sorts: [
     { universalIdentifier: 'ca519019-46e6-4fbb-ab6a-4390facbcc63', fieldMetadataUniversalIdentifier: RENTAL_START_DATE_FIELD_ID, direction: ViewSortDirection.DESC },

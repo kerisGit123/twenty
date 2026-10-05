@@ -129,6 +129,11 @@ const WorkspaceOverview = () => {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState('');
 
+  // Opening a workspace selects it: Today, Rent Ledger and Expenses follow.
+  useEffect(() => {
+    if (ownerId) rememberOwnerScope(ownerId);
+  }, [ownerId]);
+
   useEffect(() => {
     if (!ownerId) return;
     loadSummary(ownerId, year)
