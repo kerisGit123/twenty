@@ -27,6 +27,8 @@ import {
   RENTAL_UTILITY_DEPOSIT_FIELD_ID,
 } from 'src/constants/universal-identifiers-v2';
 import {
+  RENTAL_NEW_RENT_FIELD_ID,
+  RENTAL_NEW_RENT_FROM_FIELD_ID,
   RENTAL_STAMPED_ON_FIELD_ID,
   RENTAL_STATEMENT_NOTE_FIELD_ID,
   RENTAL_TENANT_DETAILS_FIELD_ID,
@@ -91,6 +93,26 @@ export default defineObject({
       icon: 'IconCash',
       isNullable: true,
       defaultValue: { amountMicros: null, currencyCode: "'MYR'" },
+    },
+    {
+      // A rent increase (or decrease) agreed during the contract.
+      universalIdentifier: RENTAL_NEW_RENT_FIELD_ID,
+      type: FieldType.CURRENCY,
+      name: 'newRent',
+      label: 'New rent',
+      description: 'Rent from the "New rent from" month onwards. Months before keep the monthly rent.',
+      icon: 'IconTrendingUp',
+      isNullable: true,
+      defaultValue: { amountMicros: null, currencyCode: "'MYR'" },
+    },
+    {
+      universalIdentifier: RENTAL_NEW_RENT_FROM_FIELD_ID,
+      type: FieldType.DATE,
+      name: 'newRentFrom',
+      label: 'New rent from',
+      description: 'First month the new rent applies (any date in that month).',
+      icon: 'IconCalendarUp',
+      isNullable: true,
     },
     {
       universalIdentifier: RENTAL_DEPOSIT_FIELD_ID,

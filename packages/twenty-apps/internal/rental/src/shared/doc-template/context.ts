@@ -221,6 +221,20 @@ export const statementContext = (
 
     notes.push(ms ? `Bagi bulan ${month}, sewa telah dipotong daripada deposit.` : `Rent for ${month} was taken from the deposit.`);
   }
+  for (const index of facts.waivedMonths) {
+    const month = `${MONTHS[language][index]} ${source.year}`;
+
+    notes.push(ms ? `Sewa bagi bulan ${month} dikecualikan.` : `Rent for ${month} was waived.`);
+  }
+  for (const part of facts.partMonths) {
+    const month = `${MONTHS[language][part.index]} ${source.year}`;
+
+    notes.push(
+      ms
+        ? `Bagi bulan ${month}, sebanyak ${money(part.received)} telah diterima; baki ${money(part.remaining)} masih tertunggak.`
+        : `For ${month}, ${money(part.received)} was received; ${money(part.remaining)} is still owed.`,
+    );
+  }
   notes.push(...facts.extraNotes);
 
   const flags: ShowIf[] = [facts.unpaidMonths.length ? 'arrears' : 'settled'];

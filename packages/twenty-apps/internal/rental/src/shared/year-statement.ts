@@ -3,6 +3,8 @@
 // its issued receipts; the wording comes from the statement template (English
 // or Malay), see src/shared/doc-template.
 
+import { rentForMonth, type RentTerms } from 'src/shared/rent-month';
+
 export type StatementSource = {
   year: number;
   today: string; // YYYY-MM-DD
@@ -16,9 +18,11 @@ export type StatementSource = {
     tenantName: string;
     tenantDetails: string; // name/company, reg no., address — one per line
     statementNote: string;
+    terms?: RentTerms; // to tell part-paid months; without it any receipt settles a month
   };
-  // RENT receipts; month = YYYY-MM; fromDeposit = taken from the deposit.
-  payments: Array<{ month: string; amount: number; fromDeposit?: boolean }>;
+  // RENT receipts; month = YYYY-MM; fromDeposit = taken from the deposit;
+  // waived = a waiver (amount = what was waived), not money received.
+  payments: Array<{ month: string; amount: number; fromDeposit?: boolean; waived?: boolean }>;
 };
 
 export type StatementFacts = {
@@ -27,7 +31,9 @@ export type StatementFacts = {
   isShop: boolean;
   rows: Array<{ index: number; amount: number }>; // month index 0-11
   total: number;
-  unpaidMonths: number[]; // month indexes still owed
+  unpaidMonths: number[]; // month indexes still owed (nothing or only part received)
+  partMonths: Array<{ index: number; received: number; remaining: number }>; // part-paid, still owed
+  waivedMonths: number[]; // month indexes waived (not charged)
   fromDepositMonths: number[]; // month indexes paid from the deposit
   startedBy: string | null; // contract start, if on or before this year
   endedBy: string | null; // contract end, if on or before this year
@@ -47,12 +53,17 @@ export const statementFacts = (source: StatementSource): StatementFacts => {
   const tenantName = (tenantLines[0] ?? rental.tenantName) || 'Tenant';
   const byMonth = new Map<number, number>();
   const fromDeposit = new Set<number>();
+  const waived = new Set<number>();
 
   for (const payment of source.payments) {
     if (!payment.month.startsWith(prefix)) continue;
 
     const index = Number(payment.month.slice(5, 7)) - 1;
 
+    if (payment.waived) {
+      waived.add(index);
+      continue;
+    }
     byMonth.set(index, (byMonth.get(index) ?? 0) + payment.amount);
     if (payment.fromDeposit) fromDeposit.add(index);
   }
@@ -66,10 +77,20 @@ export const statementFacts = (source: StatementSource): StatementFacts => {
   const outsideContract =
     (rental.startDate !== null && rental.startDate.slice(0, 4) > prefix) || (rental.endDate !== null && rental.endDate.slice(0, 4) < prefix);
   const unpaidMonths: number[] = [];
+  const partMonths: StatementFacts['partMonths'] = [];
 
   if (!outsideContract) {
     for (let index = first; index <= Math.min(endCap, todayCap); index += 1) {
-      if (!byMonth.has(index)) unpaidMonths.push(index);
+      if (waived.has(index)) continue;
+
+      const received = byMonth.get(index) ?? 0;
+      const due = rental.terms ? rentForMonth(rental.terms, `${prefix}-${String(index + 1).padStart(2, '0')}-01`) : received;
+
+      if (received <= 0) unpaidMonths.push(index);
+      else if (received < due) {
+        unpaidMonths.push(index);
+        partMonths.push({ index, received, remaining: Math.round((due - received) * 100) / 100 });
+      }
     }
   }
 
@@ -80,6 +101,8 @@ export const statementFacts = (source: StatementSource): StatementFacts => {
     rows,
     total: rows.reduce((sum, row) => sum + row.amount, 0),
     unpaidMonths,
+    partMonths,
+    waivedMonths: [...waived].sort((a, b) => a - b),
     fromDepositMonths: [...fromDeposit].sort((a, b) => a - b),
     startedBy: rental.startDate && rental.startDate.slice(0, 4) <= prefix ? rental.startDate : null,
     endedBy: rental.endDate && rental.endDate.slice(0, 4) <= prefix ? rental.endDate : null,

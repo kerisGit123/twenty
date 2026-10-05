@@ -25,6 +25,7 @@ import {
   PAYMENT_TYPE_RENT_OPTION_ID,
 } from 'src/constants/universal-identifiers';
 import { PAYMENT_TYPE_UTILITY_DEPOSIT_OPTION_ID } from 'src/constants/universal-identifiers-v2';
+import { PAYMENT_STATUS_WAIVED_OPTION_ID } from 'src/constants/universal-identifiers-v3';
 
 // Money received from a tenant: monthly rent or a deposit. Each payment gets
 // a receipt (number + PDF) that can be sent to the tenant.
@@ -45,7 +46,7 @@ export default defineObject({
       name: 'status',
       label: 'Status',
       description:
-        'Draft: editable, no receipt number yet. Issued: numbered receipt created but not emailed. Sent: emailed to the tenant. Void: cancelled after issuing (keeps its number).',
+        'Draft: editable, no receipt number yet. Issued: numbered receipt created but not emailed. Sent: emailed to the tenant. Void: cancelled after issuing (keeps its number). Waived: rent for the month (or what was left of it) not charged; no receipt.',
       icon: 'IconProgress',
       defaultValue: "'DRAFT'",
       options: [
@@ -53,6 +54,7 @@ export default defineObject({
         { id: PAYMENT_STATUS_ISSUED_OPTION_ID, value: 'ISSUED', label: 'Issued', position: 1, color: 'orange' },
         { id: PAYMENT_STATUS_SENT_OPTION_ID, value: 'SENT', label: 'Sent', position: 2, color: 'green' },
         { id: PAYMENT_STATUS_VOID_OPTION_ID, value: 'VOID', label: 'Void', position: 3, color: 'red' },
+        { id: PAYMENT_STATUS_WAIVED_OPTION_ID, value: 'WAIVED', label: 'Waived', position: 4, color: 'sky' },
       ],
     },
     {

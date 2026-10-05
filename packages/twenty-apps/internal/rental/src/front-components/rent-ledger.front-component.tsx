@@ -11,6 +11,7 @@ import { Sheet } from 'src/front-components/shared/sheet';
 import { StatementPanel } from 'src/front-components/shared/statement-panel';
 import type { LedgerData, Payment, Rental } from 'src/logic-functions/page-data/ledger-data';
 import { whatsappLink } from 'src/shared/whatsapp-link';
+import { isReceipted, rentForMonth, type Settlement, settleMonth } from 'src/shared/rent-month';
 import {
   dueDateInMonth,
   monthStart,
@@ -20,7 +21,9 @@ import {
 
 // ---------------------------------------------------------------- types
 
-type CellStatus = 'paid' | 'due' | 'overdue' | 'upcoming' | 'none';
+type CellStatus = 'paid' | 'partial' | 'waived' | 'due' | 'overdue' | 'upcoming' | 'none';
+
+type Cell = { month: string; payments: Payment[]; settlement: Settlement; rent: number; late: boolean; status: CellStatus };
 
 type Selection = { rental: Rental; month: string };
 
@@ -95,18 +98,30 @@ const readValue = (event: SyntheticEvent<HTMLElement>): string => {
   return object.detail?.value ?? object.target?.value ?? '';
 };
 
-const cellStatus = (rental: Rental, month: string, payment: Payment | undefined, today: string): CellStatus => {
+// A contract's month: the rent for it, what's been received, and its status.
+const buildCell = (rental: Rental, month: string, payments: Payment[], today: string): Cell => {
+  const rent = rentForMonth(rental, month);
+  const settlement = settleMonth(rent, payments);
+  const late = today > addDays(dueDateInMonth(month, rental.dueDay), GRACE_DAYS);
   const startsAfter = rental.startDate && monthStart(rental.startDate) > month;
   const endedBefore = rental.endDate && rental.endDate < month;
+  const status: CellStatus =
+    startsAfter || endedBefore
+      ? 'none'
+      : settlement.state !== 'open'
+        ? settlement.state
+        : month > monthStart(today)
+          ? 'upcoming'
+          : late
+            ? 'overdue'
+            : 'due';
 
-  if (startsAfter || endedBefore) return 'none';
-  if (payment && (payment.status === 'ISSUED' || payment.status === 'SENT')) return 'paid';
-  if (month > monthStart(today)) return 'upcoming';
-
-  const overdueFrom = addDays(dueDateInMonth(month, rental.dueDay), GRACE_DAYS);
-
-  return today > overdueFrom ? 'overdue' : 'due';
+  return { month, payments, settlement, rent, late, status };
 };
+
+// Still owed: unpaid or part-paid, up to this month.
+const isOwing = (cell: Cell) => cell.status === 'due' || cell.status === 'overdue' || cell.status === 'partial';
+const isLate = (cell: Cell) => cell.status === 'overdue' || (cell.status === 'partial' && cell.late);
 
 // ---------------------------------------------------------------- styles
 
@@ -125,6 +140,8 @@ const c = {
 
 const STATUS_STYLE: Record<CellStatus, CSSProperties> = {
   paid: { background: 'var(--t-color-green3)', color: 'var(--t-color-green11)' },
+  partial: { background: 'linear-gradient(135deg, var(--t-color-green3) 50%, var(--t-color-amber4) 50%)', color: 'var(--t-color-amber11)' },
+  waived: { background: 'var(--t-color-sky3)', color: 'var(--t-color-sky11)' },
   due: { background: 'var(--t-color-amber3)', color: 'var(--t-color-amber11)' },
   overdue: { background: 'var(--t-color-red3)', color: 'var(--t-color-red11)' },
   upcoming: { background: c.bg2, color: c.text3 },
@@ -132,6 +149,8 @@ const STATUS_STYLE: Record<CellStatus, CSSProperties> = {
 };
 const STATUS_LABEL: Record<CellStatus, string> = {
   paid: 'Paid',
+  partial: 'Part-paid',
+  waived: 'Waived',
   due: 'Due',
   overdue: 'Overdue',
   upcoming: 'Upcoming',
@@ -228,24 +247,25 @@ const RentLedger = () => {
     reload();
   }, [reload]);
 
-  const paymentByCell = useMemo(() => {
-    const map = new Map<string, Payment>();
+  const paymentsByCell = useMemo(() => {
+    const map = new Map<string, Payment[]>();
 
-    for (const payment of payments) map.set(`${payment.rentalId}|${payment.month}`, payment);
+    for (const payment of payments) {
+      const key = `${payment.rentalId}|${payment.month}`;
+
+      map.set(key, [...(map.get(key) ?? []), payment]);
+    }
 
     return map;
   }, [payments]);
+  const cellFor = (rental: Rental, month: string) => buildCell(rental, month, paymentsByCell.get(`${rental.id}|${month}`) ?? [], today);
 
   const allRows = useMemo(() => {
     const query = search.trim().toLowerCase();
 
     return rentals
       .map((rental) => {
-        const cells = months.map((month) => {
-          const payment = paymentByCell.get(`${rental.id}|${month}`);
-
-          return { month, payment, status: cellStatus(rental, month, payment, today) };
-        });
+        const cells = months.map((month) => cellFor(rental, month));
 
         return { rental, cells };
       })
@@ -257,14 +277,14 @@ const RentLedger = () => {
 
         return true;
       });
-  }, [rentals, months, paymentByCell, search, type, today, scope.key]);
+  }, [rentals, months, paymentsByCell, search, type, today, scope.key]);
 
   const rows = useMemo(
     () =>
       allRows.filter(({ cells }) => {
         if (status === 'paid') return cells.some((cell) => cell.status === 'paid');
-        if (status === 'overdue') return cells.some((cell) => cell.status === 'overdue');
-        if (status === 'unpaid') return cells.some((cell) => cell.status === 'due' || cell.status === 'overdue');
+        if (status === 'overdue') return cells.some(isLate);
+        if (status === 'unpaid') return cells.some(isOwing);
 
         return true;
       }),
@@ -278,14 +298,15 @@ const RentLedger = () => {
     let overdue = 0;
     let overdueCount = 0;
 
-    for (const { rental, cells } of allRows) {
+    for (const { cells } of allRows) {
       for (const cell of cells) {
         if (cell.status === 'none') continue;
-        expected += rental.rent;
-        if (cell.status === 'paid') collected += cell.payment?.amount ?? 0;
-        if (cell.status === 'due' || cell.status === 'overdue') outstanding += rental.rent;
-        if (cell.status === 'overdue') {
-          overdue += rental.rent;
+        // A waived month isn't expected; a waived remainder isn't either.
+        expected += cell.status === 'waived' ? cell.settlement.received : cell.rent;
+        collected += cell.settlement.received;
+        if (isOwing(cell)) outstanding += cell.settlement.remaining;
+        if (isLate(cell)) {
+          overdue += cell.settlement.remaining;
           overdueCount += 1;
         }
       }
@@ -349,8 +370,8 @@ const RentLedger = () => {
     </button>
   );
 
-  const unpaidCount = allRows.filter(({ cells }) => cells.some((cell) => cell.status === 'due' || cell.status === 'overdue')).length;
-  const overdueContracts = allRows.filter(({ cells }) => cells.some((cell) => cell.status === 'overdue')).length;
+  const unpaidCount = allRows.filter(({ cells }) => cells.some(isOwing)).length;
+  const overdueContracts = allRows.filter(({ cells }) => cells.some(isLate)).length;
   const collectedShare = totals.expected > 0 ? Math.min(1, totals.collected / totals.expected) : 0;
   const card: CSSProperties = { border: `1px solid ${c.border}`, borderRadius: 12, background: c.bg, minWidth: 0, boxSizing: 'border-box' };
   const pillFor = (cellState: CellStatus, text: string) => (
@@ -385,10 +406,7 @@ const RentLedger = () => {
           <CatchUpPanel
             key={catchUpFor.id}
             rental={catchUpFor}
-            months={months.map((month) => ({
-              month,
-              status: cellStatus(catchUpFor, month, paymentByCell.get(`${catchUpFor.id}|${month}`), today),
-            }))}
+            months={months.map((month) => cellFor(catchUpFor, month))}
             lastMethod={[...payments].reverse().find((p) => p.rentalId === catchUpFor.id && p.method)?.method ?? 'BANK_TRANSFER'}
             onClose={() => setCatchUpFor(null)}
             onSaved={reload}
@@ -398,10 +416,10 @@ const RentLedger = () => {
       {selection && (
         <Sheet width={500} onClose={() => setSelection(null)}>
           <PaymentPanel
-            key={`${selection.rental.id}|${selection.month}`}
+            // Remounts after each saved payment, so the form starts from what's left.
+            key={`${selection.rental.id}|${selection.month}|${cellFor(selection.rental, selection.month).payments.length}`}
             selection={selection}
-            payment={paymentByCell.get(`${selection.rental.id}|${selection.month}`)}
-            status={cellStatus(selection.rental, selection.month, paymentByCell.get(`${selection.rental.id}|${selection.month}`), today)}
+            cell={cellFor(selection.rental, selection.month)}
             lastMethod={[...payments].reverse().find((p) => p.rentalId === selection.rental.id && p.method)?.method ?? 'BANK_TRANSFER'}
             onClose={() => setSelection(null)}
             onSaved={reload}
@@ -533,9 +551,13 @@ const RentLedger = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {rows.map(({ rental, cells }) => {
               const focus = cells.find((cell) => cell.month === focusMonth) ?? cells[cells.length - 1];
-              const unpaid = cells.filter((cell) => cell.status === 'due' || cell.status === 'overdue');
+              const unpaid = cells.filter(isOwing);
               const oldestUnpaid = unpaid[0];
-              const collected = cells.reduce((sum, cell) => sum + (cell.status === 'paid' ? cell.payment?.amount ?? 0 : 0), 0);
+              const owed = unpaid.reduce((sum, cell) => sum + cell.settlement.remaining, 0);
+              const collected = cells.reduce((sum, cell) => sum + cell.settlement.received, 0);
+              const rentNow = rentForMonth(rental, focusMonth ?? monthStart(today));
+              const rentChange = rental.newRent && rental.newRentFrom && monthStart(rental.newRentFrom) > (focusMonth ?? monthStart(today)) ? rental : null;
+              const receiptOf = (cell: Cell) => cell.payments.filter((p) => isReceipted(p.status)).map((p) => p.receiptNumber).filter(Boolean).join(', ');
               const due = focus ? dueDateInMonth(focus.month, rental.dueDay) : null;
               const daysLate = due ? Math.max(0, Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${due}T00:00:00Z`)) / 86_400_000)) : 0;
               const focusText =
@@ -543,14 +565,21 @@ const RentLedger = () => {
                   ? ''
                   : focus.status === 'paid'
                     ? `${monthLabel(focus.month)} paid`
+                    : focus.status === 'waived'
+                      ? `${monthLabel(focus.month)} waived`
+                      : focus.status === 'partial'
+                        ? `${monthLabel(focus.month)} · ${rm(focus.settlement.remaining)} left`
                     : focus.status === 'overdue'
                       ? `${monthLabel(focus.month)} · ${daysLate} day${daysLate === 1 ? '' : 's'} late`
                       : focus.status === 'due'
                         ? `${monthLabel(focus.month)} due ${Number((due ?? '').slice(8, 10))} ${monthLabel(focus.month)}`
                         : `${monthLabel(focus.month)} upcoming`;
-              const remindText = oldestUnpaid
-                ? `Hi ${rental.tenantName.split(' ')[0] || 'there'}, a friendly reminder that the rent for ${rental.propertyName} for ${monthLabel(oldestUnpaid.month, true)} (${rm(rental.rent)}) ${oldestUnpaid.status === 'overdue' ? 'was' : 'is'} due on ${Number(dueDateInMonth(oldestUnpaid.month, rental.dueDay).slice(8, 10))} ${monthLabel(oldestUnpaid.month)}. Please let us know once it's paid. Thank you!`
-                : '';
+              const greeting = `Hi ${rental.tenantName.split(' ')[0] || 'there'}`;
+              const remindText = !oldestUnpaid
+                ? ''
+                : unpaid.length > 1
+                  ? `${greeting}, a friendly reminder that the rent for ${rental.propertyName} for ${unpaid.map((cell) => monthLabel(cell.month, true)).join(', ')} (${rm(owed)} in total) hasn't been received yet. Please let us know once it's paid. Thank you!`
+                  : `${greeting}, a friendly reminder that ${oldestUnpaid.status === 'partial' ? `the rest of the rent (${rm(oldestUnpaid.settlement.remaining)})` : `the rent (${rm(oldestUnpaid.rent)})`} for ${rental.propertyName} for ${monthLabel(oldestUnpaid.month, true)} ${oldestUnpaid.late ? 'was' : 'is'} due on ${Number(dueDateInMonth(oldestUnpaid.month, rental.dueDay).slice(8, 10))} ${monthLabel(oldestUnpaid.month)}. Please let us know once it's paid. Thank you!`;
               const remind = oldestUnpaid ? whatsappLink(rental.tenantPhone, remindText) : null;
 
               return (
@@ -563,11 +592,16 @@ const RentLedger = () => {
                     <div style={{ flex: '1 1 160px', minWidth: 0 }}>
                       <div style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rental.propertyName}</div>
                       <div style={{ fontSize: 13, color: c.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {rental.tenantName} · {rm(rental.rent)}/month · due on the {rental.dueDay}
+                        {rental.tenantName} · {rm(rentNow)}/month · due on the {rental.dueDay}
                         {rental.dueDay === 1 ? 'st' : rental.dueDay === 2 ? 'nd' : rental.dueDay === 3 ? 'rd' : 'th'}
                       </div>
+                      {rentChange && (
+                        <div style={{ fontSize: 12, color: 'var(--t-color-iris11)', marginTop: 2 }}>
+                          ↗ {rm(rentChange.newRent ?? 0)} from {monthLabel(monthStart(rentChange.newRentFrom ?? ''), true)}
+                        </div>
+                      )}
                     </div>
-                    {focus && focus.status !== 'none' ? pillFor(focus.status, focusText) : null}
+                    {focus && focus.status !== 'none' ? pillFor(focus.status === 'partial' && !focus.late ? 'due' : focus.status === 'partial' ? 'overdue' : focus.status, focusText) : null}
                   </div>
 
                   {/* Months: tap one to record or view */}
@@ -587,7 +621,7 @@ const RentLedger = () => {
                             <button
                               key={cell.month}
                               onClick={() => setSelection({ rental, month: cell.month })}
-                              title={`${monthLabel(cell.month, true)} · ${STATUS_LABEL[cell.status]}${cell.payment?.receiptNumber ? ` · ${cell.payment.receiptNumber}` : ''}`}
+                              title={`${monthLabel(cell.month, true)} · ${STATUS_LABEL[cell.status]}${cell.status === 'partial' ? ` · ${rm(cell.settlement.received)} of ${rm(cell.rent)}` : ''}${receiptOf(cell) ? ` · ${receiptOf(cell)}` : ''}`}
                               style={{ all: 'unset', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 0 }}
                             >
                               <span style={{ fontSize: 'clamp(8px, 2.7cqw, 10.5px)', color: isNow ? c.text : c.text3, fontWeight: isNow ? 700 : 400 }}>
@@ -608,7 +642,7 @@ const RentLedger = () => {
                                   border: selected ? `2px solid ${c.accent}` : isNow ? `1.5px solid ${c.border2}` : 'none',
                                 }}
                               >
-                                {cell.status === 'paid' ? '✓' : cell.status === 'overdue' ? '!' : cell.status === 'due' ? '•' : ''}
+                                {cell.status === 'paid' ? '✓' : cell.status === 'partial' ? '½' : cell.status === 'waived' ? '–' : cell.status === 'overdue' ? '!' : cell.status === 'due' ? '•' : ''}
                               </span>
                             </button>
                           );
@@ -620,8 +654,8 @@ const RentLedger = () => {
                   {/* Actions */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 12.5, color: c.text3, flex: '1 1 140px' }}>
-                      {mode === 'month' ? (focus?.payment?.receiptNumber ? `Receipt ${focus.payment.receiptNumber}` : '') : `Collected ${rm(collected)}`}
-                      {unpaid.length > 0 && mode !== 'month' ? <span style={{ color: 'var(--t-color-amber11)' }}> · {unpaid.length} unpaid</span> : null}
+                      {mode === 'month' ? (focus && receiptOf(focus) ? `Receipt ${receiptOf(focus)}` : '') : `Collected ${rm(collected)}`}
+                      {unpaid.length > 0 && mode !== 'month' ? <span style={{ color: 'var(--t-color-amber11)' }}> · {rm(owed)} owed ({unpaid.length} month{unpaid.length === 1 ? '' : 's'})</span> : null}
                     </span>
                     {remind && (
                       <a
@@ -633,7 +667,7 @@ const RentLedger = () => {
                         Remind
                       </a>
                     )}
-                    {unpaid.length >= 2 && (
+                    {unpaid.filter((cell) => cell.status !== 'partial').length >= 2 && (
                       <button
                         onClick={() => {
                           setSelection(null);
@@ -642,7 +676,7 @@ const RentLedger = () => {
                         style={{ ...button(), height: 34 }}
                         title="Record several months at once"
                       >
-                        Catch up ({unpaid.length})
+                        Catch up ({unpaid.filter((cell) => cell.status !== 'partial').length})
                       </button>
                     )}
                     <button
@@ -656,7 +690,7 @@ const RentLedger = () => {
                     </button>
                     {(oldestUnpaid ?? focus) && (oldestUnpaid ?? focus).status !== 'none' && (
                       <button onClick={() => setSelection({ rental, month: (oldestUnpaid ?? focus).month })} style={{ ...button(Boolean(oldestUnpaid)), height: 34 }}>
-                        {oldestUnpaid ? `Record ${monthLabel(oldestUnpaid.month)}` : 'View receipt'}
+                        {oldestUnpaid ? `Record ${monthLabel(oldestUnpaid.month)}` : focus?.status === 'waived' ? 'View' : 'View receipt'}
                       </button>
                     )}
                   </div>
@@ -668,7 +702,7 @@ const RentLedger = () => {
 
         {mode !== 'month' && rows.length > 0 && (
           <div style={{ display: 'flex', gap: 14, fontSize: 12, color: c.text2, flexWrap: 'wrap' }}>
-            {(['paid', 'due', 'overdue', 'upcoming'] as CellStatus[]).map((key) => (
+            {(['paid', 'partial', 'waived', 'due', 'overdue', 'upcoming'] as CellStatus[]).map((key) => (
               <span key={key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ ...STATUS_STYLE[key], width: 12, height: 12, borderRadius: 3, display: 'inline-block' }} />
                 {STATUS_LABEL[key]}
@@ -691,29 +725,40 @@ const field: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4,
 
 const PaymentPanel = ({
   selection,
-  payment,
-  status,
+  cell,
   lastMethod,
   onClose,
   onSaved,
 }: {
   selection: Selection;
-  payment: Payment | undefined;
-  status: CellStatus;
+  cell: Cell;
   lastMethod: string;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) => {
   const { rental, month } = selection;
+  const { status, settlement } = cell;
+  const receipts = cell.payments.filter((p) => isReceipted(p.status));
+  const waiver = cell.payments.find((p) => p.status === 'WAIVED');
+  // The receipt shown and corrected: the latest one.
+  const payment = receipts[receipts.length - 1];
   const isPaid = status === 'paid';
-  const [amount, setAmount] = useState(String(payment?.amount || rental.rent || ''));
-  const [paidOn, setPaidOn] = useState(todayIso());
+  const isWaived = status === 'waived';
+  const isPartial = status === 'partial';
+  const settled = isPaid || isWaived;
+  const dueIso = dueDateInMonth(month, rental.dueDay);
+  // A past month is usually entered after the fact: start from its due date.
+  const pastMonth = month < monthStart(todayIso());
+  const [amount, setAmount] = useState(String(settlement.remaining || cell.rent || ''));
+  const [paidOn, setPaidOn] = useState(pastMonth && !isPartial ? dueIso : todayIso());
   const [method, setMethod] = useState(payment?.method ?? lastMethod);
+  const [waiving, setWaiving] = useState(false);
+  const [waiveReason, setWaiveReason] = useState('');
   const [notes, setNotes] = useState('');
   const [sendToTenant, setSendToTenant] = useState(true);
   // Back-dated payments: the receipt can carry the payment date instead of today.
   const [receiptOnPaidDate, setReceiptOnPaidDate] = useState(month < monthStart(todayIso()));
-  const [busy, setBusy] = useState<'' | 'preview' | 'save' | 'correct'>('');
+  const [busy, setBusy] = useState<'' | 'preview' | 'save' | 'correct' | 'waive'>('');
   const [paymentId, setPaymentId] = useState<string | null>(payment?.id ?? null);
   const [receipt, setReceipt] = useState<ReceiptViewData | null>(null);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
@@ -742,6 +787,28 @@ const PaymentPanel = ({
       loadReceipt(payment.id);
     }
   }, [isPaid, payment?.id, loadReceipt]);
+
+  const waive = async (action: 'waive' | 'unwaive') => {
+    setBusy('waive');
+    try {
+      const result = await new RestApiClient().post<RecordResponse>('/s/ledger/record', {
+        rentalId: rental.id,
+        month,
+        notes: waiveReason,
+        action,
+      });
+
+      await enqueueSnackbar({ message: result.message ?? (result.success ? 'Done.' : 'Could not save.'), variant: result.success ? 'success' : 'error' });
+      if (result.success) {
+        await onSaved();
+        onClose();
+      }
+    } catch (error) {
+      await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not save.', variant: 'error' });
+    } finally {
+      setBusy('');
+    }
+  };
 
   const submit = async (action: 'preview' | 'issue' | 'send') => {
     setBusy(action === 'preview' ? 'preview' : 'save');
@@ -802,10 +869,11 @@ const PaymentPanel = ({
 
   const first = rental.tenantName.split(' ')[0] || 'there';
   const period = monthLabel(month, true);
-  const dueIso = dueDateInMonth(month, rental.dueDay);
   const whatsappText = isPaid
-    ? `Hi ${first}, thank you! We've received your rent for ${rental.propertyName} for ${period}${payment?.amount ? ` (${rm(payment.amount)})` : ''}.${payment?.receiptNumber ? ` Receipt no. ${payment.receiptNumber}.` : ''}`
-    : `Hi ${first}, a friendly reminder that the rent for ${rental.propertyName} for ${period} (${rm(rental.rent)}) ${status === 'overdue' ? 'was' : 'is'} due on ${Number(dueIso.slice(8, 10))} ${monthLabel(month)}. Please let us know once it's paid. Thank you!`;
+    ? `Hi ${first}, thank you! We've received your rent for ${rental.propertyName} for ${period}${settlement.received ? ` (${rm(settlement.received)})` : ''}.${payment?.receiptNumber ? ` Receipt no. ${payment.receiptNumber}.` : ''}`
+    : isPartial
+      ? `Hi ${first}, thank you for the ${rm(settlement.received)} for ${rental.propertyName} for ${period}. The remaining ${rm(settlement.remaining)} ${cell.late ? 'was' : 'is'} due on ${Number(dueIso.slice(8, 10))} ${monthLabel(month)}. Please let us know once it's paid. Thank you!`
+      : `Hi ${first}, a friendly reminder that the rent for ${rental.propertyName} for ${period} (${rm(cell.rent)}) ${status === 'overdue' ? 'was' : 'is'} due on ${Number(dueIso.slice(8, 10))} ${monthLabel(month)}. Please let us know once it's paid. Thank you!`;
   const whatsapp = whatsappLink(rental.tenantPhone, whatsappText);
   const chipStyle = (active: boolean): CSSProperties => ({
     fontFamily: c.font,
@@ -874,11 +942,54 @@ const PaymentPanel = ({
 
       {/* Body */}
       <div style={{ flex: 1, overflow: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {!isPaid && (
+        {(isPartial || receipts.length > 1 || (isWaived && settlement.received > 0)) && (
+          <div style={{ border: `1px solid ${c.border}`, borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 600 }}>
+                {rm(settlement.received)} of {rm(cell.rent)} received
+              </span>
+              {isPartial && <span style={{ color: 'var(--t-color-amber11)', fontSize: 13 }}>· {rm(settlement.remaining)} left</span>}
+            </div>
+            <span style={{ height: 6, background: c.bg2, borderRadius: 3, display: 'block' }}>
+              <span style={{ display: 'block', height: 6, width: `${Math.min(100, (settlement.received / (cell.rent || 1)) * 100)}%`, background: 'var(--t-color-green9)', borderRadius: 3 }} />
+            </span>
+            {receipts.map((r) => (
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                <span style={{ flex: 1, minWidth: 0, color: c.text2 }}>
+                  {r.receiptNumber} · {rm(r.amount)}
+                  {r.paidOn ? ` · ${Number(r.paidOn.slice(8, 10))} ${monthLabel(r.paidOn)}` : ''}
+                </span>
+                <a
+                  href={new RestApiClient().resolveUrl('/s/receipts/share', { query: { payment: r.id } })}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ ...button(), height: 28, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}
+                >
+                  📤 Send
+                </a>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {isWaived && (
+          <div style={{ background: 'var(--t-color-sky2)', border: '1px solid var(--t-color-sky6)', borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
+            <span style={{ fontWeight: 600, color: 'var(--t-color-sky11)' }}>
+              {settlement.received > 0 ? `The remaining ${rm(waiver?.amount ?? 0)} was waived` : `${period} rent was waived`}
+            </span>
+            {waiver?.notes ? <span style={{ color: c.text2 }}>{waiver.notes}</span> : null}
+            <span style={{ color: c.text3 }}>Not charged and not counted as owed. Undo it if the tenant should pay after all.</span>
+            <button onClick={() => waive('unwaive')} disabled={busy !== ''} style={{ ...button(), alignSelf: 'flex-start', height: 32 }}>
+              {busy === 'waive' ? 'Undoing…' : 'Undo waiver'}
+            </button>
+          </div>
+        )}
+
+        {!settled && (
           <>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <span style={{ fontSize: 12, color: c.text3 }}>
-                Amount received · due {Number(dueIso.slice(8, 10))} {monthLabel(month)}
+                {isPartial ? 'Amount received now' : 'Amount received'} · {rm(isPartial ? settlement.remaining : cell.rent)} due {Number(dueIso.slice(8, 10))} {monthLabel(month)}
               </span>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, borderBottom: `2px solid ${c.accent}`, paddingBottom: 4 }}>
                 <span style={{ fontSize: 20, fontWeight: 600, color: c.text3 }}>RM</span>
@@ -894,6 +1005,7 @@ const PaymentPanel = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: c.text3, textTransform: 'uppercase', letterSpacing: 0.4 }}>Paid on</span>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                {pastMonth && dateChip(`Due date · ${Number(dueIso.slice(8, 10))} ${monthLabel(dueIso)}`, dueIso)}
                 {dateChip('Today', todayIso())}
                 {dateChip('Yesterday', addDays(todayIso(), -1))}
                 <input type="date" value={paidOn} onChange={(e) => { const v = readValue(e); if (v) setPaidOn(v); }} style={{ ...control, height: 32 }} />
@@ -927,10 +1039,32 @@ const PaymentPanel = ({
               </span>
               Send the receipt to the tenant (WhatsApp / email)
             </button>
+
+            {/* Waive: rent not charged for the month (or the rest of it) */}
+            {waiving ? (
+              <div style={{ border: `1px solid ${c.border}`, borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <span style={{ fontSize: 13 }}>
+                  {isPartial ? `Waive the remaining ${rm(settlement.remaining)}?` : `Waive ${period} rent (${rm(cell.rent)})?`} It won’t be counted as owed.
+                </span>
+                <input value={waiveReason} onChange={(e) => setWaiveReason(readValue(e))} placeholder="Reason (optional), e.g. renovation month" style={{ ...control, height: 34 }} />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setWaiving(false)} style={{ ...button(), flex: 1, height: 34 }}>
+                    Cancel
+                  </button>
+                  <button onClick={() => waive('waive')} disabled={busy !== ''} style={{ ...button(true), flex: 1, height: 34 }}>
+                    {busy === 'waive' ? 'Saving…' : 'Waive'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setWaiving(true)} style={{ all: 'unset', cursor: 'pointer', fontSize: 13, color: c.text3, textDecoration: 'underline', alignSelf: 'flex-start' }}>
+                {isPartial ? 'Waive the rest of this month' : 'Waive this month (no rent charged)'}
+              </button>
+            )}
           </>
         )}
 
-        {isPaid && paymentId && (
+        {isPaid && paymentId && receipts.length <= 1 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <a
               href={new RestApiClient().resolveUrl('/s/receipts/share', { query: { payment: paymentId } })}
@@ -946,7 +1080,7 @@ const PaymentPanel = ({
             </span>
           </div>
         )}
-        {whatsapp && !isPaid && (
+        {whatsapp && !settled && (
           <a
             href={whatsapp}
             target="_blank"
@@ -956,7 +1090,7 @@ const PaymentPanel = ({
             {isPaid ? '💬 Send thank-you on WhatsApp' : status === 'overdue' ? '💬 Remind on WhatsApp (overdue)' : '💬 Remind on WhatsApp'}
           </a>
         )}
-        {!whatsapp && <div style={{ fontSize: 12, color: c.text3 }}>Add the tenant’s phone number to message them on WhatsApp.</div>}
+        {!whatsapp && !settled && <div style={{ fontSize: 12, color: c.text3 }}>Add the tenant’s phone number to message them on WhatsApp.</div>}
 
         {(receipt || loadingReceipt) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -976,7 +1110,7 @@ const PaymentPanel = ({
           </div>
         )}
 
-        {isPaid && (
+        {receipts.length > 0 && (
           <div style={{ fontSize: 12, color: c.text3 }}>
             Issued receipts can’t be edited. <b>Correct receipt</b> voids this one and makes a draft copy to fix and resend.
           </div>
@@ -985,7 +1119,11 @@ const PaymentPanel = ({
 
       {/* Actions stay at the bottom */}
       <div style={{ display: 'flex', gap: 8, padding: '12px 16px', borderTop: `1px solid ${c.border}`, background: c.bg, flexWrap: 'wrap' }}>
-        {isPaid ? (
+        {isWaived ? (
+          <button onClick={onClose} style={{ ...button(), flex: 1, height: 44 }}>
+            Close
+          </button>
+        ) : isPaid ? (
           <>
             {paymentId && (
               <button onClick={() => navigate(AppPath.RecordShowPage, { objectNameSingular: 'rentPayment', objectRecordId: paymentId })} style={{ ...button(), flex: 1, height: 44 }}>
@@ -1004,6 +1142,11 @@ const PaymentPanel = ({
             <button onClick={() => submit(sendToTenant ? 'send' : 'issue')} disabled={busy !== ''} style={{ ...button(true), flex: 1.6, height: 44 }}>
               {busy === 'save' ? 'Saving…' : sendToTenant ? 'Save & send receipt' : 'Save receipt'}
             </button>
+            {isPartial && payment && (
+              <button onClick={correct} disabled={busy !== ''} style={{ ...button(), height: 44, flexBasis: '100%' }}>
+                {busy === 'correct' ? 'Correcting…' : `Correct receipt ${payment.receiptNumber}`}
+              </button>
+            )}
           </>
         )}
       </div>

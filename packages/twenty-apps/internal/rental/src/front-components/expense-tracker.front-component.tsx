@@ -8,6 +8,7 @@ import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-
 import { Sheet } from 'src/front-components/shared/sheet';
 import type { Expense, ExpensesData, Option } from 'src/logic-functions/page-data/expenses-data';
 import { monthStart, nextMonthStart, todayIso } from 'src/logic-functions/utils/dates';
+import { REPEATS, repeatOf, type RepeatingBill } from 'src/shared/repeating';
 import { BASE_CURRENCY, CURRENCIES, currencySymbol, formatMoney } from 'src/shared/currencies';
 import {
   EXPENSE_AREAS,
@@ -58,6 +59,8 @@ const addDays = (iso: string, days: number) => {
 };
 
 const shortDate = (iso: string | null) => (iso ? `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]}` : '—');
+// With the year when it isn't this year.
+const dueDate = (iso: string) => (iso.slice(0, 4) === todayIso().slice(0, 4) ? shortDate(iso) : `${shortDate(iso)} ${iso.slice(0, 4)}`);
 const monthTitle = (iso: string) => `${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
 
 const readValue = (event: SyntheticEvent<HTMLElement>): string => {
@@ -174,6 +177,9 @@ const ExpenseTracker = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [owners, setOwners] = useState<Option[]>([]);
   const [properties, setProperties] = useState<Option[]>([]);
+  const [repeating, setRepeating] = useState<RepeatingBill[]>([]);
+  const [showAllBills, setShowAllBills] = useState(false);
+  const [billBusy, setBillBusy] = useState('');
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
 
@@ -198,6 +204,7 @@ const ExpenseTracker = () => {
       setExpenses(result.data.expenses);
       setOwners(result.data.owners);
       setProperties(result.data.properties);
+      setRepeating(result.data.repeating ?? []);
     } catch (error) {
       await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not load expenses.', variant: 'error' });
     } finally {
@@ -297,6 +304,24 @@ const ExpenseTracker = () => {
 
     return seen;
   }, [expenses]);
+
+  // Repeating bills: due within 30 days first; the rest on request.
+  const bills = repeating.filter((b) => scope.matches(b.ownerId));
+  const billsSoon = bills.filter((b) => b.nextDate <= addDays(today, 30));
+  const billsShown = showAllBills ? bills : billsSoon;
+  const billAction = async (bill: RepeatingBill, action: 'add' | 'stop') => {
+    setBillBusy(`${bill.id}|${action}`);
+    try {
+      const result = await new RestApiClient().post<{ success: boolean; id?: string; message?: string }>('/s/expenses/repeat', { expenseId: bill.id, action });
+
+      await enqueueSnackbar({ message: result.message ?? (result.success ? 'Done.' : 'Could not save.'), variant: result.success ? 'success' : 'error' });
+      if (result.success) await reload();
+    } catch (error) {
+      await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not save.', variant: 'error' });
+    } finally {
+      setBillBusy('');
+    }
+  };
 
   const periodLabel = mode === 'month' ? monthTitle(anchor) : mode === 'year' ? anchor.slice(0, 4) : '';
   const step = (delta: number) => setAnchor(shiftMonth(anchor, mode === 'year' ? delta * 12 : delta));
@@ -467,6 +492,56 @@ const ExpenseTracker = () => {
           </div>
         </div>
 
+        {/* Repeating bills that fall due: add the next one with a tap */}
+        {bills.length > 0 && (
+          <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: c.bg2, fontSize: 13, fontWeight: 600 }}>
+              <span style={{ flex: 1 }}>
+                🔁 Repeating bills
+                <span style={{ fontWeight: 400, color: c.text3, marginLeft: 8 }}>
+                  {billsSoon.length ? `${billsSoon.length} due in the next 30 days` : 'nothing due in the next 30 days'}
+                </span>
+              </span>
+              {bills.length > billsSoon.length && (
+                <button onClick={() => setShowAllBills(!showAllBills)} style={{ ...button('ghost'), height: 24, fontSize: 12, padding: '0 6px' }}>
+                  {showAllBills ? 'Due soon only' : `All ${bills.length}`}
+                </button>
+              )}
+            </div>
+            {billsShown.map((bill) => {
+              const category = expenseCategory(bill.category);
+              const late = bill.nextDate < today;
+
+              return (
+                <div key={bill.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderTop: `1px solid ${c.border}`, flexWrap: 'wrap' }}>
+                  <span style={iconBubble(category.group)}>{groupByKey(category.group).icon}</span>
+                  <span style={{ flex: '1 1 160px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bill.name}</span>
+                    <span style={{ fontSize: 12, color: late ? c.amber : c.text3 }}>
+                      {late ? 'Was due' : 'Due'} {dueDate(bill.nextDate)} · {repeatOf(bill.every).short}
+                      {bill.propertyName ? ` · ${bill.propertyName}` : ''}
+                    </span>
+                  </span>
+                  <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatMoney(bill.amount, bill.currency)}</span>
+                  <span style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => billAction(bill, 'stop')} disabled={billBusy !== ''} title="Stop repeating" style={{ ...button(), height: 32, fontSize: 12.5, color: c.text3 }}>
+                      {billBusy === `${bill.id}|stop` ? '…' : 'Stop'}
+                    </button>
+                    <button onClick={() => billAction(bill, 'add')} disabled={billBusy !== ''} style={{ ...button('primary'), height: 32, fontSize: 12.5 }}>
+                      {billBusy === `${bill.id}|add` ? 'Adding…' : 'Add'}
+                    </button>
+                  </span>
+                </div>
+              );
+            })}
+            {billsShown.length === 0 && (
+              <div style={{ padding: '10px 14px', fontSize: 12.5, color: c.text3, borderTop: `1px solid ${c.border}` }}>
+                Next: {bills[0].name} on {dueDate(bills[0].nextDate)}.
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Search + filters */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           <input placeholder="🔍  Search expenses…" value={search} onChange={(e) => setSearch(readValue(e))} style={{ ...control, flex: '1 1 200px', width: 'auto' }} />
@@ -540,6 +615,7 @@ const ExpenseTracker = () => {
                     <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
                       <span style={{ fontSize: 14, fontWeight: 500, color: c.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.name || category.label}</span>
                       <span style={{ fontSize: 12, color: c.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {e.repeatEvery && e.repeatEvery !== 'NONE' ? '🔁 ' : ''}
                         {[category.label, e.propertyName, e.paidTo].filter(Boolean).join(' · ')}
                       </span>
                     </span>
@@ -623,6 +699,7 @@ const AddExpenseSheet = ({
   const [more, setMore] = useState(false);
   const [paidTo, setPaidTo] = useState('');
   const [notes, setNotes] = useState('');
+  const [repeatEvery, setRepeatEvery] = useState('NONE');
   const [busy, setBusy] = useState<'' | 'save' | 'again'>('');
   const [savedCount, setSavedCount] = useState(0);
 
@@ -661,6 +738,7 @@ const AddExpenseSheet = ({
         notes,
         propertyId: showProperty ? propertyId || null : null,
         ownerId: ownerId || null,
+        repeatEvery,
       });
 
       if (!result.success || !result.id) throw new Error(result.message ?? 'Could not save.');
@@ -672,6 +750,7 @@ const AddExpenseSheet = ({
         setPaidTo('');
         setNotes('');
         setCategory(null);
+        setRepeatEvery('NONE');
         setSavedCount(savedCount + 1);
       }
       await onSaved(result.id, again);
@@ -879,6 +958,23 @@ const AddExpenseSheet = ({
                 Yesterday
               </button>
               <input type="date" value={date} onChange={(e) => { const v = readValue(e); if (v) setDate(v); }} style={{ ...control, width: 'auto', height: 32 }} />
+            </div>,
+          )}
+
+          {/* Repeats: quit rent, insurance, strata, subscriptions */}
+          {section(
+            'Repeats',
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {REPEATS.map((r) => (
+                  <button key={r.value} onClick={() => setRepeatEvery(r.value)} style={chip(repeatEvery === r.value)}>
+                    {r.value === 'NONE' ? 'One-off' : `🔁 ${r.label}`}
+                  </button>
+                ))}
+              </div>
+              {repeatEvery !== 'NONE' && (
+                <span style={{ fontSize: 12, color: c.text3 }}>The next one shows up on Today and here when it’s due — add it with one tap.</span>
+              )}
             </div>,
           )}
 

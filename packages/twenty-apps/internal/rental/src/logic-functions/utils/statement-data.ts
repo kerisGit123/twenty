@@ -24,10 +24,13 @@ export const loadStatementSource = async (
           startDate: true,
           endDate: true,
           stampedOn: true,
+          monthlyRent: { amountMicros: true },
+          newRent: { amountMicros: true },
+          newRentFrom: true,
           tenantDetails: true,
           statementNote: true,
           tenant: { name: { firstName: true, lastName: true } },
-          property: { propertyType: true, ownerId: true },
+          property: { propertyType: true, ownerId: true, monthlyRent: { amountMicros: true } },
           owner: { name: true },
         },
       },
@@ -41,10 +44,10 @@ export const loadStatementSource = async (
     client.query({
       rentPayments: {
         __args: {
-          filter: { rentalId: { eq: rentalId }, paymentType: { eq: 'RENT' }, status: { in: ['ISSUED', 'SENT'] } },
+          filter: { rentalId: { eq: rentalId }, paymentType: { eq: 'RENT' }, status: { in: ['ISSUED', 'SENT', 'WAIVED'] } },
           first: 500,
         },
-        edges: { node: { rentPeriod: true, paidOn: true, method: true, amount: { amountMicros: true } } },
+        edges: { node: { rentPeriod: true, paidOn: true, method: true, status: true, amount: { amountMicros: true } } },
       },
     }),
     loadReceiptSettings(client),
@@ -63,6 +66,11 @@ export const loadStatementSource = async (
       tenantName: [rental.tenant?.name?.firstName, rental.tenant?.name?.lastName].filter(Boolean).join(' '),
       tenantDetails: (rental.tenantDetails as string | null) ?? '',
       statementNote: (rental.statementNote as string | null) ?? '',
+      terms: {
+        rent: ((rental.monthlyRent?.amountMicros || rental.property?.monthlyRent?.amountMicros) ?? 0) / 1_000_000,
+        newRent: (rental.newRent?.amountMicros ?? 0) / 1_000_000 || null,
+        newRentFrom: rental.newRentFrom ?? null,
+      },
     },
     // The month a receipt is for: its rent period, else when it was paid.
     payments: (rentPayments?.edges ?? [])
@@ -70,6 +78,7 @@ export const loadStatementSource = async (
         month: (node.rentPeriod ?? node.paidOn ?? '').slice(0, 7),
         amount: (node.amount?.amountMicros ?? 0) / 1_000_000,
         fromDeposit: (node.method as string | null) === 'FROM_DEPOSIT',
+        waived: (node.status as string | null) === 'WAIVED',
       }))
       .filter((payment) => payment.month.length === 7),
   };

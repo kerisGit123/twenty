@@ -7,6 +7,7 @@ import { personalOwnerId, propertyOwnerId } from 'src/logic-functions/utils/owne
 import { inScope, NOT_ALLOWED, resolveScope } from 'src/logic-functions/utils/scope';
 import { CURRENCIES } from 'src/shared/currencies';
 import { EXPENSE_CATEGORIES } from 'src/shared/expense-categories';
+import { REPEATS } from 'src/shared/repeating';
 
 type Body = {
   name?: string;
@@ -19,6 +20,7 @@ type Body = {
   notes?: string;
   propertyId?: string | null;
   ownerId?: string | null;
+  repeatEvery?: string;
 };
 
 const METHODS = ['BANK_TRANSFER', 'DUITNOW', 'CASH', 'CARD', 'EWALLET', 'OTHER'];
@@ -68,6 +70,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
             notes: body.notes?.trim() ?? '',
             propertyId: body.propertyId || null,
             ownerId,
+            repeatEvery: (REPEATS.some((r) => r.value === body.repeatEvery) ? body.repeatEvery : 'NONE') as never,
           },
         },
         id: true,

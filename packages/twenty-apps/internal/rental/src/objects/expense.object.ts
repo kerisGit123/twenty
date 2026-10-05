@@ -11,7 +11,13 @@ import {
   EXPENSE_PAID_TO_FIELD_ID,
   EXPENSE_RECEIPT_FIELD_ID,
 } from 'src/constants/universal-identifiers-v2';
-import { EXPENSE_NO_BILL_FIELD_ID } from 'src/constants/universal-identifiers-v3';
+import {
+  EXPENSE_NO_BILL_FIELD_ID,
+  EXPENSE_REPEAT_EVERY_FIELD_ID,
+  EXPENSE_REPEAT_HANDLED_FIELD_ID,
+  EXPENSE_REPEAT_OPTION_IDS,
+} from 'src/constants/universal-identifiers-v3';
+import { REPEATS } from 'src/shared/repeating';
 import { EXPENSE_CATEGORIES, expenseGroup } from 'src/shared/expense-categories';
 
 const METHOD_OPTION_IDS = [
@@ -119,6 +125,31 @@ export default defineObject({
       label: 'No bill available',
       description: 'Tick when there is no bill or receipt, so it stops showing as missing.',
       icon: 'IconReceiptOff',
+      defaultValue: false,
+    },
+    {
+      universalIdentifier: EXPENSE_REPEAT_EVERY_FIELD_ID,
+      type: FieldType.SELECT,
+      name: 'repeatEvery',
+      label: 'Repeats',
+      description: 'For bills that come back (quit rent, insurance, strata): the next one is suggested on Today and Expenses when it falls due.',
+      icon: 'IconRepeat',
+      defaultValue: "'NONE'",
+      options: REPEATS.map((r, index) => ({
+        id: EXPENSE_REPEAT_OPTION_IDS[index],
+        value: r.value,
+        label: r.label,
+        position: index,
+        color: (index === 0 ? 'gray' : 'iris') as 'gray' | 'iris',
+      })),
+    },
+    {
+      universalIdentifier: EXPENSE_REPEAT_HANDLED_FIELD_ID,
+      type: FieldType.BOOLEAN,
+      name: 'repeatHandled',
+      label: 'Next one added',
+      description: 'Set when the next bill in the series has been added, so it is suggested only once.',
+      icon: 'IconCheck',
       defaultValue: false,
     },
     {

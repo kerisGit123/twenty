@@ -1,6 +1,7 @@
 import { type CoreApiClient } from 'twenty-client-sdk/core';
 
 import { monthStart, nextMonthStart, todayIso } from 'src/logic-functions/utils/dates';
+import { rentForMonth } from 'src/shared/rent-month';
 
 type Money = { amountMicros?: number | null; currencyCode?: string | null } | null | undefined;
 
@@ -12,6 +13,8 @@ export type RentalRecord = {
   endDate?: string | null;
   dueDay?: number | null;
   monthlyRent?: Money;
+  newRent?: Money;
+  newRentFrom?: string | null;
   depositAmount?: Money;
   utilityDeposit?: Money;
   propertyId?: string | null;
@@ -33,6 +36,21 @@ const toMoneyInput = (money: Money) => ({
   currencyCode: money?.currencyCode || 'MYR',
 });
 
+// The rent for a month in RM: the contract's (or else the property's) rent,
+// or the new rent from its start month.
+export const rentalRentForMonth = (rental: RentalRecord, monthIso: string): number => {
+  const base = hasAmount(rental.monthlyRent) ? rental.monthlyRent : rental.property?.monthlyRent;
+
+  return rentForMonth(
+    {
+      rent: (base?.amountMicros ?? 0) / 1_000_000,
+      newRent: (rental.newRent?.amountMicros ?? 0) / 1_000_000 || null,
+      newRentFrom: rental.newRentFrom ?? null,
+    },
+    monthIso,
+  );
+};
+
 export const loadRental = async (
   client: CoreApiClient,
   rentalId: string,
@@ -49,6 +67,8 @@ export const loadRental = async (
           endDate: true,
           dueDay: true,
           monthlyRent: { amountMicros: true, currencyCode: true },
+          newRent: { amountMicros: true, currencyCode: true },
+          newRentFrom: true,
           depositAmount: { amountMicros: true, currencyCode: true },
           utilityDeposit: { amountMicros: true, currencyCode: true },
           propertyId: true,
@@ -163,6 +183,34 @@ export const nextRentPeriod = async (client: CoreApiClient, rental: RentalRecord
   return monthStart(todayIso());
 };
 
+export type MonthPaymentRow = { id: string; status: string; amount: number; receiptNumber: string | null };
+
+// All of the rental's (non-void) rent payments for a month: receipts, a draft,
+// a waiver.
+export const rentPaymentsForMonth = async (client: CoreApiClient, rentalId: string, monthIso: string): Promise<MonthPaymentRow[]> => {
+  const { rentPayments } = await client.query({
+    rentPayments: {
+      __args: {
+        filter: {
+          rentalId: { eq: rentalId },
+          paymentType: { eq: 'RENT' },
+          status: { neq: 'VOID' },
+          and: [{ rentPeriod: { gte: monthStart(monthIso) } }, { rentPeriod: { lt: nextMonthStart(monthIso) } }],
+        },
+        first: 50,
+      },
+      edges: { node: { id: true, status: true, receiptNumber: true, amount: { amountMicros: true } } },
+    },
+  });
+
+  return (rentPayments?.edges ?? []).map(({ node }) => ({
+    id: node.id,
+    status: (node.status as string) ?? 'DRAFT',
+    amount: (node.amount?.amountMicros ?? 0) / 1_000_000,
+    receiptNumber: node.receiptNumber ?? null,
+  }));
+};
+
 // The rental's (non-void) rent payment for a month, if any.
 export const findRentPaymentForMonth = async (
   client: CoreApiClient,
@@ -223,7 +271,7 @@ export const createDraftRentPayment = async (
   periodIso: string,
   method?: string | null,
 ): Promise<string | undefined> => {
-  const rent = hasAmount(rental.monthlyRent) ? rental.monthlyRent : rental.property?.monthlyRent;
+  const rent = { amountMicros: Math.round(rentalRentForMonth(rental, periodIso) * 1_000_000), currencyCode: 'MYR' };
   const { createRentPayment } = await client.mutation({
     createRentPayment: {
       __args: {

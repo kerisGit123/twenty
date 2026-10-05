@@ -167,3 +167,20 @@ export const TWILIO_SUMMARY_TEMPLATE_VARIABLE_ID = '610d7764-b578-4b13-b781-506d
 export const TWILIO_REMINDER_TEMPLATE_VARIABLE_ID = '667cc62d-cd0f-4b76-93f6-603eb44db2c9';
 export const TWILIO_OVERDUE_TEMPLATE_VARIABLE_ID = '71109bfe-b2da-4797-9f60-12c95ab5e0fa';
 export const RECEIPT_SHARE_ROUTE_FUNCTION_ID = '494745e9-d2ba-46d7-8578-7d386adf2c43';
+
+// Rent changes and waived months.
+export const RENTAL_NEW_RENT_FIELD_ID = '578cdabe-3efe-46ca-a82a-23d658161d1e';
+export const RENTAL_NEW_RENT_FROM_FIELD_ID = 'e9c15bea-2086-4efa-b882-ff51d57e4cb6';
+export const PAYMENT_STATUS_WAIVED_OPTION_ID = 'a729e6f1-2d1e-4711-b6aa-671f476af5c6';
+
+// Repeating bills.
+export const EXPENSE_REPEAT_EVERY_FIELD_ID = 'acf4333b-4d06-4bd2-9856-ffb89510120d';
+export const EXPENSE_REPEAT_HANDLED_FIELD_ID = 'f70a878a-591b-4cad-99d1-697fdffb5a0a';
+export const EXPENSE_REPEAT_OPTION_IDS = [
+  'd5576d4e-1d02-4da9-8cb6-36705d1f2e23',
+  '15bd6cd8-a2b4-4a25-9917-11bf95ff099d',
+  '0a59c2be-b3ac-45fb-ba33-fb22e82be651',
+  '988899c2-1dd8-4150-af51-1f5c74a24669',
+  'aa932b71-0314-43ce-a560-d065c8eae449',
+];
+export const EXPENSE_REPEAT_ROUTE_FUNCTION_ID = '271f9ce0-71f5-413e-afef-2b263378706c';

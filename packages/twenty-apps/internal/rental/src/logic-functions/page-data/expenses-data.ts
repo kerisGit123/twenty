@@ -1,6 +1,8 @@
 import { type CoreApiClient } from 'twenty-client-sdk/core';
 
+import { loadRepeatingBills } from 'src/logic-functions/utils/repeating-bills';
 import { inScope, type Scope } from 'src/logic-functions/utils/scope';
+import { type RepeatingBill } from 'src/shared/repeating';
 
 // Expenses page data, limited to the caller's workspaces.
 
@@ -18,11 +20,12 @@ export type Expense = {
   ownerName: string;
   files: number;
   noBillNeeded: boolean;
+  repeatEvery: string;
 };
 
 export type Option = { id: string; name: string; ownerId?: string | null };
 
-export type ExpensesData = { expenses: Expense[]; owners: Option[]; properties: Option[] };
+export type ExpensesData = { expenses: Expense[]; owners: Option[]; properties: Option[]; repeating: RepeatingBill[] };
 
 const loadExpenses = async (client: CoreApiClient, from: string, to: string): Promise<Expense[]> => {
   const rows: Expense[] = [];
@@ -47,6 +50,7 @@ const loadExpenses = async (client: CoreApiClient, from: string, to: string): Pr
             paidTo: true,
             receipt: { fileId: true },
             noBillNeeded: true,
+            repeatEvery: true,
             propertyId: true,
             ownerId: true,
             property: { name: true },
@@ -74,6 +78,7 @@ const loadExpenses = async (client: CoreApiClient, from: string, to: string): Pr
         ownerName: node.owner?.name ?? '',
         files: files.filter((file) => !file?.isDeleted).length,
         noBillNeeded: Boolean(node.noBillNeeded),
+        repeatEvery: (node.repeatEvery as string | null) ?? 'NONE',
       });
     }
 
@@ -113,11 +118,12 @@ export const loadExpensesData = async (
   from: string,
   to: string,
 ): Promise<ExpensesData> => {
-  const [expenses, options] = await Promise.all([loadExpenses(client, from, to), loadOptions(client)]);
+  const [expenses, options, repeating] = await Promise.all([loadExpenses(client, from, to), loadOptions(client), loadRepeatingBills(client)]);
 
   return {
     expenses: expenses.filter((expense) => inScope(scope, expense.ownerId)),
     owners: options.owners.filter((owner) => inScope(scope, owner.id)),
     properties: options.properties.filter((property) => inScope(scope, property.ownerId)),
+    repeating: repeating.filter((bill) => inScope(scope, bill.ownerId)),
   };
 };

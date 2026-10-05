@@ -15,6 +15,8 @@ export type Rental = {
   endDate: string | null;
   dueDay: number;
   rent: number; // RM
+  newRent: number | null; // rent change part-way through
+  newRentFrom: string | null;
   propertyName: string;
   propertyType: string | null;
   ownerId: string | null;
@@ -29,6 +31,7 @@ export type Payment = {
   month: string; // YYYY-MM-01
   amount: number; // RM
   receiptNumber: string;
+  notes: string;
   paidOn: string | null;
   method: string | null;
   fileUrl: string | null;
@@ -53,6 +56,8 @@ const loadRentals = async (client: CoreApiClient): Promise<Rental[]> => {
             endDate: true,
             dueDay: true,
             monthlyRent: { amountMicros: true },
+            newRent: { amountMicros: true },
+            newRentFrom: true,
             property: { name: true, propertyType: true, ownerId: true },
             tenant: {
               name: { firstName: true, lastName: true },
@@ -75,6 +80,8 @@ const loadRentals = async (client: CoreApiClient): Promise<Rental[]> => {
         endDate: node.endDate ?? null,
         dueDay: node.dueDay ?? 1,
         rent: (node.monthlyRent?.amountMicros ?? 0) / 1_000_000,
+        newRent: (node.newRent?.amountMicros ?? 0) / 1_000_000 || null,
+        newRentFrom: node.newRentFrom ?? null,
         propertyName: node.property?.name ?? node.name ?? 'Property',
         propertyType: (node.property?.propertyType as string | null) ?? null,
         ownerId: node.property?.ownerId ?? null,
@@ -114,6 +121,7 @@ const loadPayments = async (client: CoreApiClient, from: string, to: string): Pr
             rentPeriod: true,
             amount: { amountMicros: true },
             receiptNumber: true,
+            notes: true,
             paidOn: true,
             method: true,
             receiptFile: { fileId: true, url: true },
@@ -135,6 +143,7 @@ const loadPayments = async (client: CoreApiClient, from: string, to: string): Pr
         month: monthStart(node.rentPeriod),
         amount: (node.amount?.amountMicros ?? 0) / 1_000_000,
         receiptNumber: node.receiptNumber ?? '',
+        notes: (node.notes as string | null) ?? '',
         paidOn: node.paidOn ?? null,
         method: node.method ?? null,
         fileUrl: files?.[0]?.url ?? null,

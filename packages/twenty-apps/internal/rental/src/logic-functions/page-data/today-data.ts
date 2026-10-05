@@ -2,6 +2,9 @@ import { type CoreApiClient } from 'twenty-client-sdk/core';
 
 import { monthStart, todayIso } from 'src/logic-functions/utils/dates';
 import { inScope, type Scope } from 'src/logic-functions/utils/scope';
+import { loadRepeatingBills } from 'src/logic-functions/utils/repeating-bills';
+import { type RepeatingBill } from 'src/shared/repeating';
+import { ARREARS_MONTHS, rentForMonth, settleMonth, type MonthPayment } from 'src/shared/rent-month';
 import { type TenantPhone } from 'src/shared/whatsapp-link';
 
 // Today page data, limited to the caller's workspaces. Birthdays are personal
@@ -27,6 +30,8 @@ export type Contract = {
   endDate: string | null;
   dueDay: number;
   rent: number;
+  newRent: number | null; // rent change part-way through the contract
+  newRentFrom: string | null;
   stampedOn: string | null;
   ownerId: string | null;
   propertyName: string;
@@ -41,16 +46,18 @@ export type Expense = { id: string; name: string; amount: number; hasBill: boole
 
 export type TodayData = {
   contracts: Contract[];
-  paid: string[]; // `${contractId}|YYYY-MM-01`
+  paid: string[]; // settled months (paid in full or waived): `${contractId}|YYYY-MM-01`
+  partial: Record<string, number>; // part-paid months: key -> amount received
   people: Person[];
   documents: Doc[];
   expenses: Expense[];
+  bills: RepeatingBill[]; // next bills of repeating expenses, not yet added
 };
 
 const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData> => {
-  const since = monthStart(addDays(today, -186));
+  const since = `${Number(today.slice(0, 4)) - Math.ceil(ARREARS_MONTHS / 12)}${today.slice(4, 7)}-01`;
 
-  const [{ rentals }, { rentPayments }, { people }, { documents }, { expenses }] = await Promise.all([
+  const [{ rentals }, { rentPayments }, { people }, { documents }, { expenses }, bills] = await Promise.all([
     client.query({
       rentals: {
         __args: { filter: { status: { neq: 'DRAFT' } }, first: 200 },
@@ -63,6 +70,8 @@ const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData>
             dueDay: true,
             stampedOn: true,
             monthlyRent: { amountMicros: true },
+            newRent: { amountMicros: true },
+            newRentFrom: true,
             property: { name: true, ownerId: true },
             tenantId: true,
             tenant: {
@@ -76,10 +85,10 @@ const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData>
     client.query({
       rentPayments: {
         __args: {
-          filter: { paymentType: { eq: 'RENT' }, status: { in: ['ISSUED', 'SENT'] }, rentPeriod: { gte: since } },
-          first: 500,
+          filter: { paymentType: { eq: 'RENT' }, status: { in: ['ISSUED', 'SENT', 'WAIVED'] }, rentPeriod: { gte: since } },
+          first: 1000,
         },
-        edges: { node: { rentalId: true, rentPeriod: true } },
+        edges: { node: { rentalId: true, rentPeriod: true, status: true, amount: { amountMicros: true } } },
       },
     }),
     client.query({
@@ -107,28 +116,54 @@ const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData>
         edges: { node: { id: true, name: true, amount: { amountMicros: true }, receipt: { fileId: true }, noBillNeeded: true, ownerId: true } },
       },
     }),
+    loadRepeatingBills(client),
   ]);
 
-  return {
-    contracts: (rentals?.edges ?? []).map(({ node }) => ({
+  const contracts: Contract[] = (rentals?.edges ?? []).map(({ node }) => ({
       id: node.id,
       status: (node.status as string) ?? '',
       startDate: node.startDate ?? null,
       endDate: node.endDate ?? null,
       dueDay: node.dueDay ?? 1,
       rent: money(node.monthlyRent),
+      newRent: money(node.newRent) || null,
+      newRentFrom: node.newRentFrom ?? null,
       stampedOn: node.stampedOn ?? null,
       ownerId: node.property?.ownerId ?? null,
       propertyName: node.property?.name ?? 'Property',
       tenantId: node.tenantId ?? null,
       tenantName: personName(node.tenant?.name) || 'Tenant',
       tenantPhone: node.tenant?.phones ?? null,
-    })),
-    paid: (
-      (rentPayments?.edges ?? [])
-        .filter(({ node }) => node.rentalId && node.rentPeriod)
-        .map(({ node }) => `${node.rentalId}|${monthStart(node.rentPeriod as string)}`)
-    ),
+    }));
+
+  // Payments per contract-month, then settled vs part-paid.
+  const byMonth = new Map<string, MonthPayment[]>();
+
+  for (const { node } of rentPayments?.edges ?? []) {
+    if (!node.rentalId || !node.rentPeriod) continue;
+
+    const key = `${node.rentalId}|${monthStart(node.rentPeriod as string)}`;
+
+    byMonth.set(key, [...(byMonth.get(key) ?? []), { status: (node.status as string) ?? '', amount: money(node.amount) }]);
+  }
+
+  const terms = new Map(contracts.map((contract) => [contract.id, contract]));
+  const paid: string[] = [];
+  const partial: Record<string, number> = {};
+
+  for (const [key, payments] of byMonth) {
+    const [contractId, month] = key.split('|');
+    const contract = terms.get(contractId);
+    const settlement = settleMonth(contract ? rentForMonth(contract, month) : 0, payments);
+
+    if (settlement.state === 'paid' || settlement.state === 'waived') paid.push(key);
+    else if (settlement.state === 'partial') partial[key] = settlement.received;
+  }
+
+  return {
+    contracts,
+    paid,
+    partial,
     people: (people?.edges ?? [])
       .filter(({ node }) => node.birthday)
       .map(({ node }) => ({
@@ -153,6 +188,7 @@ const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData>
       noBillNeeded: Boolean(node.noBillNeeded),
       ownerId: node.ownerId ?? null,
     })),
+    bills,
   };
 };
 
@@ -165,7 +201,9 @@ export const loadTodayData = async (client: CoreApiClient, scope: Scope): Promis
     ...data,
     contracts,
     paid: data.paid.filter((key) => ids.has(key.split('|')[0])),
+    partial: Object.fromEntries(Object.entries(data.partial).filter(([key]) => ids.has(key.split('|')[0]))),
     documents: data.documents.filter((doc) => inScope(scope, doc.ownerId)),
     expenses: data.expenses.filter((expense) => inScope(scope, expense.ownerId)),
+    bills: data.bills.filter((bill) => inScope(scope, bill.ownerId)),
   };
 };

@@ -10,14 +10,14 @@ import { ReminderList } from 'src/front-components/shared/reminder-list';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import type { Contract, TodayData } from 'src/logic-functions/page-data/today-data';
 import { whatsappLink } from 'src/shared/whatsapp-link';
-import { agendaItems } from 'src/shared/agenda';
+import { type AgendaItem, agendaItems } from 'src/shared/agenda';
 
 // ---------------------------------------------------------------- types
 
 // Server data with paid months as a set for quick lookups.
 type Data = Omit<TodayData, 'paid'> & { paid: Set<string> };
 
-type Kind = 'overdue' | 'due' | 'ending' | 'stamp' | 'document' | 'birthday' | 'bills';
+type Kind = 'overdue' | 'due' | 'rentChange' | 'ending' | 'stamp' | 'document' | 'birthday' | 'bills' | 'repeat';
 
 type Item = {
   key: string;
@@ -54,6 +54,26 @@ const daysBetween = (fromIso: string, toIso: string) =>
 const shortDate = (iso: string) => `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]}`;
 const monthName = (iso: string) => `${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
 
+// "Feb – Sep 2026", "Nov 2025 – Feb 2026", or "Mar, May 2026" when not in a row.
+const monthSpan = (months: string[]) => {
+  const sorted = [...months].sort();
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  const index = (iso: string) => Number(iso.slice(0, 4)) * 12 + Number(iso.slice(5, 7));
+  const inARow = index(last) - index(first) === sorted.length - 1;
+
+  if (sorted.length === 1) return monthName(first);
+  if (!inARow) {
+    return first.slice(0, 4) === last.slice(0, 4)
+      ? `${sorted.map((m) => MONTHS[Number(m.slice(5, 7)) - 1]).join(', ')} ${first.slice(0, 4)}`
+      : sorted.map(monthName).join(', ');
+  }
+
+  return first.slice(0, 4) === last.slice(0, 4)
+    ? `${MONTHS[Number(first.slice(5, 7)) - 1]} – ${monthName(last)}`
+    : `${monthName(first)} – ${monthName(last)}`;
+};
+
 const relative = (today: string, iso: string) => {
   const days = daysBetween(today, iso);
 
@@ -74,10 +94,55 @@ const openRecord = (objectNameSingular: string, recordId: string) =>
 
 // ---------------------------------------------------------------- data
 
+// Several overdue months for one contract become one row: one total and one
+// WhatsApp message listing the months.
+const overdueGroup = (entries: AgendaItem[]): Item => {
+  const c = entries[0].contract as NonNullable<AgendaItem['contract']>;
+  const months = entries.map((e) => e.month as string);
+  const total = entries.reduce((sum, e) => sum + (e.amount ?? 0), 0);
+  const part = entries.some((e) => e.received);
+  const text = `Hi ${firstName(c.tenantName)}, a friendly reminder that the rent for ${c.propertyName} for ${monthSpan(months)} (${entries.length} months, ${rm(total)} in total) hasn't been received yet. Please let us know once it's paid. Thank you!`;
+
+  return {
+    key: `overdue-${c.id}`,
+    kind: 'overdue',
+    date: entries[0].date,
+    title: `${c.propertyName} · ${entries.length} months overdue`,
+    detail: `${c.tenantName} · ${monthSpan(months)}${part ? ' (some part-paid)' : ''} · oldest due ${shortDate(entries[0].date)}`,
+    amount: total,
+    whatsapp: whatsappLink(c.tenantPhone, text),
+    open: () => openPage('Rent Ledger'),
+    openLabel: 'Catch up',
+  };
+};
+
 // Everything that needs doing (rules in src/shared/agenda.ts), with the text,
 // WhatsApp message and link for each.
-const buildItems = (data: Data, today: string): Item[] =>
-  agendaItems(data, today).map((entry): Item => {
+const buildItems = (data: Data, today: string): Item[] => {
+  const entries = agendaItems(data, today);
+  const overdueBy = new Map<string, AgendaItem[]>();
+
+  for (const entry of entries) {
+    if (entry.kind === 'overdue' && entry.contract) overdueBy.set(entry.contract.id, [...(overdueBy.get(entry.contract.id) ?? []), entry]);
+  }
+
+  const items: Item[] = [];
+
+  for (const entry of entries) {
+    const group = entry.kind === 'overdue' && entry.contract ? overdueBy.get(entry.contract.id) : undefined;
+
+    if (group && group.length > 1) {
+      // One row per contract, placed where its oldest month would be.
+      if (group[0] === entry) items.push(overdueGroup(group));
+      continue;
+    }
+    items.push(buildItem(entry, today));
+  }
+
+  return items;
+};
+
+const buildItem = (entry: AgendaItem, today: string): Item => {
     const contract = entry.contract;
 
     switch (entry.kind) {
@@ -85,21 +150,44 @@ const buildItems = (data: Data, today: string): Item[] =>
       case 'due': {
         const c = contract as NonNullable<typeof contract>;
         const month = entry.month as string;
+        const owed = entry.amount ?? c.rent;
+        const what = entry.received ? `the rest of the rent (${rm(owed)})` : `the rent`;
         const text =
           entry.kind === 'overdue'
-            ? `Hi ${firstName(c.tenantName)}, a friendly reminder that the rent for ${c.propertyName} for ${monthName(month)} (${rm(c.rent)}) was due on ${shortDate(entry.date)}. Please let us know once it's paid. Thank you!`
-            : `Hi ${firstName(c.tenantName)}, a reminder that the rent for ${c.propertyName} for ${monthName(month)} (${rm(c.rent)}) is due on ${shortDate(entry.date)}. Thank you!`;
+            ? `Hi ${firstName(c.tenantName)}, a friendly reminder that ${what} for ${c.propertyName} for ${monthName(month)}${entry.received ? '' : ` (${rm(owed)})`} was due on ${shortDate(entry.date)}. Please let us know once it's paid. Thank you!`
+            : `Hi ${firstName(c.tenantName)}, a reminder that ${what} for ${c.propertyName} for ${monthName(month)}${entry.received ? '' : ` (${rm(owed)})`} is due on ${shortDate(entry.date)}. Thank you!`;
 
         return {
           key: entry.key,
           kind: entry.kind,
           date: entry.date,
-          title: `${c.propertyName} · ${monthName(month)} rent`,
-          detail: `${c.tenantName} · due ${shortDate(entry.date)}`,
-          amount: c.rent,
+          title: `${c.propertyName} · ${monthName(month)} rent${entry.received ? ' (part-paid)' : ''}`,
+          detail: entry.received
+            ? `${c.tenantName} · ${rm(entry.received)} received, rest due ${shortDate(entry.date)}`
+            : `${c.tenantName} · due ${shortDate(entry.date)}`,
+          amount: owed,
           whatsapp: whatsappLink(c.tenantPhone, text),
           open: () => openPage('Rent Ledger'),
           openLabel: 'Record',
+        };
+      }
+      case 'rentChange': {
+        const c = contract as NonNullable<typeof contract>;
+        const month = entry.month as string;
+        const up = (entry.amount ?? 0) >= c.rent;
+
+        return {
+          key: entry.key,
+          kind: 'rentChange',
+          date: entry.date,
+          title: `${c.propertyName} · rent ${up ? 'goes up' : 'changes'} to ${rm(entry.amount ?? 0)}`,
+          detail: `${c.tenantName} · from ${monthName(month)} (now ${rm(c.rent)})`,
+          whatsapp: whatsappLink(
+            c.tenantPhone,
+            `Hi ${firstName(c.tenantName)}, a reminder that from ${monthName(month)} the monthly rent for ${c.propertyName} will be ${rm(entry.amount ?? 0)}, as agreed. Thank you!`,
+          ),
+          open: () => openRecord('rental', c.id),
+          openLabel: 'Open',
         };
       }
       case 'ending': {
@@ -154,7 +242,7 @@ const buildItems = (data: Data, today: string): Item[] =>
           openLabel: 'Open',
         };
     }
-  });
+};
 
 // ---------------------------------------------------------------- styles
 
@@ -173,11 +261,13 @@ const c = {
 const KIND: Record<Kind, { label: string; color: string; icon: string }> = {
   overdue: { label: 'Overdue', color: 'red', icon: '!' },
   due: { label: 'Rent due', color: 'amber', icon: 'RM' },
+  rentChange: { label: 'Rent change', color: 'iris', icon: '↗' },
   ending: { label: 'Contract', color: 'purple', icon: '⌛' },
   stamp: { label: 'Stamping', color: 'orange', icon: '§' },
   document: { label: 'Document', color: 'blue', icon: '▤' },
   birthday: { label: 'Birthday', color: 'pink', icon: '✦' },
   bills: { label: 'Bills', color: 'amber', icon: '📎' },
+  repeat: { label: 'Bill', color: 'iris', icon: '🔁' },
 };
 
 const smallButton: CSSProperties = {
@@ -336,8 +426,23 @@ const Today = () => {
       contracts: data.contracts.filter((x) => scope.matches(x.ownerId)),
       documents: data.documents.filter((x) => scope.matches(x.ownerId)),
       expenses: data.expenses.filter((x) => scope.matches(x.ownerId)),
+      bills: (data.bills ?? []).filter((x) => scope.matches(x.ownerId)),
     };
-    const items = buildItems(scoped, today);
+    // Repeating bills due in the next 30 days.
+    const repeatItems: Item[] = scoped.bills
+      .filter((bill) => bill.nextDate <= addDays(today, 30))
+      .map((bill) => ({
+        key: `repeat-${bill.id}`,
+        kind: 'repeat',
+        date: bill.nextDate,
+        title: `${bill.name} bill`,
+        detail: `Repeating · due ${shortDate(bill.nextDate)}${bill.propertyName ? ` · ${bill.propertyName}` : ''}`,
+        amount: bill.currency === 'MYR' ? bill.amount : undefined,
+        open: () => openPage('Expenses'),
+        openLabel: 'Add',
+      }));
+    const items = [...buildItems(scoped, today), ...repeatItems].sort((a, b) => a.date.localeCompare(b.date));
+    const scopedEntries = agendaItems(scoped, today);
     const week = addDays(today, 7);
     const overdue = items.filter((i) => i.kind === 'overdue');
     const dueSoon = items.filter((i) => i.kind === 'due' && i.date <= week);
@@ -350,6 +455,7 @@ const Today = () => {
         i.kind === 'overdue' ||
         (i.kind === 'stamp' && daysBetween(today, i.date) <= 14) ||
         (i.kind === 'due' && i.date <= week) ||
+        (i.kind === 'repeat' && i.date <= week) ||
         (i.kind === 'ending' && i.date < today) ||
         (i.kind === 'document' && i.date < today),
     );
@@ -369,7 +475,10 @@ const Today = () => {
     const attentionKeys = new Set(attention.map((i) => i.key));
     const upcoming = items.filter((i) => !attentionKeys.has(i.key) && i.date >= today);
 
-    return { overdue, dueSoon, ending, stamping, documents, missingBills, attention, upcoming };
+    // Grouped rows stand for several months.
+    const overdueMonths = scopedEntries.filter((e) => e.kind === 'overdue').length;
+
+    return { overdue, overdueMonths, dueSoon, ending, stamping, documents, missingBills, attention, upcoming };
   }, [data, today, scope.key]);
 
   const date = new Date(`${today}T00:00:00Z`);
@@ -399,7 +508,7 @@ const Today = () => {
             <Tile
               label="Overdue rent"
               value={rm(view.overdue.reduce((s, i) => s + (i.amount ?? 0), 0))}
-              hint={`${view.overdue.length} month${view.overdue.length === 1 ? '' : 's'} unpaid`}
+              hint={`${view.overdueMonths} month${view.overdueMonths === 1 ? '' : 's'} unpaid`}
               color={view.overdue.length ? 'red' : 'green'}
               onClick={() => openPage('Rent Ledger')}
             />

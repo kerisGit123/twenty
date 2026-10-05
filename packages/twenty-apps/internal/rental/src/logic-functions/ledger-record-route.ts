@@ -8,9 +8,11 @@ import { receiptHandler } from 'src/logic-functions/handlers/send-receipt-handle
 import { monthStart } from 'src/logic-functions/utils/dates';
 import {
   createDraftRentPayment,
-  findRentPaymentForMonth,
   loadRental,
+  rentalRentForMonth,
+  rentPaymentsForMonth,
 } from 'src/logic-functions/utils/rental-service';
+import { settleMonth } from 'src/shared/rent-month';
 
 type LedgerRecordBody = {
   rentalId?: string;
@@ -20,8 +22,11 @@ type LedgerRecordBody = {
   method?: string;
   notes?: string;
   receiptDate?: string | null; // YYYY-MM-DD to back-date the receipt; empty = issue date
-  action?: 'preview' | 'issue' | 'send';
+  // waive: don't charge the month (or what's left of it); unwaive: undo.
+  action?: 'preview' | 'issue' | 'send' | 'waive' | 'unwaive';
 };
+
+const money = (rm: number) => ({ amountMicros: Math.round(rm * 1_000_000), currencyCode: 'MYR' });
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -30,7 +35,9 @@ const json = (body: unknown, status = 200) =>
   });
 
 // Record payment from the Rent Ledger: reuse the month's draft (or create
-// one), save the form, then preview, issue or send the receipt.
+// one), save the form, then preview, issue or send the receipt. A part-paid
+// month takes another payment (its own receipt) until it's paid in full.
+// Also waives a month, or undoes that.
 const handler = async (
   event: RoutePayload,
   context?: { workspaceMemberId?: string | null },
@@ -41,7 +48,9 @@ const handler = async (
   if (!body.rentalId || !body.month) {
     return json({ success: false, message: 'Choose a rental and a month.' }, 400);
   }
-  if (!body.amount || body.amount <= 0) {
+  const waiving = action === 'waive' || action === 'unwaive';
+
+  if (!waiving && (!body.amount || body.amount <= 0)) {
     return json({ success: false, message: 'Enter the amount received.' }, 400);
   }
 
@@ -55,20 +64,61 @@ const handler = async (
     }
 
     const month = monthStart(body.month);
-    const existing = await findRentPaymentForMonth(client, rental.id, month);
+    const rows = await rentPaymentsForMonth(client, rental.id, month);
+    const waiver = rows.find((row) => row.status === 'WAIVED');
+    const drafts = rows.filter((row) => row.status === 'DRAFT');
+    const settlement = settleMonth(rentalRentForMonth(rental, month), rows);
 
-    if (existing && existing.status !== 'DRAFT') {
-      return json(
-        {
-          success: false,
-          message: `This month already has receipt ${existing.receiptNumber}. Use "Correct receipt" to change it.`,
+    if (action === 'unwaive') {
+      if (!waiver) return json({ success: false, message: 'This month isn’t waived.' }, 400);
+      await client.mutation({ deleteRentPayment: { __args: { id: waiver.id }, id: true } });
+
+      return json({ success: true, message: 'Waiver removed — the month is owed again.' });
+    }
+    if (waiver) return json({ success: false, message: 'This month is waived. Undo the waiver first.' }, 409);
+
+    if (action === 'waive') {
+      if (settlement.state === 'paid') return json({ success: false, message: 'This month is already paid in full.' }, 409);
+
+      const { createRentPayment } = await client.mutation({
+        createRentPayment: {
+          __args: {
+            data: {
+              status: 'WAIVED',
+              paymentType: 'RENT',
+              rentalId: rental.id,
+              propertyId: rental.propertyId ?? null,
+              tenantId: rental.tenantId ?? null,
+              ownerId: rental.property?.ownerId ?? null,
+              rentPeriod: month,
+              amount: money(settlement.remaining),
+              notes: body.notes ?? '',
+            } as never,
+          },
+          id: true,
         },
+      });
+
+      // The month's unused draft isn't needed any more.
+      for (const draft of drafts) await client.mutation({ deleteRentPayment: { __args: { id: draft.id }, id: true } });
+
+      return json({
+        success: Boolean(createRentPayment?.id),
+        paymentId: createRentPayment?.id,
+        message: settlement.received > 0 ? 'The rest of the month is waived.' : 'Month waived — no rent charged.',
+      });
+    }
+
+    if (settlement.state === 'paid') {
+      const numbers = rows.filter((row) => row.receiptNumber).map((row) => row.receiptNumber).join(', ');
+
+      return json(
+        { success: false, message: `This month is already paid (receipt ${numbers}). Use "Correct receipt" to change it.` },
         409,
       );
     }
 
-    const paymentId =
-      existing?.id ?? (await createDraftRentPayment(client, rental, month, body.method));
+    const paymentId = drafts[0]?.id ?? (await createDraftRentPayment(client, rental, month, body.method));
 
     if (!paymentId) return json({ success: false, message: 'Could not create the payment.' }, 500);
 
@@ -77,7 +127,7 @@ const handler = async (
         __args: {
           id: paymentId,
           data: {
-            amount: { amountMicros: Math.round(body.amount * 1_000_000), currencyCode: 'MYR' },
+            amount: money(body.amount ?? 0),
             paidOn: body.paidOn || null,
             ...(body.method ? { method: body.method } : {}),
             notes: body.notes ?? '',
@@ -107,7 +157,7 @@ const handler = async (
 export default defineLogicFunction({
   universalIdentifier: LEDGER_RECORD_ROUTE_ID,
   name: 'ledger-record-route',
-  description: 'Records a rent payment from the Rent Ledger and previews, issues or sends its receipt.',
+  description: 'Records a rent payment from the Rent Ledger (previews, issues or sends its receipt), or waives a month.',
   timeoutSeconds: 60,
   handler,
   httpRouteTriggerSettings: { path: '/ledger/record', httpMethod: 'POST', isAuthRequired: true },

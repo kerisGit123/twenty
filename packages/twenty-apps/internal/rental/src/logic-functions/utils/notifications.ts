@@ -140,7 +140,8 @@ export const buildSummary = (data: Data, today: string, to: string | null): Outg
   const documents = items.filter((i) => i.kind === 'document' && daysBetween(today, i.date) <= 30);
   const birthdays = items.filter((i) => i.kind === 'birthday' && i.date <= week);
   const missingBills = data.expenses.filter((e) => !e.hasBill && !e.noBillNeeded);
-  const overdueAmount = overdue.reduce((sum, i) => sum + (i.contract?.rent ?? 0), 0);
+  const repeatBills = (data.bills ?? []).filter((b) => b.nextDate <= week);
+  const overdueAmount = overdue.reduce((sum, i) => sum + (i.amount ?? i.contract?.rent ?? 0), 0);
   const date = new Date(`${today}T00:00:00Z`);
   const heading = `${DAYS[date.getUTCDay()]}, ${day(today)}`;
 
@@ -157,15 +158,20 @@ export const buildSummary = (data: Data, today: string, to: string | null): Outg
 
       return `${i.contract?.propertyName} – ${month(i.month ?? i.date)}, ${i.contract?.tenantName} (${late} day${late === 1 ? '' : 's'} late)`;
     }),
-    ...list(`📅 Rent due this week (${dueSoon.length})`, dueSoon, (i) => `${i.contract?.propertyName} – ${rm(i.contract?.rent ?? 0)}, due ${day(i.date)}`),
+    ...list(`📅 Rent due this week (${dueSoon.length})`, dueSoon, (i) => `${i.contract?.propertyName} – ${rm(i.amount ?? i.contract?.rent ?? 0)}, due ${day(i.date)}`),
     ...list(`📝 Contracts ending (${ending.length})`, ending, (i) => `${i.contract?.propertyName} – ${i.date < today ? 'ended' : 'ends'} ${day(i.date)}`),
     ...list(`🖋️ Agreements to stamp (${stamping.length})`, stamping, (i) => `${i.contract?.propertyName} – by ${day(i.date)}`),
     ...list(`📄 Documents expiring (${documents.length})`, documents, (i) => `${i.documentName} – ${day(i.date)}`),
     ...list(`🎂 Birthdays this week`, birthdays, (i) => `${i.personName} – ${day(i.date)}`),
+    ...list(`🔁 Bills due (${repeatBills.length})`, repeatBills as never[], (i) => {
+      const bill = i as unknown as (typeof repeatBills)[number];
+
+      return `${bill.name} – ${bill.currency === 'MYR' ? rm(bill.amount) : `${bill.currency} ${bill.amount}`}, ${day(bill.nextDate)}`;
+    }),
     ...(missingBills.length ? [`🧾 ${missingBills.length} expense${missingBills.length === 1 ? '' : 's'} without a bill`] : []),
   ].filter((line, index, all) => !(line === '' && all[index - 1] === ''));
 
-  const nothing = overdue.length + dueSoon.length + ending.length + stamping.length + documents.length + birthdays.length + missingBills.length === 0;
+  const nothing = overdue.length + dueSoon.length + ending.length + stamping.length + documents.length + birthdays.length + missingBills.length + repeatBills.length === 0;
   const body = (nothing ? [`☀️ Good morning! ${heading}`, '', '✅ Nothing needs your attention today.'] : lines).join('\n').slice(0, 1500);
   const others = ending.length + stamping.length + documents.length + birthdays.length + missingBills.length;
 
@@ -192,7 +198,7 @@ const reminderText = (kind: 'RENT_UPCOMING' | 'RENT_DUE' | 'RENT_OVERDUE', item:
   const c = item.contract as NonNullable<AgendaItem['contract']>;
   const name = firstName(c.tenantName);
   const m = month(item.month ?? item.date, language);
-  const amount = rm(c.rent);
+  const amount = rm(item.amount ?? c.rent);
   const due = day(item.date, language);
 
   if (language === 'MS') {
@@ -239,7 +245,7 @@ export const buildReminders = (data: Data, today: string, settings: Notification
         '1': firstName(c.tenantName),
         '2': c.propertyName,
         '3': month(item.month, settings.tenantLanguage),
-        '4': rm(c.rent),
+        '4': rm(item.amount ?? c.rent),
         '5': day(due, settings.tenantLanguage),
       },
     });

@@ -1,14 +1,15 @@
 import { dueDateInMonth, monthStart, nextMonthStart } from 'src/logic-functions/utils/dates';
 import type { Contract, TodayData } from 'src/logic-functions/page-data/today-data';
+import { ARREARS_MONTHS, rentForMonth } from 'src/shared/rent-month';
 
 // What needs doing, from the same data as the Today page: unpaid rent (due
-// or overdue), contracts ending, agreements to stamp, documents expiring and
-// birthdays. Used by the Today page and by the WhatsApp morning summary and
+// or overdue), rent changes, contracts ending, agreements to stamp, documents
+// expiring and birthdays. Used by the Today page and by the WhatsApp morning summary and
 // tenant reminders, so they always agree.
 
 export const GRACE_DAYS = 3; // rent is overdue this many days after the due day
 
-export type AgendaKind = 'overdue' | 'due' | 'ending' | 'stamp' | 'document' | 'birthday';
+export type AgendaKind = 'overdue' | 'due' | 'rentChange' | 'ending' | 'stamp' | 'document' | 'birthday';
 
 export type AgendaItem = {
   key: string;
@@ -16,6 +17,8 @@ export type AgendaItem = {
   date: string; // YYYY-MM-DD (due date, end date, expiry, birthday)
   contract?: Contract;
   month?: string; // rent month, YYYY-MM-01
+  amount?: number; // rent still owed for the month
+  received?: number; // already received for the month (part-paid)
   documentId?: string;
   documentName?: string;
   personId?: string;
@@ -51,9 +54,10 @@ export const agendaItems = (data: Omit<TodayData, 'paid'> & { paid: Set<string> 
   for (const contract of data.contracts) {
     const active = contract.status === 'ACTIVE';
 
-    // Rent: unpaid months from up to 6 months back to the month after next.
+    // Rent: unpaid and part-paid months, from up to ARREARS_MONTHS back to
+    // the month after next.
     if (active) {
-      let month = monthStart(addDays(today, -186));
+      let month = monthStart(`${Number(today.slice(0, 4)) - Math.floor(ARREARS_MONTHS / 12)}${today.slice(4, 10)}`);
 
       if (contract.startDate && monthStart(contract.startDate) > month) month = monthStart(contract.startDate);
 
@@ -66,7 +70,28 @@ export const agendaItems = (data: Omit<TodayData, 'paid'> & { paid: Set<string> 
 
         if (!overdue && due > horizon) continue;
 
-        items.push({ key: `rent-${contract.id}-${month}`, kind: overdue ? 'overdue' : 'due', date: due, contract, month });
+        const rent = rentForMonth(contract, month);
+        const received = data.partial[`${contract.id}|${month}`] ?? 0;
+
+        items.push({
+          key: `rent-${contract.id}-${month}`,
+          kind: overdue ? 'overdue' : 'due',
+          date: due,
+          contract,
+          month,
+          amount: Math.max(0, rent - received),
+          ...(received ? { received } : {}),
+        });
+      }
+    }
+
+    // A rent change coming up in the next 60 days.
+    if (active && contract.newRent && contract.newRentFrom) {
+      const from = dueDateInMonth(monthStart(contract.newRentFrom), contract.dueDay);
+      const away = daysBetween(today, from);
+
+      if (away >= 0 && away <= 60) {
+        items.push({ key: `rentChange-${contract.id}`, kind: 'rentChange', date: from, contract, month: monthStart(from), amount: contract.newRent });
       }
     }
 
