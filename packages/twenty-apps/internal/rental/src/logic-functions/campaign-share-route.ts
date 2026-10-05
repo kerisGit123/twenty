@@ -167,7 +167,11 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       ${files.some((f) => f.type.startsWith('image/')) ? '<button class="plain" id="copyImage">📋 Copy photo</button>' : ''}
       ${files.length ? '<button class="plain" id="download">⬇ Download</button>' : ''}
     </div>
-    <div style="margin-top:8px"><a class="btn wa" id="chat" href="${escape(waChat)}" target="_blank" rel="noopener">💬 Open chat with the message</a></div>
+    ${files.some((f) => f.type.startsWith('image/'))
+      ? `<div style="margin-top:8px"><button class="wa" id="copyAndChat">📋 Copy photo &amp; open chat</button></div>
+    <p class="note" style="margin:8px 0 0">In the chat press <b>Ctrl+V</b> — the photo attaches with the message as its caption — then send.</p>
+    <div style="margin-top:8px"><a class="btn plain" id="chat" href="${escape(waChat)}" target="_blank" rel="noopener">💬 Open chat only</a></div>`
+      : `<div style="margin-top:8px"><a class="btn wa" id="chat" href="${escape(waChat)}" target="_blank" rel="noopener">💬 Open chat with the message</a></div>`}
   </div>
 
   <div class="row">
@@ -207,8 +211,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       status('Shared. Tap Done when you’re finished.');
     } catch (e) { if (e && e.name !== 'AbortError') status('Couldn’t open the share menu — use the steps below.'); document.getElementById('desktop').style.display = 'block'; }
   };
-  const copyImage = document.getElementById('copyImage');
-  if (copyImage) copyImage.onclick = async () => {
+  const copyPhoto = async () => {
     const i = files.findIndex((f) => f.type.startsWith('image/'));
     try {
       // The clipboard takes PNG; convert other photos first.
@@ -221,8 +224,16 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         png = await new Promise((r) => canvas.toBlob(r, 'image/png'));
       }
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
-      status('Photo copied — open the chat and press Ctrl+V.');
-    } catch (e) { status('Couldn’t copy the photo — download it and attach it instead.'); }
+      return true;
+    } catch (e) { return false; }
+  };
+  const copyImage = document.getElementById('copyImage');
+  if (copyImage) copyImage.onclick = async () => status((await copyPhoto()) ? 'Photo copied — open the chat and press Ctrl+V.' : 'Couldn’t copy the photo — download it and attach it instead.');
+  const copyAndChat = document.getElementById('copyAndChat');
+  if (copyAndChat) copyAndChat.onclick = async () => {
+    const ok = await copyPhoto();
+    window.open(document.getElementById('chat').href, '_blank', 'noopener');
+    status(ok ? 'Photo copied — in the chat press Ctrl+V, then send.' : 'Couldn’t copy the photo — download it and attach it in the chat.');
   };
   const download = document.getElementById('download');
   if (download) download.onclick = () => blobs.forEach((b, i) => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = files[i].name; a.click(); });
