@@ -5,6 +5,9 @@ import { inScope, NOT_ALLOWED, resolveScope } from 'src/logic-functions/utils/sc
 import { PAYMENT_RECEIPT_FILE_FIELD_ID } from 'src/constants/universal-identifiers';
 import { ringgitInWords } from 'src/logic-functions/utils/amount-in-words';
 import { daysInMonth, toMalaysiaDate, todayIso } from 'src/logic-functions/utils/dates';
+import { buildTemplatePdf } from 'src/logic-functions/utils/template-pdf';
+import { defaultTemplate } from 'src/logic-functions/utils/templates';
+import { type ReceiptFacts, receiptContext } from 'src/shared/doc-template/context';
 import {
   type ReceiptSettingsRecord,
   resolveStyle,
@@ -331,13 +334,23 @@ export const receiptHandler = async (
   const period = isDeposit ? { from: '', to: '' } : monthBounds(payment.rentPeriod);
   const propertyAddress = formatAddress(payment.property?.propertyAddress);
 
+  const receiptDateIso =
+    isRegenerate && payment.receiptSentAt ? toMalaysiaDate(payment.receiptSentAt) : isRegenerate && mode !== 'preview' ? paidOn : todayIso();
+  const receivedBy =
+    settings?.receivedBy?.trim() ||
+    process.env.RECEIPT_RECEIVED_BY?.trim() ||
+    (await memberName(client, senderWorkspaceMemberId)) ||
+    issuerName;
+  const style = resolveStyle(settings);
+  const receiptTemplate = await defaultTemplate(client, 'RECEIPT');
+
   const receiptData: ReceiptData = {
     title: resolveTitle(settings, isDeposit),
-    style: resolveStyle(settings),
+    style,
     watermark: mode === 'preview' ? 'DRAFT' : mode === 'void' ? 'VOID' : null,
     issuerName,
     receiptNumber,
-    date: formatDate(isRegenerate && payment.receiptSentAt ? toMalaysiaDate(payment.receiptSentAt) : isRegenerate && mode !== 'preview' ? paidOn : todayIso()),
+    date: formatDate(receiptDateIso),
     receivedFrom: tenantName,
     amountText,
     amountInWords: ringgitInWords(payment.amount.amountMicros / 1_000_000),
@@ -345,14 +358,36 @@ export const receiptHandler = async (
     periodFrom: period.from,
     periodTo: period.to,
     purpose: isDeposit ? depositLabel : description,
-    receivedBy:
-      settings?.receivedBy?.trim() ||
-      process.env.RECEIPT_RECEIVED_BY?.trim() ||
-      (await memberName(client, senderWorkspaceMemberId)) ||
-      issuerName,
+    receivedBy,
     method: (payment.method as ReceiptPaymentMethod | null) ?? null,
     paidOn: formatDate(paidOn),
     notes: payment.notes ?? '',
+    ...(receiptTemplate
+      ? {
+          template: receiptTemplate,
+          facts: {
+            businessName: issuerName,
+            businessDetails: style.businessDetails,
+            footerText: style.footerText,
+            titleRent: resolveTitle(settings, false),
+            titleDeposit: resolveTitle(settings, true),
+            receiptNumber,
+            dateIso: receiptDateIso,
+            paidOnIso: paidOn,
+            tenantName,
+            amount: payment.amount.amountMicros / 1_000_000,
+            propertyName,
+            propertyAddress,
+            periodMonth: isDeposit ? null : payment.rentPeriod ?? null,
+            depositKind: isDeposit ? (payment.paymentType as 'DEPOSIT' | 'UTILITY_DEPOSIT') : null,
+            method: payment.method ?? null,
+            receivedBy,
+            notes: payment.notes ?? '',
+            accent: style.accent,
+            watermark: null,
+          } satisfies ReceiptFacts,
+        }
+      : {}),
   };
 
   // Issued receipts are shown and voided exactly as they were printed.
@@ -369,7 +404,14 @@ export const receiptHandler = async (
   }
 
   const printed = mode === 'void' && snapshot ? { ...snapshot, watermark: 'VOID' as const } : receiptData;
-  const pdf = await buildReceiptPdf(printed);
+  const pdf =
+    printed.template && printed.facts
+      ? await buildTemplatePdf(
+          printed.template,
+          receiptContext({ ...printed.facts, watermark: printed.watermark ?? null }, printed.template.language),
+          `${printed.title} ${printed.receiptNumber}`,
+        )
+      : await buildReceiptPdf(printed);
   // Saved with final receipts so they keep their look and wording.
   const finalSnapshot = { ...receiptData, watermark: null };
   const fileName =

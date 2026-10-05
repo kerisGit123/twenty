@@ -5,6 +5,9 @@ import {
   DEFAULT_STYLE,
   type ReceiptStyle,
 } from 'src/logic-functions/utils/receipt-settings';
+import { TemplatePreview } from 'src/front-components/shared/template-preview';
+import { type ReceiptFacts, receiptContext } from 'src/shared/doc-template/context';
+import { type TemplateDoc } from 'src/shared/doc-template/types';
 
 // Same content and layouts as the PDF (src/logic-functions/utils/receipt-pdf.ts),
 // drawn in HTML so it can be shown and previewed inside the app.
@@ -26,6 +29,9 @@ export type ReceiptViewData = {
   paidOn: string;
   notes: string;
   style?: ReceiptStyle;
+  // Receipts made with a template (Reports -> Templates) are drawn with it.
+  facts?: ReceiptFacts;
+  template?: TemplateDoc;
 };
 
 const INK = '#222429';
@@ -38,6 +44,7 @@ const METHODS = [
   { value: 'DUITNOW', label: 'DuitNow' },
   { value: 'CHEQUE', label: 'Cheque' },
   { value: 'OTHER', label: 'Other' },
+  { value: 'FROM_DEPOSIT', label: 'Deposit' },
 ];
 const methodLabel = (value: string | null) => METHODS.find((m) => m.value === value)?.label ?? '-';
 
@@ -228,6 +235,17 @@ const Compact = ({ data, style }: { data: ReceiptViewData; style: ReceiptStyle }
 
 export const ReceiptView = ({ data, scale = 1 }: { data: ReceiptViewData; scale?: number }) => {
   const style = data.style ?? DEFAULT_STYLE;
+
+  if (data.template && data.facts) {
+    return (
+      <div style={{ fontSize: 11 * scale, width: `${100 * Math.max(scale, 1)}%` }}>
+        <TemplatePreview
+          template={data.template}
+          context={receiptContext({ ...data.facts, watermark: data.watermark ?? null }, data.template.language)}
+        />
+      </div>
+    );
+  }
 
   return (
     <Paper scale={scale} watermark={data.watermark} compact={style.template === 'COMPACT'}>

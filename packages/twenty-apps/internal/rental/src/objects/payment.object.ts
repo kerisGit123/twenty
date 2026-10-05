@@ -163,6 +163,14 @@ export default defineObject({
           position: 4,
           color: 'gray',
         },
+        {
+          // The month's rent was taken from the tenant's deposit.
+          id: '63cf3adb-4818-4df4-92c9-422f7e61eeca',
+          value: 'FROM_DEPOSIT',
+          label: 'Paid from deposit',
+          position: 5,
+          color: 'purple',
+        },
       ],
     },
     {

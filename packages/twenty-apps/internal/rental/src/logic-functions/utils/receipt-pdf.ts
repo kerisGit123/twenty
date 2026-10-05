@@ -13,13 +13,16 @@ import {
   DEFAULT_STYLE,
   type ReceiptStyle,
 } from 'src/logic-functions/utils/receipt-settings';
+import { type ReceiptFacts } from 'src/shared/doc-template/context';
+import { type TemplateDoc } from 'src/shared/doc-template/types';
 
 export type ReceiptPaymentMethod =
   | 'CASH'
   | 'BANK_TRANSFER'
   | 'DUITNOW'
   | 'CHEQUE'
-  | 'OTHER';
+  | 'OTHER'
+  | 'FROM_DEPOSIT';
 
 export type ReceiptData = {
   title: string; // e.g. RENT RECEIPT / DEPOSIT RECEIPT
@@ -39,6 +42,9 @@ export type ReceiptData = {
   paidOn: string;
   notes: string;
   style?: ReceiptStyle;
+  // Set when a receipt template is the default: drawn with it instead.
+  facts?: ReceiptFacts;
+  template?: TemplateDoc;
 };
 
 const A4 = { width: 595.28, height: 841.89 };
@@ -54,6 +60,7 @@ export const METHOD_LABELS: Array<{ value: ReceiptPaymentMethod; label: string }
   { value: 'DUITNOW', label: 'DuitNow' },
   { value: 'CHEQUE', label: 'Cheque' },
   { value: 'OTHER', label: 'Other' },
+  { value: 'FROM_DEPOSIT', label: 'Deposit' },
 ];
 
 const methodLabel = (method: ReceiptPaymentMethod | null) =>
@@ -251,7 +258,7 @@ const drawClassic = (page: PDFPage, fonts: Fonts, palette: Palette, data: Receip
       page.drawLine({ start: { x: boxX + 4.2, y: rowMid - 2.8 }, end: { x: boxX + 8.2, y: rowMid + 3 }, thickness: 1.4, color: WHITE });
     }
     page.drawText(method.label, { x: boxX + 15, y: rowMid - 3.5, size: 9.5, font: isSelected ? fonts.bold : fonts.regular, color: INK });
-    boxX += 15 + fonts.regular.widthOfTextAtSize(method.label, 9.5) + 22;
+    boxX += 15 + fonts.regular.widthOfTextAtSize(method.label, 9.5) + 14;
   }
   y -= rowHeight;
 

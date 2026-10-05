@@ -26,7 +26,11 @@ import {
   RENTAL_DEPOSIT_STATUS_FIELD_ID,
   RENTAL_UTILITY_DEPOSIT_FIELD_ID,
 } from 'src/constants/universal-identifiers-v2';
-import { RENTAL_STAMPED_ON_FIELD_ID } from 'src/constants/universal-identifiers-v3';
+import {
+  RENTAL_STAMPED_ON_FIELD_ID,
+  RENTAL_STATEMENT_NOTE_FIELD_ID,
+  RENTAL_TENANT_DETAILS_FIELD_ID,
+} from 'src/constants/universal-identifiers-v3';
 
 // One tenant renting one property for a period, with the agreed terms.
 // Payments hang off a rental; the property's Occupied/Vacant status and
@@ -154,6 +158,24 @@ export default defineObject({
       label: 'Stamped on',
       description: 'When the agreement was stamped (LHDN e-Duti Setem). Due within 30 days of signing.',
       icon: 'IconStamp',
+      isNullable: true,
+    },
+    {
+      universalIdentifier: RENTAL_TENANT_DETAILS_FIELD_ID,
+      type: FieldType.TEXT,
+      name: 'tenantDetails',
+      label: 'Tenant details for letters',
+      description: 'How the tenant appears on letters, one item per line: name or company, registration no., address.',
+      icon: 'IconAddressBook',
+      isNullable: true,
+    },
+    {
+      universalIdentifier: RENTAL_STATEMENT_NOTE_FIELD_ID,
+      type: FieldType.TEXT,
+      name: 'statementNote',
+      label: 'Statement note',
+      description: 'Extra lines for the year statement, e.g. "Bagi bulan Oktober 2025, sewa telah dipotong daripada deposit."',
+      icon: 'IconFileText',
       isNullable: true,
     },
     {

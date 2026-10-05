@@ -7,6 +7,7 @@ import { RENT_LEDGER_FRONT_COMPONENT_ID } from 'src/constants/universal-identifi
 import { ReceiptSettingsPanel } from 'src/front-components/shared/receipt-settings-panel';
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { ReceiptView, type ReceiptViewData } from 'src/front-components/shared/receipt-view';
+import { StatementPanel } from 'src/front-components/shared/statement-panel';
 import type { LedgerData, Payment, Rental } from 'src/logic-functions/page-data/ledger-data';
 import { whatsappLink } from 'src/shared/whatsapp-link';
 import {
@@ -34,6 +35,7 @@ const METHODS = [
   { value: 'CASH', label: 'Cash' },
   { value: 'CHEQUE', label: 'Cheque' },
   { value: 'OTHER', label: 'Other' },
+  { value: 'FROM_DEPOSIT', label: 'Paid from deposit' },
 ];
 const TYPES = [
   { value: '', label: 'All types' },
@@ -180,6 +182,13 @@ const RentLedger = () => {
   const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Contract whose year statement is open.
+  const [statementFor, setStatementFor] = useState<Rental | null>(null);
+
+  // Opening a month closes the statement.
+  useEffect(() => {
+    if (selection) setStatementFor(null);
+  }, [selection]);
   const scope = useOwnerScope();
 
   const months = useMemo(() => {
@@ -422,6 +431,15 @@ const RentLedger = () => {
                       )}
                     </td>
                     <td style={{ padding: '10px 8px', textAlign: 'right' }}>
+                      <button
+                        onClick={() => {
+                          setSelection(null);
+                          setStatementFor(rental);
+                        }}
+                        style={{ ...button(), marginRight: 6, color: c.text2 }}
+                      >
+                        Statement
+                      </button>
                       {cell.status !== 'none' && (
                         <button onClick={() => setSelection({ rental, month: cell.month })} style={button(cell.status !== 'paid')}>
                           {cell.status === 'paid' ? 'View' : 'Record'}
@@ -449,7 +467,19 @@ const RentLedger = () => {
               <div key={rental.id} style={{ display: 'contents' }}>
                 <div style={{ lineHeight: 1.3, paddingRight: 8 }}>
                   <div style={{ fontWeight: 500, fontSize: 13 }}>{rental.propertyName}</div>
-                  <div style={{ color: c.text3 }}>{rental.tenantName} · {rm(rental.rent)}</div>
+                  <div style={{ color: c.text3 }}>
+                    {rental.tenantName} · {rm(rental.rent)} ·{' '}
+                    <button
+                      onClick={() => {
+                        setSelection(null);
+                        setStatementFor(rental);
+                      }}
+                      title="Year statement for the tenant"
+                      style={{ fontFamily: c.font, fontSize: 12, color: c.accent, background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                    >
+                      Statement
+                    </button>
+                  </div>
                 </div>
                 {cells.map((cell) => {
                   const selected = selection?.rental.id === rental.id && selection.month === cell.month;
@@ -500,6 +530,18 @@ const RentLedger = () => {
       </div>
 
       {settingsOpen && <ReceiptSettingsPanel onClose={() => setSettingsOpen(false)} />}
+
+      {statementFor && (
+        <StatementPanel
+          key={statementFor.id}
+          rentalId={statementFor.id}
+          propertyName={statementFor.propertyName}
+          tenantName={statementFor.tenantName}
+          tenantPhone={statementFor.tenantPhone}
+          initialYear={Number((mode === 'range' ? rangeTo : anchor).slice(0, 4))}
+          onClose={() => setStatementFor(null)}
+        />
+      )}
 
       {selection && (
         <PaymentPanel

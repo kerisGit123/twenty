@@ -136,3 +136,18 @@ export const YEAR_SUMMARY_WIDGET_ID = '9e79f2f7-02ec-44a7-9140-9fae242044cd';
 export const YEAR_SUMMARY_NAV_ITEM_ID = 'c6b1db89-3ed7-486f-90a0-2a37ec574cfe';
 export const REPORTS_FOLDER_NAV_ID = 'b4a44080-5fd0-4cb9-975e-5d36ebd0e8ad';
 export const YEAR_REPORT_ROUTE_FUNCTION_ID = '09ec2d24-82ea-4b78-b545-6d9fbcbf6ed5';
+
+// Tenant year statement (Pemakluman penerimaan pembayaran sewa).
+export const RENTAL_TENANT_DETAILS_FIELD_ID = 'dcefc6ae-9fa5-48f9-bf32-864f82135199';
+export const RENTAL_STATEMENT_NOTE_FIELD_ID = '06b7cf68-2d73-4bdf-9f3d-769677c7fe67';
+export const STATEMENT_ROUTE_FUNCTION_ID = '76e49f61-27a7-4e31-99b9-2d593c4e1e98';
+export const STATEMENT_PRINT_ROUTE_FUNCTION_ID = '16bb70e6-1d16-451a-b23b-5394a63a1c76';
+
+// Template editor (receipts and year statements).
+export const TEMPLATES_ROUTE_FUNCTION_ID = '71b0ca92-7c70-4f53-87f1-bd036a4beb27';
+export const TEMPLATE_EDITOR_FRONT_COMPONENT_ID = '8debf588-2d74-48dc-9421-ab96f5ca68f4';
+export const TEMPLATE_EDITOR_PAGE_LAYOUT_ID = '6a8ebe52-ab42-472a-b78b-dfcd40a2178e';
+export const TEMPLATE_EDITOR_NAV_ITEM_ID = 'a8a71b67-1903-4cca-9629-3c2e641c89da';
+export const TEMPLATE_EDITOR_TAB_ID = '5b839338-708d-422c-b6df-23d8ebe503f3';
+export const TEMPLATE_EDITOR_WIDGET_ID = '17506d7a-0c8c-436e-98a4-b0a71b5550ce';
+export const TEMPLATE_SAMPLE_ROUTE_FUNCTION_ID = '6d640af6-a714-4499-a537-4992501a492e';
