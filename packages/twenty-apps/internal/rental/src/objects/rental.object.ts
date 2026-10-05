@@ -27,7 +27,10 @@ import {
   RENTAL_UTILITY_DEPOSIT_FIELD_ID,
 } from 'src/constants/universal-identifiers-v2';
 import {
+  DEPOSIT_STATUS_CARRIED_OPTION_ID,
+  RENTAL_DEPOSIT_CARRIED_IN_FIELD_ID,
   RENTAL_NEW_RENT_FIELD_ID,
+  RENTAL_RENEWAL_OF_FIELD_ID,
   RENTAL_NEW_RENT_FROM_FIELD_ID,
   RENTAL_STAMPED_ON_FIELD_ID,
   RENTAL_STATEMENT_NOTE_FIELD_ID,
@@ -145,6 +148,7 @@ export default defineObject({
         { id: DEPOSIT_STATUS_PARTLY_REFUNDED_OPTION_ID, value: 'PARTLY_REFUNDED', label: 'Partly refunded', position: 2, color: 'orange' },
         { id: DEPOSIT_STATUS_REFUNDED_OPTION_ID, value: 'REFUNDED', label: 'Refunded', position: 3, color: 'green' },
         { id: DEPOSIT_STATUS_FORFEITED_OPTION_ID, value: 'FORFEITED', label: 'Forfeited', position: 4, color: 'red' },
+        { id: DEPOSIT_STATUS_CARRIED_OPTION_ID, value: 'CARRIED', label: 'Carried to renewal', position: 5, color: 'sky' },
       ],
     },
     {
@@ -171,6 +175,26 @@ export default defineObject({
       label: 'Deposit notes',
       description: 'Deductions at move-out, e.g. cleaning RM 200',
       icon: 'IconNotes',
+      isNullable: true,
+    },
+    {
+      // Deposit brought over from the contract this one renews.
+      universalIdentifier: RENTAL_DEPOSIT_CARRIED_IN_FIELD_ID,
+      type: FieldType.CURRENCY,
+      name: 'depositCarriedIn',
+      label: 'Deposit carried over',
+      description: 'Deposit (security + utility, less anything used) brought over from the previous contract at renewal.',
+      icon: 'IconArrowForward',
+      isNullable: true,
+      defaultValue: { amountMicros: null, currencyCode: "'MYR'" },
+    },
+    {
+      universalIdentifier: RENTAL_RENEWAL_OF_FIELD_ID,
+      type: FieldType.TEXT,
+      name: 'renewalOfId',
+      label: 'Renewal of',
+      description: 'The contract this one renews (set by Renew on the Contracts page).',
+      icon: 'IconRefresh',
       isNullable: true,
     },
     {

@@ -355,7 +355,7 @@ const drawBlock = (w: Writer, block: Block, context: TemplateContext) => {
 };
 
 // Downloads and embeds the signature image (PNG or JPG); none if it can't.
-const embedSignature = async (doc: PDFDocument, url: string | null | undefined): Promise<PDFImage | null> => {
+export const embedSignature = async (doc: PDFDocument, url: string | null | undefined): Promise<PDFImage | null> => {
   if (!url) return null;
   try {
     const response = await fetch(url);

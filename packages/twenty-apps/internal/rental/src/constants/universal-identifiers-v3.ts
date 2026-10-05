@@ -184,3 +184,15 @@ export const EXPENSE_REPEAT_OPTION_IDS = [
   'aa932b71-0314-43ce-a560-d065c8eae449',
 ];
 export const EXPENSE_REPEAT_ROUTE_FUNCTION_ID = '271f9ce0-71f5-413e-afef-2b263378706c';
+
+// Contracts page: renewals and the deposit register.
+export const RENTAL_RENEWAL_OF_FIELD_ID = '0c39c6e7-2ada-4732-a029-df7691d75e69';
+export const RENTAL_DEPOSIT_CARRIED_IN_FIELD_ID = '40f50aa7-ada9-4760-97a9-9503e9d3957d';
+export const DEPOSIT_STATUS_CARRIED_OPTION_ID = 'bc0c70a1-3669-427a-8592-e4538b5cf596';
+export const CONTRACTS_ROUTE_FUNCTION_ID = 'aeb4d5a2-643b-4b6f-8f31-5c1cde9cc75f';
+export const DEPOSIT_STATEMENT_ROUTE_FUNCTION_ID = '6110ce2f-9dbf-4432-a58f-166fe0e6b5c5';
+export const CONTRACTS_FRONT_COMPONENT_ID = '09c72bd1-0739-4401-8b5f-6c27d8ab3608';
+export const CONTRACTS_PAGE_LAYOUT_ID = 'b6311abd-2b6f-4fca-8ff9-68a8aec11705';
+export const CONTRACTS_TAB_ID = '41ee53ee-9a32-4621-a19b-fb6311db8deb';
+export const CONTRACTS_WIDGET_ID = '45f09a42-2066-423c-ae0a-0d4d4b78e026';
+export const CONTRACTS_NAV_ITEM_ID = 'f00971e8-605a-40a1-ad6a-98c84b3cf92a';

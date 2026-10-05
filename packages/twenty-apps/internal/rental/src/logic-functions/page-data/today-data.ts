@@ -33,6 +33,7 @@ export type Contract = {
   newRent: number | null; // rent change part-way through the contract
   newRentFrom: string | null;
   stampedOn: string | null;
+  renewed: boolean; // another contract renews this one
   ownerId: string | null;
   propertyName: string;
   tenantId: string | null;
@@ -69,6 +70,7 @@ const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData>
             endDate: true,
             dueDay: true,
             stampedOn: true,
+            renewalOfId: true,
             monthlyRent: { amountMicros: true },
             newRent: { amountMicros: true },
             newRentFrom: true,
@@ -119,6 +121,7 @@ const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData>
     loadRepeatingBills(client),
   ]);
 
+  const renewedIds = new Set((rentals?.edges ?? []).map(({ node }) => node.renewalOfId as string | null).filter(Boolean));
   const contracts: Contract[] = (rentals?.edges ?? []).map(({ node }) => ({
       id: node.id,
       status: (node.status as string) ?? '',
@@ -129,6 +132,7 @@ const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData>
       newRent: money(node.newRent) || null,
       newRentFrom: node.newRentFrom ?? null,
       stampedOn: node.stampedOn ?? null,
+      renewed: renewedIds.has(node.id),
       ownerId: node.property?.ownerId ?? null,
       propertyName: node.property?.name ?? 'Property',
       tenantId: node.tenantId ?? null,

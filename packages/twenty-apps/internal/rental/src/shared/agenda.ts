@@ -95,8 +95,9 @@ export const agendaItems = (data: Omit<TodayData, 'paid'> & { paid: Set<string> 
       }
     }
 
-    // Contract ending within 60 days (or ended but still marked active).
-    if (active && contract.endDate && daysBetween(today, contract.endDate) <= 60) {
+    // Contract ending within 90 days (or ended but still marked active),
+    // unless it's been renewed.
+    if (active && contract.endDate && !contract.renewed && daysBetween(today, contract.endDate) <= 90) {
       items.push({ key: `end-${contract.id}`, kind: 'ending', date: contract.endDate, contract });
     }
 

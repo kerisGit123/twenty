@@ -203,8 +203,8 @@ const buildItem = (entry: AgendaItem, today: string): Item => {
             c.tenantPhone,
             `Hi ${firstName(c.tenantName)}, your tenancy for ${c.propertyName} ends on ${shortDate(entry.date)}. Would you like to renew? Let me know and I'll prepare the agreement.`,
           ),
-          open: () => openRecord('rental', c.id),
-          openLabel: 'Open',
+          open: () => openPage('Contracts'),
+          openLabel: 'Renew',
         };
       }
       case 'stamp': {
@@ -522,16 +522,16 @@ const Today = () => {
             <Tile
               label="Contracts ending"
               value={String(view.ending.length)}
-              hint="within 60 days"
+              hint="within 90 days"
               color="purple"
-              onClick={() => openList('rentals')}
+              onClick={() => openPage('Contracts')}
             />
             <Tile
               label="Stamping due"
               value={String(view.stamping.length)}
               hint="agreements not stamped"
               color={view.stamping.length ? 'orange' : 'green'}
-              onClick={() => openList('rentals')}
+              onClick={() => openPage('Contracts')}
             />
             <Tile
               label="Bills missing"
