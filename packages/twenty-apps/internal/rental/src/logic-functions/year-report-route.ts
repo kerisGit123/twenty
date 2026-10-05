@@ -34,7 +34,10 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
     const [data, { owners }] = await Promise.all([
       loadYearData(client, scope, year),
-      client.query({ owners: { __args: { filter: { id: { eq: ownerId || '00000000-0000-0000-0000-000000000000' } }, first: 1 }, edges: { node: { name: true } } } }),
+      // Only look the workspace up when one is picked (an empty id isn't a valid filter).
+      ownerId
+        ? client.query({ owners: { __args: { filter: { id: { eq: ownerId } }, first: 1 }, edges: { node: { name: true } } } })
+        : Promise.resolve({ owners: null }),
     ]);
     const workspace = ownerId ? owners?.edges?.[0]?.node?.name ?? 'Workspace' : scope.all ? 'All workspaces' : 'All my workspaces';
     const s = summariseYear(data, ownerId);

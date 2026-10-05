@@ -15,6 +15,8 @@ export type YearPayment = {
 };
 
 export type YearExpense = {
+  id: string;
+  name: string;
   ownerId: string | null;
   propertyId: string | null;
   category: string;
@@ -81,6 +83,8 @@ const loadExpenses = async (client: CoreApiClient, from: string, to: string): Pr
         },
         edges: {
           node: {
+            id: true,
+            name: true,
             ownerId: true,
             propertyId: true,
             category: true,
@@ -101,6 +105,8 @@ const loadExpenses = async (client: CoreApiClient, from: string, to: string): Pr
       const files = (node.receipt as unknown as Array<{ isDeleted?: boolean }> | null) ?? [];
 
       rows.push({
+        id: node.id,
+        name: node.name ?? '',
         ownerId: node.ownerId ?? null,
         propertyId: node.propertyId ?? null,
         category: (node.category as string | null) ?? 'OTHER',

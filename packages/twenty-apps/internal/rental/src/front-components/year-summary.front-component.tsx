@@ -6,6 +6,7 @@ import { copyToClipboard, enqueueSnackbar } from 'twenty-sdk/front-component';
 import { YEAR_SUMMARY_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import type { YearData } from 'src/logic-functions/page-data/year-data';
+import { buildTaxPack } from 'src/shared/lhdn';
 import { summariseYear, yearSummaryCsv } from 'src/shared/year-summary';
 
 // Year summary: one year of a workspace's rent and expenses — totals against
@@ -105,6 +106,7 @@ const YearSummary = () => {
   }, [year]);
 
   const summary = useMemo(() => (data ? summariseYear(data, scope.ownerId) : null), [data, scope.key]);
+  const tax = useMemo(() => (data ? buildTaxPack(data, scope.ownerId) : null), [data, scope.key]);
   const workspaceName = scope.owner?.name ?? (scope.restricted ? 'All my workspaces' : 'All workspaces');
 
   const copyCsv = async () => {
@@ -114,6 +116,9 @@ const YearSummary = () => {
   };
 
   const reportUrl = new RestApiClient().resolveUrl('/s/reports/year', {
+    query: { year, ...(scope.ownerId ? { owner: scope.ownerId } : {}) },
+  });
+  const taxUrl = new RestApiClient().resolveUrl('/s/reports/tax', {
     query: { year, ...(scope.ownerId ? { owner: scope.ownerId } : {}) },
   });
 
@@ -321,6 +326,36 @@ const YearSummary = () => {
               </div>
             </div>
           </div>
+
+          {/* For the tax return: rent less what LHDN allows (Public Ruling 12/2018) */}
+          {tax && (tax.income > 0 || tax.deductible > 0) && (
+            <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <h3 style={{ ...title, flex: 1 }}>For your tax return (LHDN)</h3>
+                <a href={taxUrl} target="_blank" rel="noreferrer" style={{ ...control, display: 'inline-flex', alignItems: 'center', textDecoration: 'none', color: c.text }}>
+                  Tax working sheet / PDF
+                </a>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(150px, 100%), 1fr))', gap: 10 }}>
+                {[
+                  ['Rent received', rm(tax.income), c.text],
+                  ['Allowable expenses', rm(tax.deductible), c.text],
+                  ['Net rental income · 4(d)', rm(tax.taxable), c.green],
+                ].map(([label, value, color]) => (
+                  <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ fontSize: 12, color: c.text3 }}>{label}</span>
+                    <span style={{ fontSize: 18, fontWeight: 700, color }}>{value}</span>
+                  </div>
+                ))}
+              </div>
+              <span style={{ fontSize: 12.5, color: c.text3, lineHeight: 1.5 }}>
+                Counts assessment, quit rent, loan interest, fire insurance, repairs, service charge, rent collection and renewal fees.
+                {tax.capital > 0 ? ` Renovation & furniture (${rm(tax.capital)}) isn’t deductible.` : ''}
+                {tax.noBill.length > 0 ? ` ${tax.noBill.length} claim${tax.noBill.length === 1 ? ' has' : 's have'} no bill.` : ''}
+                {tax.unlinked.length > 0 ? ` ${tax.unlinked.length} property cost${tax.unlinked.length === 1 ? ' isn’t' : 's aren’t'} linked to a property.` : ''}
+              </span>
+            </div>
+          )}
         </>
       )}
     </>,

@@ -113,7 +113,7 @@ export const EXPENSE_CATEGORIES: ExpenseCategory[] = [
   { value: 'FURNISHING', label: 'Furniture & appliances', group: 'FURNISHING', id: '277bec6b-4f31-4776-a458-2f723176b863' },
   { value: 'RENOVATION', label: 'Renovation', group: 'FURNISHING', id: '7b1d4f8a-3e6c-4a29-9d05-b2c8e1f4a609' },
   // Loans & insurance
-  { value: 'LOAN_INTEREST', label: 'Housing loan', group: 'FINANCE', id: '23d154b2-665f-4af4-9a6b-11d39f276e15' },
+  { value: 'LOAN_INTEREST', label: 'Housing loan interest', group: 'FINANCE', id: '23d154b2-665f-4af4-9a6b-11d39f276e15' },
   { value: 'INSURANCE', label: 'Fire / home insurance', group: 'FINANCE', id: '89361410-2cb2-4510-a5c1-2ccfc4934606' },
   { value: 'BANK_CHARGES', label: 'Bank charges', group: 'FINANCE', id: 'b6e0a3d8-1f4c-4e92-8b57-9c2d7f1a3e06' },
   // Agent & legal fees

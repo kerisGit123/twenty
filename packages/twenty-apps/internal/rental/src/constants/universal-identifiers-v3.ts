@@ -196,3 +196,6 @@ export const CONTRACTS_PAGE_LAYOUT_ID = 'b6311abd-2b6f-4fca-8ff9-68a8aec11705';
 export const CONTRACTS_TAB_ID = '41ee53ee-9a32-4621-a19b-fb6311db8deb';
 export const CONTRACTS_WIDGET_ID = '45f09a42-2066-423c-ae0a-0d4d4b78e026';
 export const CONTRACTS_NAV_ITEM_ID = 'f00971e8-605a-40a1-ad6a-98c84b3cf92a';
+
+// LHDN tax pack.
+export const TAX_PACK_ROUTE_FUNCTION_ID = '43d49c4c-f997-42a4-849b-7d6e928e76f2';
