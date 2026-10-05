@@ -5,12 +5,14 @@ import { EXPENSE_CREATE_ROUTE_FUNCTION_ID } from 'src/constants/universal-identi
 import { appClient } from 'src/logic-functions/utils/app-client';
 import { personalOwnerId, propertyOwnerId } from 'src/logic-functions/utils/owner-sync';
 import { inScope, NOT_ALLOWED, resolveScope } from 'src/logic-functions/utils/scope';
+import { CURRENCIES } from 'src/shared/currencies';
 import { EXPENSE_CATEGORIES } from 'src/shared/expense-categories';
 
 type Body = {
   name?: string;
   expenseDate?: string;
   amount?: number;
+  currency?: string;
   category?: string;
   method?: string;
   paidTo?: string;
@@ -19,7 +21,7 @@ type Body = {
   ownerId?: string | null;
 };
 
-const METHODS = ['BANK_TRANSFER', 'DUITNOW', 'CASH', 'CARD', 'OTHER'];
+const METHODS = ['BANK_TRANSFER', 'DUITNOW', 'CASH', 'CARD', 'EWALLET', 'OTHER'];
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -56,7 +58,10 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
           data: {
             name: body.name.trim(),
             expenseDate: body.expenseDate,
-            amount: { amountMicros: Math.round(amount * 1_000_000), currencyCode: 'MYR' },
+            amount: {
+              amountMicros: Math.round(amount * 1_000_000),
+              currencyCode: CURRENCIES.some((x) => x.code === body.currency) ? body.currency : 'MYR',
+            },
             category: (EXPENSE_CATEGORIES.some((c) => c.value === body.category) ? body.category : 'OTHER') as never,
             method: (METHODS.includes(body.method ?? '') ? body.method : 'OTHER') as never,
             paidTo: body.paidTo?.trim() ?? '',

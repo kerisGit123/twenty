@@ -4,6 +4,7 @@ import { defineFrontComponent } from 'twenty-sdk/define';
 import { enqueueSnackbar } from 'twenty-sdk/front-component';
 
 import { NOTIFICATIONS_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
+import { ReminderList } from 'src/front-components/shared/reminder-list';
 import type { NotificationSettings } from 'src/logic-functions/utils/notifications';
 
 // Notifications: your WhatsApp assistant. A morning summary for you, rent
@@ -151,6 +152,7 @@ const Notifications = () => {
   const [busy, setBusy] = useState('');
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [openLog, setOpenLog] = useState<string | null>(null);
+  const [showAuto, setShowAuto] = useState(false);
 
   const call = useCallback(async <T,>(body: Record<string, unknown>) => new RestApiClient().post<T>('/s/notifications', body), []);
 
@@ -212,107 +214,121 @@ const Notifications = () => {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 240px', minWidth: 0 }}>
           <div style={{ fontSize: 20, fontWeight: 650 }}>Notifications</div>
-          <div style={{ fontSize: 13, color: c.text3, marginTop: 2 }}>Your WhatsApp assistant: a morning summary for you, rent reminders for tenants.</div>
+          <div style={{ fontSize: 13, color: c.text3, marginTop: 2 }}>Rent reminders for your tenants, ready to send from your own WhatsApp.</div>
         </div>
         <button onClick={() => run('save', { action: 'save', values }, load)} disabled={!dirty || busy !== ''} style={{ ...button('primary'), opacity: dirty ? 1 : 0.55 }}>
           {busy === 'save' ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
         </button>
       </div>
 
-      {/* Connection */}
-      {data.twilioReady ? (
-        <div style={{ ...card, flexDirection: 'row', alignItems: 'center', gap: 10, padding: '12px 16px', background: 'var(--t-color-green2, #f0fdf4)', border: 'none' }}>
-          <span style={{ fontSize: 18 }}>✅</span>
-          <div style={{ flex: 1, fontSize: 13 }}>
-            <b>WhatsApp is connected</b> (Twilio).{' '}
-            <span style={{ color: c.text3 }}>
-              {data.templates?.summary || data.templates?.reminder
-                ? 'Approved templates are used where set.'
-                : 'No approved templates yet: messages are plain text, which WhatsApp only delivers within 24h of that person’s last message to your number (fine for the Sandbox).'}
-            </span>
-          </div>
-        </div>
-      ) : (
-        <div style={{ ...card, background: 'var(--t-color-amber2, #fffbeb)', border: '1px solid var(--t-color-amber6, #fcd34d)' }}>
-          <div style={{ fontWeight: 600, fontSize: 14 }}>⚠️ Connect WhatsApp first</div>
-          <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.6, color: c.text2 }}>
-            <li>Create a free account at twilio.com and open <b>Messaging → Try it out → Send a WhatsApp message</b> (the Sandbox).</li>
-            <li>From your phone, send the “join …” code shown there to the Sandbox number.</li>
-            <li>
-              In <b>Settings → Apps → Rental</b>, fill in <b>TWILIO_ACCOUNT_SID</b>, <b>TWILIO_AUTH_TOKEN</b> and <b>TWILIO_WHATSAPP_FROM</b> (the Sandbox number, e.g. +14155238886).
-            </li>
-            <li>Come back here and press <b>Send test</b>.</li>
-          </ol>
-        </div>
-      )}
-
-      {/* Morning summary */}
+      {/* Tenant reminders: sent by you, one tap each */}
       <div style={card}>
-        <Row label="☀️ Morning summary" hint="What’s overdue, due this week, contracts ending, documents expiring, birthdays and bills to file.">
-          <Switch on={values.summaryEnabled} onChange={(summaryEnabled) => set({ summaryEnabled })} />
+        <Row label="🔔 Rent reminders for tenants" hint="Each day the reminders that are due appear here and on Today, written for you. Tap WhatsApp — it opens your WhatsApp with the message typed in — then press Send.">
+          <Switch on={values.remindersEnabled} onChange={(remindersEnabled) => set({ remindersEnabled })} />
         </Row>
-        <Row label="My WhatsApp number" hint="+60123456789 or 012-345 6789">
-          <input value={values.summaryPhone} onChange={(e) => set({ summaryPhone: readValue(e) })} placeholder="+60123456789" style={{ ...control, maxWidth: 220 }} />
+        {values.remindersEnabled && (
+          <>
+            <Row label="Before the due day">
+              {select(values.remindDaysBefore, [0, 1, 2, 3, 5, 7], (remindDaysBefore) => set({ remindDaysBefore }), (d) => (d === 0 ? 'Don’t remind' : `${d} day${d === 1 ? '' : 's'} before`))}
+            </Row>
+            <Row label="On the due day">
+              <Switch on={values.remindOnDueDay} onChange={(remindOnDueDay) => set({ remindOnDueDay })} />
+            </Row>
+            <Row label="When overdue" hint="Once, if still unpaid.">
+              {select(values.remindDaysAfter, [0, 1, 3, 5, 7, 14], (remindDaysAfter) => set({ remindDaysAfter }), (d) => (d === 0 ? 'Don’t remind' : `${d} day${d === 1 ? '' : 's'} after`))}
+            </Row>
+            <Row label="Language">
+              <select value={values.tenantLanguage} onChange={(e) => set({ tenantLanguage: readValue(e) === 'MS' ? 'MS' : 'EN' })} style={{ ...control, width: 'auto', minWidth: 130 }}>
+                <option value="EN">English</option>
+                <option value="MS">Bahasa Melayu</option>
+              </select>
+            </Row>
+          </>
+        )}
+        {dirty ? (
+          <div style={{ fontSize: 12, color: c.amber }}>Save your changes to see today’s reminders with these rules.</div>
+        ) : (
+          <div style={{ borderTop: `1px solid ${c.border}`, paddingTop: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>To send today</div>
+            <ReminderList key={saved} onSetup={() => set({ remindersEnabled: true })} />
+          </div>
+        )}
+      </div>
+
+      {/* Morning summary: needs automatic sending */}
+      <div style={card}>
+        <Row
+          label="☀️ Morning summary to me"
+          hint={
+            data.twilioReady
+              ? 'What’s overdue, due this week, contracts ending, documents expiring, birthdays and bills to file — sent to you each morning.'
+              : 'Today shows the same thing whenever you open it. Sending it to your WhatsApp automatically will come with Meta’s WhatsApp service (later).'
+          }
+        >
+          <Switch on={values.summaryEnabled} onChange={(summaryEnabled) => set({ summaryEnabled })} disabled={!data.twilioReady} />
         </Row>
-        <Row label="Send at" hint="Malaysia time">
-          {select(values.summaryHour, HOURS, (summaryHour) => set({ summaryHour }), hourLabel)}
-        </Row>
+        {data.twilioReady && (
+          <>
+            <Row label="My WhatsApp number" hint="+60123456789 or 012-345 6789">
+              <input value={values.summaryPhone} onChange={(e) => set({ summaryPhone: readValue(e) })} placeholder="+60123456789" style={{ ...control, maxWidth: 220 }} />
+            </Row>
+            <Row label="Send at" hint="Malaysia time">
+              {select(values.summaryHour, HOURS, (summaryHour) => set({ summaryHour }), hourLabel)}
+            </Row>
+          </>
+        )}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button
-            onClick={() => run('test', { action: 'test', to: values.summaryPhone }, load)}
-            disabled={busy !== '' || !data.twilioReady || !values.summaryPhone.trim()}
-            style={{ ...button('whatsapp'), opacity: data.twilioReady && values.summaryPhone.trim() ? 1 : 0.5 }}
-          >
-            {busy === 'test' ? 'Sending…' : 'Send test'}
-          </button>
           <button onClick={showPreview} disabled={busy !== ''} style={button()}>
-            {busy === 'preview' ? 'Loading…' : 'Preview today’s messages'}
+            {busy === 'preview' ? 'Loading…' : 'Preview today’s summary'}
           </button>
+          {data.twilioReady && (
+            <button
+              onClick={() => run('test', { action: 'test', to: values.summaryPhone }, load)}
+              disabled={busy !== '' || !values.summaryPhone.trim()}
+              style={{ ...button('whatsapp'), opacity: values.summaryPhone.trim() ? 1 : 0.5 }}
+            >
+              {busy === 'test' ? 'Sending…' : 'Send test'}
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Tenant reminders */}
-      <div style={card}>
-        <Row label="🔔 Tenant rent reminders" hint="Sent to the tenant’s phone on the contract. Each reminder goes once.">
-          <Switch on={values.remindersEnabled} onChange={(remindersEnabled) => set({ remindersEnabled })} />
-        </Row>
-        <Row label="Before the due day">
-          {select(values.remindDaysBefore, [0, 1, 2, 3, 5, 7], (remindDaysBefore) => set({ remindDaysBefore }), (d) => (d === 0 ? 'Don’t remind' : `${d} day${d === 1 ? '' : 's'} before`))}
-        </Row>
-        <Row label="On the due day">
-          <Switch on={values.remindOnDueDay} onChange={(remindOnDueDay) => set({ remindOnDueDay })} />
-        </Row>
-        <Row label="When overdue" hint="Once, if still unpaid.">
-          {select(values.remindDaysAfter, [0, 1, 3, 5, 7, 14], (remindDaysAfter) => set({ remindDaysAfter }), (d) => (d === 0 ? 'Don’t remind' : `${d} day${d === 1 ? '' : 's'} after`))}
-        </Row>
-        <Row label="Send at" hint="Malaysia time">
-          {select(values.reminderHour, HOURS, (reminderHour) => set({ reminderHour }), hourLabel)}
-        </Row>
-        <Row label="Language">
-          <select value={values.tenantLanguage} onChange={(e) => set({ tenantLanguage: readValue(e) === 'MS' ? 'MS' : 'EN' })} style={{ ...control, width: 'auto', minWidth: 130 }}>
-            <option value="EN">English</option>
-            <option value="MS">Bahasa Melayu</option>
-          </select>
-        </Row>
+      {/* Automatic sending (later) */}
+      <div style={{ ...card, gap: 8 }}>
+        <button onClick={() => setShowAuto(!showAuto)} style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>
+            ⚙️ Automatic sending {data.twilioReady ? <span style={{ color: c.green, fontWeight: 400, fontSize: 13 }}>· connected</span> : <span style={{ color: c.text3, fontWeight: 400, fontSize: 13 }}>· not set up (optional)</span>}
+          </span>
+          <span style={{ color: c.text3, fontSize: 12, transform: showAuto ? 'rotate(90deg)' : 'none' }}>▸</span>
+        </button>
+        {showAuto && (
+          <div style={{ fontSize: 13, color: c.text2, lineHeight: 1.55 }}>
+            {data.twilioReady ? (
+              <>
+                WhatsApp is connected, so the morning summary and reminders are sent for you at their hour (reminders at{' '}
+                {select(values.reminderHour, HOURS, (reminderHour) => set({ reminderHour }), hourLabel)}).
+              </>
+            ) : (
+              <>
+                Right now you send reminders yourself, one tap each — free and from your own number. To have them sent for
+                you, the app needs a WhatsApp business connection (Meta’s WhatsApp service is planned). Nothing to do here for
+                now.
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Preview */}
       {preview && (
         <div style={{ ...card, background: '#efeae2' }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            <span style={{ flex: 1, fontWeight: 600, fontSize: 14, color: '#111b21' }}>Today’s messages</span>
+            <span style={{ flex: 1, fontWeight: 600, fontSize: 14, color: '#111b21' }}>Today’s summary</span>
             <button onClick={() => setPreview(null)} style={{ ...button(), height: 28 }}>
               Close
             </button>
           </div>
-          <div style={{ fontSize: 12, color: '#54656f' }}>Your morning summary</div>
           <Bubble text={preview.summary ?? ''} />
-          <div style={{ fontSize: 12, color: '#54656f' }}>
-            Tenant reminders due today ({preview.reminders?.length ?? 0}){preview.reminders?.length ? '' : ' — none today with these settings.'}
-          </div>
-          {(preview.reminders ?? []).map((reminder) => (
-            <Bubble key={reminder.title + reminder.kind} to={reminder.to ?? 'no WhatsApp number on file'} text={reminder.body} />
-          ))}
           {data.twilioReady && (
             <button onClick={() => run('runNow', { action: 'runNow' }, load)} disabled={busy !== '' || dirty} style={{ ...button('whatsapp'), alignSelf: 'flex-start' }} title={dirty ? 'Save first' : ''}>
               {busy === 'runNow' ? 'Sending…' : 'Send these now'}
@@ -359,8 +375,9 @@ const Notifications = () => {
       </div>
 
       <div style={{ fontSize: 12, color: c.text3, lineHeight: 1.5 }}>
-        Messages go out while the CRM is running. If this computer was off at the time, they’re sent as soon as it’s back on —
-        never twice.
+        {data.twilioReady
+          ? 'Automatic messages go out while the CRM is running; if this computer was off, they’re sent when it’s back on — never twice.'
+          : 'Reminders are worked out each day from your contracts and the payments you’ve recorded. Once you send or skip one, it won’t be suggested again.'}
       </div>
     </div>
   );

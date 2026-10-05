@@ -6,6 +6,7 @@ import { openSidePanelPage, SidePanelPages } from 'twenty-sdk/front-component';
 import { TODAY_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
 import { openList, openPage } from 'src/front-components/shared/open-page';
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
+import { ReminderList } from 'src/front-components/shared/reminder-list';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import type { Contract, TodayData } from 'src/logic-functions/page-data/today-data';
 import { whatsappLink } from 'src/shared/whatsapp-link';
@@ -439,7 +440,9 @@ const Today = () => {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 12, alignItems: 'start' }}>
+          <ReminderList title="📱 Reminders to send" hideWhenEmpty />
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))', gap: 12, alignItems: 'start' }}>
             <Section title="Needs attention" count={view.attention.length}>
               {view.attention.length === 0 && (
                 <div style={{ padding: '14px', fontSize: 13, color: c.text3, borderTop: `1px solid ${c.border}` }}>

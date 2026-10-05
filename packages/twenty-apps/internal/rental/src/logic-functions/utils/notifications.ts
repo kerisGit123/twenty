@@ -370,3 +370,56 @@ export const sendTest = async (client: CoreApiClient, to: string) => {
   await sendWhatsappMessage({ to, body: message.body });
   await writeLog(client, message, 'SENT');
 };
+
+// ---------------------------------------------------------------- one-tap reminders
+
+export type PendingReminder = {
+  dedupKey: string;
+  kind: Outgoing['kind'];
+  title: string;
+  to: string | null;
+  body: string;
+  link: string | null; // wa.me link with the message typed in
+};
+
+// Reminders due today that you haven't sent or skipped yet (you send them
+// yourself from WhatsApp, one tap each).
+export const pendingReminders = async (client: CoreApiClient): Promise<{ enabled: boolean; reminders: PendingReminder[] }> => {
+  const settings = await loadNotificationSettings(client);
+
+  if (!settings.remindersEnabled) return { enabled: false, reminders: [] };
+
+  const messages = buildReminders(await loadData(client), todayIso(), settings);
+  const done = new Set(
+    (await loadLog(client, messages.map((m) => m.dedupKey)))
+      .filter((row) => row.status === 'SENT' || row.status === 'SKIPPED')
+      .map((row) => row.dedupKey),
+  );
+
+  return {
+    enabled: true,
+    reminders: messages
+      .filter((m) => !done.has(m.dedupKey))
+      .map((m) => ({
+        dedupKey: m.dedupKey,
+        kind: m.kind,
+        title: m.title,
+        to: m.to,
+        body: m.body,
+        link: m.to ? `https://wa.me/${m.to.replace('+', '')}?text=${encodeURIComponent(m.body)}` : null,
+      })),
+  };
+};
+
+// Records a reminder you sent yourself (or chose to skip), so it isn't
+// suggested again.
+export const recordManual = async (client: CoreApiClient, reminder: Omit<PendingReminder, 'link'>, status: 'SENT' | 'SKIPPED') => {
+  const existing = await loadLog(client, [reminder.dedupKey]);
+
+  if (existing.some((row) => row.status === 'SENT' || row.status === 'SKIPPED')) return;
+  await writeLog(
+    client,
+    { kind: reminder.kind, dedupKey: reminder.dedupKey, title: `${status === 'SENT' ? 'You sent' : 'Skipped'} · ${reminder.title}`, to: reminder.to, body: reminder.body },
+    status,
+  );
+};

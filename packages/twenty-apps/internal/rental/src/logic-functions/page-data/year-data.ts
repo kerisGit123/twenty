@@ -84,7 +84,7 @@ const loadExpenses = async (client: CoreApiClient, from: string, to: string): Pr
             ownerId: true,
             propertyId: true,
             category: true,
-            amount: { amountMicros: true },
+            amount: { amountMicros: true, currencyCode: true },
             expenseDate: true,
             receipt: { fileId: true },
             noBillNeeded: true,
@@ -95,7 +95,8 @@ const loadExpenses = async (client: CoreApiClient, from: string, to: string): Pr
     });
 
     for (const { node } of page?.edges ?? []) {
-      if (!node.expenseDate) continue;
+      // The summary is in ringgit; expenses in other currencies aren't added in.
+      if (!node.expenseDate || (node.amount?.currencyCode && node.amount.currencyCode !== 'MYR')) continue;
 
       const files = (node.receipt as unknown as Array<{ isDeleted?: boolean }> | null) ?? [];
 

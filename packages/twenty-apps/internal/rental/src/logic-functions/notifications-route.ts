@@ -8,8 +8,10 @@ import {
   loadNotificationSettings,
   type NotificationSettings,
   ownNumber,
+  pendingReminders,
   previewReminders,
   previewSummary,
+  recordManual,
   runNotifications,
   sendTest,
 } from 'src/logic-functions/utils/notifications';
@@ -37,8 +39,15 @@ const EDITABLE: Array<keyof NotificationSettings> = [
 //   preview { values? }    -> today's summary text and the reminders that would go out
 //   test { to? }           -> sends a test WhatsApp (to my number by default)
 //   runNow                 -> sends what's due now without waiting for the hour
+//   pending                -> today's reminders to send yourself (one tap each)
+//   markSent / skip { reminder } -> you sent it (or won't), so it isn't suggested again
 const handler = async (event: RoutePayload, context?: { workspaceMemberId?: string | null }): Promise<Response> => {
-  const body = (event.body ?? {}) as { action?: string; values?: Partial<NotificationSettings>; to?: string };
+  const body = (event.body ?? {}) as {
+    action?: string;
+    values?: Partial<NotificationSettings>;
+    to?: string;
+    reminder?: { dedupKey?: string; kind?: string; title?: string; to?: string | null; body?: string };
+  };
 
   try {
     const client = appClient();
@@ -107,6 +116,29 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       await sendTest(client, to);
 
       return json({ success: true, message: `Test sent to ${to}. Check WhatsApp.` });
+    }
+
+    if (body.action === 'pending') return json({ success: true, ...(await pendingReminders(client)) });
+
+    if (body.action === 'markSent' || body.action === 'skip') {
+      const reminder = body.reminder;
+
+      if (!reminder?.dedupKey || !['RENT_UPCOMING', 'RENT_DUE', 'RENT_OVERDUE'].includes(reminder.kind ?? '')) {
+        return json({ success: false, message: 'Pick a reminder.' }, 400);
+      }
+      await recordManual(
+        client,
+        {
+          dedupKey: reminder.dedupKey,
+          kind: reminder.kind as 'RENT_UPCOMING',
+          title: reminder.title ?? 'Reminder',
+          to: reminder.to ?? null,
+          body: reminder.body ?? '',
+        },
+        body.action === 'markSent' ? 'SENT' : 'SKIPPED',
+      );
+
+      return json({ success: true });
     }
 
     if (body.action === 'runNow') {

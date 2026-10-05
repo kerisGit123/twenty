@@ -9,6 +9,7 @@ export type Expense = {
   name: string;
   date: string | null;
   amount: number;
+  currency: string; // MYR, SGD, USD...
   category: string;
   paidTo: string;
   propertyId: string | null;
@@ -41,7 +42,7 @@ const loadExpenses = async (client: CoreApiClient, from: string, to: string): Pr
             id: true,
             name: true,
             expenseDate: true,
-            amount: { amountMicros: true },
+            amount: { amountMicros: true, currencyCode: true },
             category: true,
             paidTo: true,
             receipt: { fileId: true },
@@ -64,6 +65,7 @@ const loadExpenses = async (client: CoreApiClient, from: string, to: string): Pr
         name: node.name ?? '',
         date: node.expenseDate ?? null,
         amount: (node.amount?.amountMicros ?? 0) / 1_000_000,
+        currency: node.amount?.currencyCode || 'MYR',
         category: (node.category as string | null) ?? 'OTHER',
         paidTo: node.paidTo ?? '',
         propertyId: node.propertyId ?? null,

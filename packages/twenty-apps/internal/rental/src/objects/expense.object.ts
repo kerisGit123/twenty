@@ -17,11 +17,11 @@ import { EXPENSE_CATEGORIES, expenseGroup } from 'src/shared/expense-categories'
 const METHOD_OPTION_IDS = [
   '7a84969b-5f58-46a6-8202-4dd7ce13cf67', '061eabe5-bd07-40fc-810d-f78933a3c937',
   'cb6cf9ca-6bc0-4a10-9baf-406f85a6d9f2', 'a8a77710-cc66-4fc4-ba00-81ae898e2c1a',
-  'be85e745-84f5-4953-adcb-47bc431873f2',
+  'be85e745-84f5-4953-adcb-47bc431873f2', '9bab8bfb-36b1-4c04-8493-0e4794856bae',
 ];
 
-// Money out: repairs, taxes, utilities... linked to an owner and optionally
-// to a property, with the bill/receipt attached.
+// Money out — everyday, property or business — in a workspace, optionally
+// for a property, with the bill/receipt attached.
 export default defineObject({
   universalIdentifier: EXPENSE_OBJECT_ID,
   nameSingular: 'expense',
@@ -94,6 +94,7 @@ export default defineObject({
         ['CASH', 'Cash', 'green'],
         ['CARD', 'Card', 'purple'],
         ['OTHER', 'Other', 'gray'],
+        ['EWALLET', 'E-wallet', 'turquoise'],
       ].map(([value, label, color], index) => ({
         id: METHOD_OPTION_IDS[index],
         value,
