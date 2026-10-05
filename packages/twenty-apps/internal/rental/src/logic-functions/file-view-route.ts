@@ -77,14 +77,35 @@ const handler = async (event: RoutePayload): Promise<Response> => {
     return page(
       name,
       `<div class="count" id="count">Loading…</div><div id="pages"></div>
+<script>
+  // Progress for the app (and for debugging inside the sandboxed frame).
+  const report = (step, detail) => { try { parent.postMessage({ rentalViewer: step, detail: detail ? String(detail).slice(0, 300) : undefined }, '*'); } catch (e) {} };
+  window.addEventListener('error', (e) => report('error', e.message));
+  window.addEventListener('unhandledrejection', (e) => report('error', e.reason && (e.reason.message || e.reason)));
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
   (async () => {
     const count = document.getElementById('count');
     try {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      // A sandboxed frame can't start a worker from another site, so the
+      // worker script is fetched and started from a local (blob) copy.
+      const workerUrl = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      try {
+        const source = await (await fetch(workerUrl)).text();
+        pdfjsLib.GlobalWorkerOptions.workerPort = new Worker(URL.createObjectURL(new Blob([source], { type: 'text/javascript' })));
+      } catch (error) {
+        report('worker', error && error.message);
+        pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+      }
       const data = Uint8Array.from(atob('${base64}'), (c) => c.charCodeAt(0));
-      const pdf = await pdfjsLib.getDocument({ data }).promise;
+      const pdf = await pdfjsLib.getDocument({
+        data,
+        // Character maps for Chinese / Japanese / Korean text.
+        cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+        cMapPacked: true,
+      }).promise;
+      report('opened', pdf.numPages);
       count.textContent = pdf.numPages + (pdf.numPages === 1 ? ' page' : ' pages');
       const holder = document.getElementById('pages');
       const width = Math.min(window.innerWidth - 24, 1000);
@@ -98,7 +119,8 @@ const handler = async (event: RoutePayload): Promise<Response> => {
         canvas.height = viewport.height;
         canvas.style.width = width + 'px';
         holder.appendChild(canvas);
-        await p.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+        await p.render({ canvasContext: canvas.getContext('2d'), viewport, intent: 'print' }).promise;
+        report('page', n);
       }
       // Lets the app know the preview is ready.
       try { parent.postMessage({ rentalViewer: 'rendered', pages: pdf.numPages }, '*'); } catch (e) {}
