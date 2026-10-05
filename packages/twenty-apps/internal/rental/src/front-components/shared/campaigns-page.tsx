@@ -2,6 +2,7 @@ import { type CSSProperties, type ReactNode, type SyntheticEvent, useCallback, u
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { AppPath, copyToClipboard, enqueueSnackbar, navigate } from 'twenty-sdk/front-component';
 
+import { CampaignEditor } from 'src/front-components/shared/campaign-editor';
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { todayIso } from 'src/logic-functions/utils/dates';
@@ -22,6 +23,7 @@ import {
   occasionOf,
   PERSON_TAGS,
   type Recipient,
+  isVideo,
   upcomingOccasions,
 } from 'src/shared/campaigns';
 
@@ -297,7 +299,7 @@ export const Campaigns = () => {
   return (
     <div style={{ fontFamily: c.font, color: c.text, background: c.bg, height: '100%', overflowY: 'auto', containerType: 'size', boxSizing: 'border-box', position: 'relative' }}>
       {editing && (
-        <Sheet width={640} onClose={() => setEditing(null)}>
+        <Sheet width={1000} onClose={() => setEditing(null)}>
           <CampaignEditor
             key={editing.id ?? 'new'}
             initial={editing}
@@ -407,362 +409,6 @@ export const Campaigns = () => {
   );
 };
 
-// ---------------------------------------------------------------- editor
-
-const CampaignEditor = ({
-  initial,
-  owners,
-  canUseTags,
-  onClose,
-  onSaved,
-}: {
-  initial: Partial<CampaignRow>;
-  owners: Owner[];
-  canUseTags: boolean;
-  onClose: () => void;
-  onSaved: () => Promise<void>;
-}) => {
-  const [kind, setKind] = useState(initial.kind ?? 'GREETING');
-  const [occasion, setOccasion] = useState(initial.occasion ?? 'CUSTOM');
-  const [name, setName] = useState(initial.name ?? '');
-  const [sendOn, setSendOn] = useState(initial.sendOn ?? todayIso());
-  const [ownerId, setOwnerId] = useState(initial.ownerId ?? owners[0]?.id ?? '');
-  const [audience, setAudience] = useState<Audience>(initial.audience ?? { ...EMPTY_AUDIENCE });
-  const [messages, setMessages] = useState<Record<Language, string>>(initial.messages ?? { EN: '', MS: '', ZH: '' });
-  const [content, setContent] = useState<NewsletterContent>(initial.content ?? { ...EMPTY_NEWSLETTER });
-  const [lang, setLang] = useState<Language>('EN');
-  const [count, setCount] = useState<{ total: number; noPhone: number; optedOut: number; sample: string[] } | null>(null);
-  const [search, setSearch] = useState('');
-  const [found, setFound] = useState<Array<{ id: string; name: string; phone: string | null; optedOut: boolean }>>([]);
-  const [names, setNames] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState(false);
-  const countTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Newsletters: the message is built from the newsletter fields.
-  const built = kind === 'NEWSLETTER' ? newsletterText(content, lang) : '';
-  const message = kind === 'NEWSLETTER' && lang === 'EN' ? built : messages[lang];
-
-  useEffect(() => {
-    if (kind === 'NEWSLETTER') setMessages((m) => ({ ...m, EN: newsletterText(content, 'EN') }));
-  }, [kind, content]);
-
-  // Live audience size.
-  useEffect(() => {
-    if (countTimer.current) clearTimeout(countTimer.current);
-    countTimer.current = setTimeout(async () => {
-      const result = await post<{ total?: number; noPhone?: number; optedOut?: number; sample?: string[] }>({ action: 'count', audience });
-
-      if (result.success) setCount({ total: result.total ?? 0, noPhone: result.noPhone ?? 0, optedOut: result.optedOut ?? 0, sample: result.sample ?? [] });
-    }, 400);
-  }, [audience]);
-
-  useEffect(() => {
-    const term = search.trim();
-
-    if (term.length < 2) {
-      setFound([]);
-
-      return;
-    }
-
-    const timer = setTimeout(async () => {
-      const result = await post<{ people?: typeof found }>({ action: 'people', query: term });
-
-      if (result.success) setFound(result.people ?? []);
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [search]);
-
-  const pickOccasion = (value: string) => {
-    const o = occasionOf(value);
-    const year = Number(sendOn.slice(0, 4));
-    const date = o.dates[year] ?? o.dates[year + 1];
-
-    setOccasion(value);
-    setMessages({ ...o.messages });
-    if (value !== 'CUSTOM') {
-      setName(`${o.label} ${(date ?? sendOn).slice(0, 4)}`);
-      if (date) setSendOn(date);
-    }
-  };
-
-  const toggle = (list: string[], value: string) => (list.includes(value) ? list.filter((x) => x !== value) : [...list, value]);
-
-  const save = async (status: 'DRAFT' | 'SCHEDULED') => {
-    setBusy(true);
-    try {
-      const result = await post<{ id?: string }>({
-        action: 'save',
-        campaign: {
-          id: initial.id,
-          name,
-          kind,
-          occasion: kind === 'GREETING' ? occasion : 'CUSTOM',
-          status,
-          sendOn,
-          ownerId,
-          audience,
-          messages: kind === 'NEWSLETTER' ? { ...messages, EN: newsletterText(content, 'EN') } : messages,
-          content: kind === 'NEWSLETTER' ? content : null,
-        },
-      });
-
-      await enqueueSnackbar({
-        message: result.success ? (status === 'DRAFT' ? 'Saved as a draft.' : `Scheduled for ${day(sendOn)} — it shows on Today.`) : result.message ?? 'Could not save.',
-        variant: result.success ? 'success' : 'error',
-      });
-      if (result.success) await onSaved();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const occasionInfo = occasionOf(occasion);
-  const sample = messageFor({ ...messages, EN: kind === 'NEWSLETTER' ? built || messages.EN : messages.EN }, lang, (count?.sample[0] ?? 'Ahmad').split(' ')[0]);
-
-  return (
-    <div style={{ height: '100%', background: c.bg, display: 'flex', flexDirection: 'column', fontFamily: c.font, color: c.text }}>
-      <SheetHeader title={initial.id ? 'Edit campaign' : `New ${kindOf(kind).label.toLowerCase()}`} onClose={onClose} />
-      <div style={{ flex: 1, overflow: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {/* Kind */}
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {CAMPAIGN_KINDS.map((k) => (
-            <button key={k.value} onClick={() => setKind(k.value)} style={chip(kind === k.value)}>
-              {k.icon} {k.label}
-            </button>
-          ))}
-        </div>
-
-        {kind === 'GREETING' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <Label>Occasion</Label>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {OCCASIONS.map((o) => (
-                <button key={o.value} onClick={() => pickOccasion(o.value)} style={chip(occasion === o.value)}>
-                  {o.icon} {o.label}
-                </button>
-              ))}
-            </div>
-            {occasionInfo.approx && <span style={{ fontSize: 12, color: c.text3 }}>* {occasionInfo.label} follows the moon — the date can move by a day once officially announced.</span>}
-          </div>
-        )}
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))', gap: 10 }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: c.text2 }}>
-            Name
-            <input value={name} onChange={(e) => setName(readValue(e))} placeholder="e.g. Deepavali 2026" style={control} />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: c.text2 }}>
-            Send on
-            <input type="date" value={sendOn} onChange={(e) => { const v = readValue(e); if (v) setSendOn(v); }} style={control} />
-          </label>
-          {owners.length > 1 && (
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: c.text2 }}>
-              Workspace
-              <select value={ownerId} onChange={(e) => setOwnerId(readValue(e))} style={control}>
-                {owners.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-        </div>
-
-        {/* Newsletter builder */}
-        {kind === 'NEWSLETTER' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <Label>Newsletter</Label>
-            <input value={content.title} onChange={(e) => setContent({ ...content, title: readValue(e) })} placeholder="Title, e.g. Property update – October" style={control} />
-            <textarea value={content.intro} onChange={(e) => setContent({ ...content, intro: readValue(e) })} placeholder="Intro (optional) — Hi {name}, here’s what’s new this month…" rows={2} style={{ ...control, height: 'auto', padding: '8px 10px', resize: 'vertical' }} />
-            {content.items.map((item, index) => (
-              <div key={index} style={{ ...card, padding: 10, display: 'flex', flexDirection: 'column', gap: 6, background: c.bg2 }}>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: c.text3 }}>Story {index + 1}</span>
-                  <span style={{ flex: 1 }} />
-                  {content.items.length > 1 && (
-                    <button onClick={() => setContent({ ...content, items: content.items.filter((_, i) => i !== index) })} style={{ ...button(), height: 26, padding: '0 8px', fontSize: 12 }}>
-                      Remove
-                    </button>
-                  )}
-                </div>
-                <input
-                  value={item.headline}
-                  onChange={(e) => setContent({ ...content, items: content.items.map((x, i) => (i === index ? { ...x, headline: readValue(e) } : x)) })}
-                  placeholder="Headline, e.g. OPR stays at 2.75%"
-                  style={control}
-                />
-                <textarea
-                  value={item.text}
-                  onChange={(e) => setContent({ ...content, items: content.items.map((x, i) => (i === index ? { ...x, text: readValue(e) } : x)) })}
-                  placeholder="A line or two — what it means for them"
-                  rows={2}
-                  style={{ ...control, height: 'auto', padding: '8px 10px', resize: 'vertical' }}
-                />
-                <input
-                  value={item.link}
-                  onChange={(e) => setContent({ ...content, items: content.items.map((x, i) => (i === index ? { ...x, link: readValue(e) } : x)) })}
-                  placeholder="Link (optional) — https://…"
-                  style={control}
-                />
-              </div>
-            ))}
-            {content.items.length < 8 && (
-              <button onClick={() => setContent({ ...content, items: [...content.items, { headline: '', text: '', link: '' }] })} style={{ ...button(), alignSelf: 'flex-start' }}>
-                ＋ Add a story
-              </button>
-            )}
-            <input value={content.closing} onChange={(e) => setContent({ ...content, closing: readValue(e) })} placeholder="Sign-off (optional), e.g. Have a great week! — Keris" style={control} />
-            <button onClick={() => setContent({ ...content, optOut: !content.optOut })} style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-              <span style={{ width: 36, height: 20, borderRadius: 10, background: content.optOut ? c.accent : c.border2, position: 'relative', flexShrink: 0 }}>
-                <span style={{ position: 'absolute', top: 2, left: content.optOut ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: '#fff' }} />
-              </span>
-              Add “Reply STOP to stop these” at the end
-            </button>
-          </div>
-        )}
-
-        {/* Message per language */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <Label>Message</Label>
-            <span style={{ flex: 1 }} />
-            {LANGUAGES.map((l) => (
-              <button key={l.value} onClick={() => setLang(l.value)} style={{ ...chip(lang === l.value), height: 28 }}>
-                {l.short}
-                {(l.value === 'EN' && kind === 'NEWSLETTER' ? built : messages[l.value])?.trim() ? ' ✓' : ''}
-              </button>
-            ))}
-          </div>
-          {kind === 'NEWSLETTER' && lang === 'EN' ? (
-            <span style={{ fontSize: 12, color: c.text3 }}>Built from the newsletter above. Add a Malay or Chinese version on their tabs (optional).</span>
-          ) : (
-            <textarea
-              value={messages[lang]}
-              onChange={(e) => setMessages({ ...messages, [lang]: readValue(e) })}
-              placeholder={lang === 'EN' ? 'Hi {name}, …' : lang === 'MS' ? 'Salam {name}, …' : '{name}，…'}
-              rows={6}
-              style={{ ...control, height: 'auto', padding: '8px 10px', resize: 'vertical', lineHeight: 1.45 }}
-            />
-          )}
-          <span style={{ fontSize: 12, color: c.text3 }}>
-            {'{name}'} becomes each person’s first name. *bold* and _italic_ work in WhatsApp. People without their language written get English.
-          </span>
-          {kind === 'NEWSLETTER' && lang !== 'EN' && built.trim() && !messages[lang]?.trim() && (
-            <button onClick={() => setMessages({ ...messages, [lang]: newsletterText(content, lang) })} style={{ ...button(), alignSelf: 'flex-start' }}>
-              Start from the English version
-            </button>
-          )}
-        </div>
-
-        {/* Audience */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <Label>Who gets it</Label>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {(
-              [
-                ['active', 'Current tenants'],
-                ['all', 'All tenants (incl. past)'],
-                ['none', 'No tenants'],
-              ] as const
-            ).map(([value, label]) => (
-              <button key={value} onClick={() => setAudience({ ...audience, tenants: value })} style={chip(audience.tenants === value)}>
-                {label}
-              </button>
-            ))}
-          </div>
-          {owners.length > 1 && audience.tenants !== 'none' && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: c.text3 }}>Tenants of</span>
-              <button onClick={() => setAudience({ ...audience, ownerIds: [] })} style={{ ...chip(audience.ownerIds.length === 0), height: 28 }}>
-                All my workspaces
-              </button>
-              {owners.map((o) => (
-                <button key={o.id} onClick={() => setAudience({ ...audience, ownerIds: toggle(audience.ownerIds, o.id) })} style={{ ...chip(audience.ownerIds.includes(o.id)), height: 28 }}>
-                  {o.name}
-                </button>
-              ))}
-            </div>
-          )}
-          {canUseTags && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: c.text3 }}>Plus people tagged</span>
-              {PERSON_TAGS.map((t) => (
-                <button key={t.value} onClick={() => setAudience({ ...audience, tags: toggle(audience.tags, t.value) })} style={{ ...chip(audience.tags.includes(t.value)), height: 28 }}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          )}
-          <input value={search} onChange={(e) => setSearch(readValue(e))} placeholder="🔍  Add someone by name" style={control} />
-          {found.length > 0 && (
-            <div style={{ ...card, maxHeight: 200, overflow: 'auto' }}>
-              {found.map((p) => {
-                const added = audience.include.includes(p.id);
-
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      setNames({ ...names, [p.id]: p.name });
-                      setAudience({ ...audience, include: toggle(audience.include, p.id), exclude: audience.exclude.filter((x) => x !== p.id) });
-                    }}
-                    style={{ all: 'unset', cursor: 'pointer', boxSizing: 'border-box', width: '100%', display: 'flex', gap: 8, padding: '8px 12px', borderTop: `1px solid ${c.border}`, fontSize: 13 }}
-                  >
-                    <span style={{ flex: 1 }}>{p.name}</span>
-                    <span style={{ color: c.text3 }}>{p.optedOut ? 'opted out' : p.phone ? p.phone : 'no number'}</span>
-                    <span style={{ color: added ? 'var(--t-color-green11)' : 'var(--t-color-blue11)', fontWeight: 600 }}>{added ? '✓ Added' : '＋ Add'}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          {(audience.include.length > 0 || audience.exclude.length > 0) && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {audience.include.map((id) => (
-                <button key={id} onClick={() => setAudience({ ...audience, include: audience.include.filter((x) => x !== id) })} style={{ ...chip(true), height: 28 }} title="Remove">
-                  ＋ {names[id] ?? 'Added person'} ×
-                </button>
-              ))}
-              {audience.exclude.length > 0 && (
-                <button onClick={() => setAudience({ ...audience, exclude: [] })} style={{ ...chip(false), height: 28 }}>
-                  {audience.exclude.length} left out · undo
-                </button>
-              )}
-            </div>
-          )}
-          <div style={{ fontSize: 13, color: count?.total ? c.text : c.text3 }}>
-            {count === null
-              ? 'Counting…'
-              : count.total === 0
-                ? 'Nobody yet — pick tenants, tags or add people.'
-                : `👥 ${count.total} ${count.total === 1 ? 'person' : 'people'}${count.sample.length ? ` (${count.sample.slice(0, 4).join(', ')}${count.total > 4 ? '…' : ''})` : ''}`}
-            {count && count.noPhone > 0 ? <span style={{ color: 'var(--t-color-amber11)' }}> · {count.noPhone} without a phone number</span> : null}
-            {count && count.optedOut > 0 ? <span style={{ color: c.text3 }}> · {count.optedOut} opted out</span> : null}
-          </div>
-        </div>
-
-        {/* Preview */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <Label>Preview ({LANGUAGES.find((l) => l.value === lang)?.label})</Label>
-          <Bubble text={sample} />
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, padding: '12px 16px', borderTop: `1px solid ${c.border}`, flexWrap: 'wrap' }}>
-        <button onClick={() => save('DRAFT')} disabled={busy} style={{ ...button(), flex: 1, height: 44 }}>
-          Save draft
-        </button>
-        <button onClick={() => save('SCHEDULED')} disabled={busy || !message?.trim() && !messages.EN.trim()} style={{ ...button('primary'), flex: 1.6, height: 44 }}>
-          {busy ? 'Saving…' : sendOn <= todayIso() ? 'Save — ready to send' : `Schedule for ${day(sendOn)}`}
-        </button>
-      </div>
-    </div>
-  );
-};
-
 // ---------------------------------------------------------------- sending
 
 const SendPanel = ({ campaignId, onClose, onChanged }: { campaignId: string; onClose: () => void; onChanged: () => Promise<void> }) => {
@@ -813,6 +459,9 @@ const SendPanel = ({ campaignId, onClose, onChanged }: { campaignId: string; onC
   }
 
   const textFor = (r: Recipient) => messageFor(campaign.messages, r.language, r.firstName);
+  const hasMedia = campaign.media.length > 0;
+  const shareUrl = (personId?: string, language?: string) =>
+    new RestApiClient().resolveUrl('/s/campaigns/share', { query: { id: campaign.id, ...(personId ? { person: personId } : {}), ...(language ? { lang: language } : {}) } });
   const counts = {
     pending: recipients.filter((r) => r.status === 'pending').length,
     sent: recipients.filter((r) => r.status === 'sent').length,
@@ -838,15 +487,30 @@ const SendPanel = ({ campaignId, onClose, onChanged }: { campaignId: string; onC
             <span style={{ fontSize: 15, fontWeight: 600 }}>
               {next.name} <span style={{ fontSize: 12, fontWeight: 400, color: c.text3 }}>· {next.reasons.join(', ')} · {LANGUAGES.find((l) => l.value === next.language)?.short}</span>
             </span>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <a href={waLink(next.phone as string, textFor(next))} target="_blank" rel="noopener noreferrer" onClick={() => mark(next.id, 'sent')} style={{ ...button('whatsapp'), flex: 1, height: 44, fontSize: 14 }}>
-                💬 Open WhatsApp & mark sent
-              </a>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {hasMedia ? (
+                <>
+                  <a href={shareUrl(next.id)} target="_blank" rel="noopener noreferrer" onClick={() => mark(next.id, 'sent')} style={{ ...button('whatsapp'), flex: '1 1 200px', height: 44, fontSize: 14 }}>
+                    📤 Send with {campaign.media.some((m) => isVideo(m.extension)) ? 'video' : 'photo'} & mark sent
+                  </a>
+                  <a href={waLink(next.phone as string, textFor(next))} target="_blank" rel="noopener noreferrer" onClick={() => mark(next.id, 'sent')} style={{ ...button(), height: 44 }} title="Text only, without the photo">
+                    Text only
+                  </a>
+                </>
+              ) : (
+                <a href={waLink(next.phone as string, textFor(next))} target="_blank" rel="noopener noreferrer" onClick={() => mark(next.id, 'sent')} style={{ ...button('whatsapp'), flex: 1, height: 44, fontSize: 14 }}>
+                  💬 Open WhatsApp & mark sent
+                </a>
+              )}
               <button onClick={() => mark(next.id, 'skipped')} style={{ ...button(), height: 44 }}>
                 Skip
               </button>
             </div>
-            <span style={{ fontSize: 12, color: c.text3 }}>WhatsApp opens with the message written — press Send there, then come back for the next one.</span>
+            <span style={{ fontSize: 12, color: c.text3 }}>
+              {hasMedia
+                ? 'Opens a page with the photo and message: on your phone tap Share → WhatsApp → the person; on a computer copy the photo, open the chat and paste.'
+                : 'WhatsApp opens with the message written — press Send there, then come back for the next one.'}
+            </span>
           </div>
         ) : counts.pending === 0 ? (
           <div style={{ ...card, padding: 14, fontSize: 14, textAlign: 'center' }}>🎉 Everyone has been sent this.</div>
@@ -855,6 +519,12 @@ const SendPanel = ({ campaignId, onClose, onChanged }: { campaignId: string; onC
         {/* Copy for a broadcast list or group */}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           <span style={{ fontSize: 12, color: c.text3 }}>For a broadcast list or group:</span>
+          {hasMedia &&
+            languagesUsed.map((l) => (
+              <a key={`share-${l.value}`} href={shareUrl(undefined, l.value)} target="_blank" rel="noopener noreferrer" style={{ ...button(), height: 30 }}>
+                📤 Share {l.short} with media
+              </a>
+            ))}
           {languagesUsed.map((l) => (
             <button
               key={l.value}
@@ -895,8 +565,14 @@ const SendPanel = ({ campaignId, onClose, onChanged }: { campaignId: string; onC
               {r.status === 'pending' ? (
                 <>
                   {r.phone && (
-                    <a href={waLink(r.phone, textFor(r))} target="_blank" rel="noopener noreferrer" onClick={() => mark(r.id, 'sent')} style={{ ...button('whatsapp'), height: 32 }}>
-                      WhatsApp
+                    <a
+                      href={hasMedia ? shareUrl(r.id) : waLink(r.phone, textFor(r))}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => mark(r.id, 'sent')}
+                      style={{ ...button('whatsapp'), height: 32 }}
+                    >
+                      {hasMedia ? '📤 Send' : 'WhatsApp'}
                     </a>
                   )}
                   <button onClick={() => mark(r.id, 'skipped')} style={{ ...button(), height: 32 }}>

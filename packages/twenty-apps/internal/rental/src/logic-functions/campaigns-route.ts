@@ -77,6 +77,7 @@ const CAMPAIGN_FIELDS = {
   messageZh: true,
   content: true,
   progress: true,
+  media: { fileId: true, label: true, url: true, extension: true },
   createdAt: true,
 } as const;
 
@@ -92,6 +93,14 @@ const toRow = (node: Record<string, unknown>): CampaignRow => ({
   messages: { EN: (node.messageEn as string) ?? '', MS: (node.messageMs as string) ?? '', ZH: (node.messageZh as string) ?? '' },
   content: (node.content as NewsletterContent | null) ?? null,
   progress: asProgress(node.progress),
+  media: ((node.media as Array<{ fileId?: string; label?: string; url?: string; extension?: string | null }> | null) ?? [])
+    .filter((f) => f?.fileId && f.url)
+    .map((f) => ({
+      fileId: f.fileId as string,
+      label: f.label || 'file',
+      url: f.url as string,
+      extension: (f.extension ?? '').replace(/^\./, '').toLowerCase() || (f.label?.split('.').pop()?.toLowerCase() ?? ''),
+    })),
   createdAt: (node.createdAt as string) ?? '',
 });
 
@@ -249,7 +258,11 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       const [people, tenancies] = await Promise.all([loadPeople(client), loadTenancies(client)]);
       const result = buildAudience(scope, asAudience(body.audience), people, tenancies);
 
-      return json({ success: true, total: result.list.length, noPhone: result.noPhone, optedOut: result.optedOut, sample: result.list.slice(0, 6).map((p) => p.name) });
+      const byLanguage: Record<string, number> = {};
+
+      for (const p of result.list) byLanguage[p.language] = (byLanguage[p.language] ?? 0) + 1;
+
+      return json({ success: true, total: result.list.length, noPhone: result.noPhone, optedOut: result.optedOut, sample: result.list.slice(0, 6).map((p) => p.name), byLanguage });
     }
 
     if (body.action === 'people') {

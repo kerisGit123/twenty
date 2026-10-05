@@ -4,6 +4,8 @@ import { Response } from 'twenty-sdk/logic-function';
 
 import { EXPENSE_RECEIPT_FIELD_ID } from 'src/constants/universal-identifiers-v2';
 import { DOCUMENT_FILES_FIELD_ID, FILES_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers-v3';
+import { CAMPAIGN_MEDIA_FIELD_ID } from 'src/constants/universal-identifiers-v4';
+import { MAX_MEDIA_FILES, MAX_VIDEO_BYTES, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS } from 'src/shared/campaigns';
 import { appClient, appUploadClient } from 'src/logic-functions/utils/app-client';
 import { propertyOwnerId } from 'src/logic-functions/utils/owner-sync';
 import { inScope, NOT_ALLOWED, resolveScope, type Scope } from 'src/logic-functions/utils/scope';
@@ -38,6 +40,7 @@ type Body = {
   rentalId?: string;
   documentId?: string;
   expenseId?: string;
+  campaignId?: string;
   fileId?: string;
   name?: string;
   type?: string;
@@ -237,11 +240,44 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       const extension = extensionOf(fileName);
 
       if (!file?.data) return fail('No file received.');
-      if (!ALLOWED_EXTENSIONS.includes(extension)) return fail(`${fileName}: only PDF, photos and Office files can be uploaded.`);
 
       const buffer = Buffer.from(file.data, 'base64');
 
       if (buffer.byteLength === 0) return fail(`${fileName} is empty.`);
+
+      // Campaign photos / video
+      if (body.campaignId) {
+        if (!MEDIA_EXTENSIONS.includes(extension)) return fail(`${fileName}: add a photo (JPG, PNG), a video (MP4) or a PDF.`);
+        if (VIDEO_EXTENSIONS.includes(extension) && buffer.byteLength > MAX_VIDEO_BYTES) {
+          return fail(`${fileName} is ${formatBytes(buffer.byteLength)} — WhatsApp takes videos up to ${formatBytes(MAX_VIDEO_BYTES)}.`);
+        }
+        if (buffer.byteLength > MAX_UPLOAD_BYTES) return fail(`${fileName} is ${formatBytes(buffer.byteLength)} — the limit is ${formatBytes(MAX_UPLOAD_BYTES)}.`);
+
+        const { campaigns } = (await client.query({
+          campaigns: { __args: { filter: { id: { eq: body.campaignId } }, first: 1 }, edges: { node: { id: true, ownerId: true, media: { fileId: true, label: true } } } },
+        } as never)) as { campaigns?: { edges?: Array<{ node: { id: string; ownerId?: string | null; media?: FileValue[] | null } }> } };
+        const campaign = campaigns?.edges?.[0]?.node;
+
+        if (!campaign) return fail('Campaign not found.', 404);
+        if (!inScope(scope, campaign.ownerId ?? null)) return json(NOT_ALLOWED, 403);
+
+        const existing = (campaign.media ?? []).filter((f) => f?.fileId);
+
+        if (existing.length >= MAX_MEDIA_FILES) return fail(`A campaign holds up to ${MAX_MEDIA_FILES} photos or videos.`);
+
+        const uploaded = await appUploadClient().uploadFile({ fileBuffer: buffer, filename: fileName, fieldMetadataUniversalIdentifier: CAMPAIGN_MEDIA_FIELD_ID });
+
+        await client.mutation({
+          updateCampaign: {
+            __args: { id: campaign.id, data: { media: [...existing.map((f) => ({ fileId: f.fileId, label: f.label })), { fileId: uploaded.id, label: fileName }] } },
+            id: true,
+          },
+        } as never);
+
+        return json({ success: true, campaignId: campaign.id, fileId: uploaded.id });
+      }
+
+      if (!ALLOWED_EXTENSIONS.includes(extension)) return fail(`${fileName}: only PDF, photos and Office files can be uploaded.`);
       if (buffer.byteLength > MAX_UPLOAD_BYTES) return fail(`${fileName} is ${formatBytes(buffer.byteLength)} — the limit is ${formatBytes(MAX_UPLOAD_BYTES)}.`);
 
       // Expense bill / receipt
@@ -326,6 +362,25 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       });
 
       return json({ success: true, documentId: doc.id, fileId: uploaded.id });
+    }
+
+    // ---- remove a campaign photo / video
+    if (body.action === 'removeCampaignFile') {
+      const { campaigns } = (await client.query({
+        campaigns: { __args: { filter: { id: { eq: body.campaignId ?? '' } }, first: 1 }, edges: { node: { id: true, ownerId: true, media: { fileId: true, label: true } } } },
+      } as never)) as { campaigns?: { edges?: Array<{ node: { id: string; ownerId?: string | null; media?: FileValue[] | null } }> } };
+      const campaign = campaigns?.edges?.[0]?.node;
+
+      if (!campaign) return fail('Campaign not found.', 404);
+      if (!inScope(scope, campaign.ownerId ?? null)) return json(NOT_ALLOWED, 403);
+      await client.mutation({
+        updateCampaign: {
+          __args: { id: campaign.id, data: { media: (campaign.media ?? []).filter((f) => f.fileId !== body.fileId).map((f) => ({ fileId: f.fileId, label: f.label })) } },
+          id: true,
+        },
+      } as never);
+
+      return json({ success: true });
     }
 
     // ---- edit / remove

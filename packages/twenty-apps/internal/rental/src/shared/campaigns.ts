@@ -122,7 +122,7 @@ export const OCCASIONS: Occasion[] = [
     value: 'MERDEKA',
     label: 'Merdeka (National Day)',
     color: 'blue',
-    icon: '🇲🇾',
+    icon: '🎇',
     dates: fixed('08-31'),
     messages: {
       EN: 'Hi {name}, Selamat Hari Merdeka! Happy National Day — wishing you a wonderful holiday. 🇲🇾',
@@ -134,7 +134,7 @@ export const OCCASIONS: Occasion[] = [
     value: 'MALAYSIA_DAY',
     label: 'Malaysia Day',
     color: 'sky',
-    icon: '🇲🇾',
+    icon: '🌺',
     dates: fixed('09-16'),
     messages: {
       EN: 'Hi {name}, Happy Malaysia Day! Enjoy the holiday. 🇲🇾',
@@ -292,5 +292,17 @@ export type CampaignRow = {
   messages: Record<Language, string>;
   content: NewsletterContent | null;
   progress: Progress;
+  media: CampaignMedia[];
   createdAt: string;
 };
+
+// ---------------------------------------------------------------- media
+
+export type CampaignMedia = { fileId: string; label: string; url: string; extension: string };
+
+export const MEDIA_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'mov', '3gp', 'pdf'];
+export const VIDEO_EXTENSIONS = ['mp4', 'mov', '3gp'];
+export const MAX_VIDEO_BYTES = 16 * 1024 * 1024; // WhatsApp's video limit
+export const MAX_MEDIA_FILES = 4;
+
+export const isVideo = (extension: string | null | undefined) => VIDEO_EXTENSIONS.includes((extension ?? '').toLowerCase());

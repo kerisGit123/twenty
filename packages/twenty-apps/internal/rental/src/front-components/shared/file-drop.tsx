@@ -22,9 +22,9 @@ export const filesFromEvent = (event: SyntheticEvent<HTMLElement> | unknown): Pi
 };
 
 // Why a file can't be uploaded, or null when it's fine.
-export const fileProblem = (file: PickedFile): string | null => {
+export const fileProblem = (file: PickedFile, allowed: string[] = ALLOWED_EXTENSIONS): string | null => {
   if (!file.blob) return 'Reload the page to enable uploads.';
-  if (!ALLOWED_EXTENSIONS.includes(extensionOf(file.name))) return 'Only PDF, photos and Office files.';
+  if (!allowed.includes(extensionOf(file.name))) return allowed === ALLOWED_EXTENSIONS ? 'Only PDF, photos and Office files.' : 'This kind of file can’t be added here.';
   if (file.size > MAX_UPLOAD_BYTES) return `${formatBytes(file.size)} — the limit is ${formatBytes(MAX_UPLOAD_BYTES)}.`;
   if (file.size === 0) return 'The file is empty.';
 
@@ -44,8 +44,8 @@ export type UploadResult = { success: boolean; message?: string; documentId?: st
 
 // Uploads one file; `target` says where it goes: { documentId } |
 // { newDocument: {...} } | { expenseId }.
-export const uploadFile = async (file: PickedFile, target: Record<string, unknown>): Promise<UploadResult> => {
-  const problem = fileProblem(file);
+export const uploadFile = async (file: PickedFile, target: Record<string, unknown>, allowed?: string[]): Promise<UploadResult> => {
+  const problem = fileProblem(file, allowed);
 
   if (problem) return { success: false, message: `${file.name}: ${problem}` };
 
