@@ -1,4 +1,8 @@
-import { definePageLayout, PageLayoutTabLayoutMode } from 'twenty-sdk/define';
+import {
+  definePageLayout,
+  PageLayoutTabLayoutMode,
+  PageLayoutWidgetVerticalListHeightBehavior,
+} from 'twenty-sdk/define';
 
 import {
   NOTIFICATIONS_FRONT_COMPONENT_ID,
@@ -17,18 +21,16 @@ export default definePageLayout({
       title: 'Notifications',
       position: 0,
       icon: 'IconBell',
-      layoutMode: PageLayoutTabLayoutMode.GRID,
+      layoutMode: PageLayoutTabLayoutMode.VERTICAL_LIST,
       widgets: [
         {
           universalIdentifier: NOTIFICATIONS_WIDGET_ID,
           title: 'Notifications',
           type: 'FRONT_COMPONENT',
           position: {
-            layoutMode: PageLayoutTabLayoutMode.GRID,
-            row: 0,
-            column: 0,
-            rowSpan: 24,
-            columnSpan: 12,
+            layoutMode: PageLayoutTabLayoutMode.VERTICAL_LIST,
+            index: 0,
+            heightBehavior: PageLayoutWidgetVerticalListHeightBehavior.FIT_CONTENT,
           },
           configuration: {
             configurationType: 'FRONT_COMPONENT',

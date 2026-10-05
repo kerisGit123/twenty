@@ -5,6 +5,7 @@ import { AppPath, enqueueSnackbar, navigate, openSidePanelPage, SidePanelPages }
 
 import { EXPENSE_TRACKER_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
+import { Sheet } from 'src/front-components/shared/sheet';
 import type { Expense, ExpensesData, Option } from 'src/logic-functions/page-data/expenses-data';
 import { monthStart, nextMonthStart, todayIso } from 'src/logic-functions/utils/dates';
 import { BASE_CURRENCY, CURRENCIES, currencySymbol, formatMoney } from 'src/shared/currencies';
@@ -325,7 +326,27 @@ const ExpenseTracker = () => {
   );
 
   return (
-    <div style={{ position: 'relative', fontFamily: c.font, color: c.text, background: c.bg, minHeight: '100%', boxSizing: 'border-box' }}>
+    // The page fills the screen-tall widget and scrolls inside itself; as a size
+    // container it lets the add sheet (100cqw x 100cqh) cover exactly what you see.
+    <div style={{ position: 'relative', fontFamily: c.font, color: c.text, background: c.bg, height: '100%', overflowY: 'auto', containerType: 'size', boxSizing: 'border-box' }}>
+      {/* The add sheet comes first so it can stick to the top of the screen */}
+      {adding && (
+        <AddExpenseSheet
+          owners={owners}
+          properties={properties}
+          defaultOwnerId={scope.ownerId}
+          defaultArea={area === 'ALL' ? 'EVERYDAY' : area}
+          recent={recentCategories}
+          onClose={() => setAdding(false)}
+          onSaved={async (id, again) => {
+            await reload();
+            if (!again) {
+              setAdding(false);
+              await openExpense(id);
+            }
+          }}
+        />
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: 'clamp(4px, 2vw, 16px)', maxWidth: 980 }}>
         {/* Title + add */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -539,23 +560,6 @@ const ExpenseTracker = () => {
         </button>
       </div>
 
-      {adding && (
-        <AddExpenseSheet
-          owners={owners}
-          properties={properties}
-          defaultOwnerId={scope.ownerId}
-          defaultArea={area === 'ALL' ? 'EVERYDAY' : area}
-          recent={recentCategories}
-          onClose={() => setAdding(false)}
-          onSaved={async (id, again) => {
-            await reload();
-            if (!again) {
-              setAdding(false);
-              await openExpense(id);
-            }
-          }}
-        />
-      )}
     </div>
   );
 };
@@ -779,21 +783,13 @@ const AddExpenseSheet = ({
   );
 
   return (
-    <>
-      {/* Dim the page behind the sheet */}
-      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.18)', zIndex: 4 }} />
+    <Sheet width={480} onClose={onClose}>
       <div
         style={{
-          position: 'absolute',
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: 'min(480px, 100%)',
+          height: '100%',
           background: c.bg,
-          zIndex: 5,
           display: 'flex',
           flexDirection: 'column',
-          boxShadow: '-12px 0 32px rgba(0,0,0,0.14)',
           fontFamily: c.font,
           color: c.text,
         }}
@@ -973,7 +969,7 @@ const AddExpenseSheet = ({
           </button>
         </div>
       </div>
-    </>
+    </Sheet>
   );
 };
 

@@ -7,6 +7,7 @@ import { RENT_LEDGER_FRONT_COMPONENT_ID } from 'src/constants/universal-identifi
 import { ReceiptSettingsPanel } from 'src/front-components/shared/receipt-settings-panel';
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { ReceiptView, type ReceiptViewData } from 'src/front-components/shared/receipt-view';
+import { Sheet } from 'src/front-components/shared/sheet';
 import { StatementPanel } from 'src/front-components/shared/statement-panel';
 import type { LedgerData, Payment, Rental } from 'src/logic-functions/page-data/ledger-data';
 import { whatsappLink } from 'src/shared/whatsapp-link';
@@ -184,6 +185,8 @@ const RentLedger = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Contract whose year statement is open.
   const [statementFor, setStatementFor] = useState<Rental | null>(null);
+  // Contract being caught up (several past months at once).
+  const [catchUpFor, setCatchUpFor] = useState<Rental | null>(null);
 
   // Opening a month closes the statement.
   useEffect(() => {
@@ -291,269 +294,393 @@ const RentLedger = () => {
     return { expected, collected, outstanding, overdue, overdueCount };
   }, [allRows]);
 
-  const periodLabel =
-    mode === 'month' ? monthLabel(anchor, true) : mode === 'year' ? anchor.slice(0, 4) : '';
+  const periodLabel = mode === 'month' ? monthLabel(anchor, true) : mode === 'year' ? anchor.slice(0, 4) : `${monthLabel(rangeFrom, true)} – ${monthLabel(rangeTo, true)}`;
 
   const step = (delta: number) => setAnchor(shiftMonth(anchor, mode === 'year' ? delta * 12 : delta));
 
+  // The month each card highlights: the one shown (month view), else this
+  // month when it's in view, else the last month shown.
+  const focusMonth = mode === 'month' ? monthStart(anchor) : months.includes(monthStart(today)) ? monthStart(today) : months[months.length - 1];
+
+  const segmented = <T extends string>(value: T, options: Array<{ value: T; label: string }>, onChange: (value: T) => void) => (
+    <div style={{ display: 'flex', background: c.bg2, borderRadius: 8, padding: 2, gap: 2 }}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          style={{
+            ...control,
+            height: 30,
+            border: 'none',
+            cursor: 'pointer',
+            fontWeight: 500,
+            background: value === option.value ? c.bg : 'transparent',
+            boxShadow: value === option.value ? `0 0 0 1px ${c.border2}` : 'none',
+            color: value === option.value ? c.text : c.text3,
+          }}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  const statusChip = (value: string, label: string, count?: number) => (
+    <button
+      key={value}
+      onClick={() => setStatus(value)}
+      style={{
+        fontFamily: c.font,
+        fontSize: 13,
+        fontWeight: 500,
+        height: 32,
+        padding: '0 12px',
+        borderRadius: 16,
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+        flexShrink: 0,
+        background: status === value ? 'var(--t-color-blue3)' : c.bg,
+        color: status === value ? 'var(--t-color-blue11)' : c.text,
+        border: `1px solid ${status === value ? 'var(--t-color-blue7)' : c.border2}`,
+      }}
+    >
+      {label}
+      {count ? <span style={{ marginLeft: 6, opacity: 0.7 }}>{count}</span> : null}
+    </button>
+  );
+
+  const unpaidCount = allRows.filter(({ cells }) => cells.some((cell) => cell.status === 'due' || cell.status === 'overdue')).length;
+  const overdueContracts = allRows.filter(({ cells }) => cells.some((cell) => cell.status === 'overdue')).length;
+  const collectedShare = totals.expected > 0 ? Math.min(1, totals.collected / totals.expected) : 0;
+  const card: CSSProperties = { border: `1px solid ${c.border}`, borderRadius: 12, background: c.bg, minWidth: 0, boxSizing: 'border-box' };
+  const pillFor = (cellState: CellStatus, text: string) => (
+    <span style={{ ...STATUS_STYLE[cellState], fontSize: 12, fontWeight: 600, padding: '3px 9px', borderRadius: 999, whiteSpace: 'nowrap' }}>{text}</span>
+  );
+
   return (
-    <div style={{ fontFamily: c.font, color: c.text, background: c.bg, height: '100%', display: 'flex', boxSizing: 'border-box', position: 'relative' }}>
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', padding: 16, gap: 14, overflow: 'auto' }}>
-        {/* Period + filters */}
+    // The page fills the screen-tall widget and scrolls inside itself; as a size
+    // container it lets side sheets (100cqw x 100cqh) cover exactly what you see.
+    <div style={{ fontFamily: c.font, color: c.text, background: c.bg, height: '100%', overflowY: 'auto', containerType: 'size', boxSizing: 'border-box', position: 'relative' }}>
+      {/* Side sheets come first so they can stick to the top of the screen */}
+      {settingsOpen && (
+        <Sheet width={860} onClose={() => setSettingsOpen(false)}>
+          <ReceiptSettingsPanel onClose={() => setSettingsOpen(false)} />
+        </Sheet>
+      )}
+      {statementFor && (
+        <Sheet width={560} onClose={() => setStatementFor(null)}>
+          <StatementPanel
+            key={statementFor.id}
+            rentalId={statementFor.id}
+            propertyName={statementFor.propertyName}
+            tenantName={statementFor.tenantName}
+            tenantPhone={statementFor.tenantPhone}
+            initialYear={Number((mode === 'range' ? rangeTo : anchor).slice(0, 4))}
+            onClose={() => setStatementFor(null)}
+          />
+        </Sheet>
+      )}
+      {catchUpFor && (
+        <Sheet width={520} onClose={() => setCatchUpFor(null)}>
+          <CatchUpPanel
+            key={catchUpFor.id}
+            rental={catchUpFor}
+            months={months.map((month) => ({
+              month,
+              status: cellStatus(catchUpFor, month, paymentByCell.get(`${catchUpFor.id}|${month}`), today),
+            }))}
+            lastMethod={[...payments].reverse().find((p) => p.rentalId === catchUpFor.id && p.method)?.method ?? 'BANK_TRANSFER'}
+            onClose={() => setCatchUpFor(null)}
+            onSaved={reload}
+          />
+        </Sheet>
+      )}
+      {selection && (
+        <Sheet width={500} onClose={() => setSelection(null)}>
+          <PaymentPanel
+            key={`${selection.rental.id}|${selection.month}`}
+            selection={selection}
+            payment={paymentByCell.get(`${selection.rental.id}|${selection.month}`)}
+            status={cellStatus(selection.rental, selection.month, paymentByCell.get(`${selection.rental.id}|${selection.month}`), today)}
+            lastMethod={[...payments].reverse().find((p) => p.rentalId === selection.rental.id && p.method)?.method ?? 'BANK_TRANSFER'}
+            onClose={() => setSelection(null)}
+            onSaved={reload}
+          />
+        </Sheet>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', padding: 'clamp(4px, 2vw, 16px)', gap: 14, maxWidth: 980 }}>
+        {/* Title */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+            <div style={{ fontSize: 20, fontWeight: 650 }}>Rent ledger</div>
+            <div style={{ fontSize: 13, color: c.text3 }}>Who paid, who hasn’t — tap a month to record rent and send the receipt.</div>
+          </div>
+          <button
+            onClick={() => {
+              setSelection(null);
+              setSettingsOpen(true);
+            }}
+            style={{ ...button(), height: 34, color: c.text2 }}
+          >
+            ⚙ Receipt settings
+          </button>
+        </div>
+
+        {/* Workspace + period */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           <OwnerSwitcher scope={scope} />
-          <div style={{ display: 'flex', border: `1px solid ${c.border2}`, borderRadius: c.radius, overflow: 'hidden' }}>
-            {(['month', 'year', 'range'] as Mode[]).map((option) => (
-              <button
-                key={option}
-                onClick={() => setMode(option)}
-                style={{
-                  ...control,
-                  border: 'none',
-                  borderRadius: 0,
-                  cursor: 'pointer',
-                  background: mode === option ? c.bg2 : c.bg,
-                  fontWeight: mode === option ? 600 : 400,
-                }}
-              >
-                {option === 'month' ? 'Month' : option === 'year' ? 'Year' : 'Range'}
-              </button>
-            ))}
-          </div>
-
+          {segmented(mode, [{ value: 'month', label: 'Month' }, { value: 'year', label: 'Year' }, { value: 'range', label: 'Range' }], setMode)}
           {mode === 'range' ? (
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, color: c.text2 }}>
-              <input type="month" value={rangeFrom.slice(0, 7)} onChange={(e) => { const v = readValue(e); if (v) setRangeFrom(`${v}-01`); }} style={control} />
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, color: c.text2, flexWrap: 'wrap' }}>
+              <input type="month" value={rangeFrom.slice(0, 7)} onChange={(e) => { const v = readValue(e); if (v) setRangeFrom(`${v}-01`); }} style={{ ...control, height: 34 }} />
               to
-              <input type="month" value={rangeTo.slice(0, 7)} onChange={(e) => { const v = readValue(e); if (v) setRangeTo(`${v}-01`); }} style={control} />
+              <input type="month" value={rangeTo.slice(0, 7)} onChange={(e) => { const v = readValue(e); if (v) setRangeTo(`${v}-01`); }} style={{ ...control, height: 34 }} />
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <button onClick={() => step(-1)} style={{ ...button(), width: 30, padding: 0 }} aria-label="Previous">‹</button>
-              <span style={{ minWidth: 88, textAlign: 'center', fontWeight: 600, fontSize: 14 }}>{periodLabel}</span>
-              <button onClick={() => step(1)} style={{ ...button(), width: 30, padding: 0 }} aria-label="Next">›</button>
-              <button onClick={() => setAnchor(monthStart(today))} style={{ ...button(), color: c.text2 }}>Today</button>
+              <button onClick={() => step(-1)} style={{ ...button(), width: 36, height: 34, padding: 0 }} aria-label="Previous">‹</button>
+              <span style={{ minWidth: 92, textAlign: 'center', fontWeight: 600, fontSize: 15 }}>{periodLabel}</span>
+              <button onClick={() => step(1)} style={{ ...button(), width: 36, height: 34, padding: 0 }} aria-label="Next">›</button>
+              {monthStart(anchor) !== monthStart(today) && (
+                <button onClick={() => setAnchor(monthStart(today))} style={{ ...button(), height: 34, color: c.text2 }}>
+                  Today
+                </button>
+              )}
             </div>
           )}
+        </div>
 
-          <div style={{ flex: 1 }} />
+        {/* Totals: tap to filter */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))', gap: 10 }}>
+          <button
+            onClick={() => setStatus(status === 'paid' ? '' : 'paid')}
+            style={{ ...card, all: 'unset', boxSizing: 'border-box', cursor: 'pointer', border: `1px solid ${status === 'paid' ? c.accent : c.border}`, borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}
+          >
+            <span style={{ fontSize: 13, color: c.text3 }}>Collected</span>
+            <span style={{ fontSize: 24, fontWeight: 700, color: 'var(--t-color-green11)' }}>{rm(totals.collected)}</span>
+            <span style={{ height: 6, background: c.bg2, borderRadius: 3, display: 'block' }}>
+              <span style={{ display: 'block', height: 6, width: `${collectedShare * 100}%`, background: 'var(--t-color-green9)', borderRadius: 3 }} />
+            </span>
+            <span style={{ fontSize: 12, color: c.text3 }}>
+              {Math.round(collectedShare * 100)}% of {rm(totals.expected)} expected
+            </span>
+          </button>
+          <button
+            onClick={() => setStatus(status === 'unpaid' ? '' : 'unpaid')}
+            style={{ all: 'unset', boxSizing: 'border-box', cursor: 'pointer', border: `1px solid ${status === 'unpaid' ? c.accent : c.border}`, borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}
+          >
+            <span style={{ fontSize: 13, color: c.text3 }}>Still to collect</span>
+            <span style={{ fontSize: 24, fontWeight: 700, color: totals.outstanding ? 'var(--t-color-amber11)' : c.text }}>{rm(totals.outstanding)}</span>
+            <span style={{ fontSize: 12, color: c.text3 }}>{unpaidCount} contract{unpaidCount === 1 ? '' : 's'} with unpaid months</span>
+          </button>
+          <button
+            onClick={() => setStatus(status === 'overdue' ? '' : 'overdue')}
+            style={{
+              all: 'unset',
+              boxSizing: 'border-box',
+              cursor: 'pointer',
+              border: `1px solid ${status === 'overdue' ? c.accent : totals.overdue ? 'var(--t-color-red6)' : c.border}`,
+              background: totals.overdue ? 'var(--t-color-red2)' : 'transparent',
+              borderRadius: 12,
+              padding: 14,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+            }}
+          >
+            <span style={{ fontSize: 13, color: c.text3 }}>Overdue</span>
+            <span style={{ fontSize: 24, fontWeight: 700, color: totals.overdue ? 'var(--t-color-red11)' : c.text }}>{rm(totals.overdue)}</span>
+            <span style={{ fontSize: 12, color: c.text3 }}>
+              {totals.overdueCount ? `${totals.overdueCount} month${totals.overdueCount === 1 ? '' : 's'} late` : 'Nothing late 🎉'}
+            </span>
+          </button>
+        </div>
 
-          <input placeholder="Search property or tenant" value={search} onChange={(e) => setSearch(readValue(e))} style={{ ...control, width: 200 }} />
-          <select value={type} onChange={(e) => setType(readValue(e))} style={control}>
+        {/* Filters */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'thin', paddingBottom: 2, maxWidth: '100%' }}>
+            {statusChip('', 'All', allRows.length)}
+            {statusChip('unpaid', 'Unpaid', unpaidCount)}
+            {statusChip('overdue', 'Overdue', overdueContracts)}
+            {statusChip('paid', 'Paid')}
+          </div>
+          <input placeholder="🔍  Property or tenant" value={search} onChange={(e) => setSearch(readValue(e))} style={{ ...control, height: 34, flex: '1 1 180px', minWidth: 0 }} />
+          <select value={type} onChange={(e) => setType(readValue(e))} style={{ ...control, height: 34 }}>
             {TYPES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
-          <select value={status} onChange={(e) => setStatus(readValue(e))} style={control}>
-            {STATUSES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-          <button onClick={() => { setSelection(null); setSettingsOpen(true); }} style={button()}>Receipt settings</button>
         </div>
 
-        {/* Totals */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
-          {[
-            { label: 'Expected', value: rm(totals.expected), color: c.text, filter: '' },
-            { label: 'Collected', value: rm(totals.collected), color: 'var(--t-color-green11)', filter: 'paid' },
-            { label: 'Outstanding', value: rm(totals.outstanding), color: 'var(--t-color-amber11)', filter: 'unpaid' },
-            { label: `Overdue${totals.overdueCount ? ` · ${totals.overdueCount}` : ''}`, value: rm(totals.overdue), color: 'var(--t-color-red11)', filter: 'overdue' },
-          ].map((card) => {
-            const active = status === card.filter;
-
-            // Clicking a card shows only the matching rows; click again (or Expected) for all.
-            return (
-              <button
-                key={card.label}
-                onClick={() => setStatus(active ? '' : card.filter)}
-                style={{
-                  fontFamily: c.font,
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  background: active && card.filter ? c.bg : c.bg2,
-                  border: `1px solid ${active && card.filter ? c.accent : 'transparent'}`,
-                  borderRadius: c.radius,
-                  padding: '10px 14px',
-                }}
-              >
-                <div style={{ fontSize: 12, color: c.text2 }}>
-                  {card.label}
-                  {active && card.filter ? ' · showing' : ''}
-                </div>
-                <div style={{ fontSize: 20, fontWeight: 600, color: card.color, marginTop: 2 }}>{card.value}</div>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Ledger */}
+        {/* Contracts */}
         {loading && rows.length === 0 ? (
           <div style={{ color: c.text3, fontSize: 13, padding: 24, textAlign: 'center' }}>Loading…</div>
         ) : rows.length === 0 ? (
-          <div style={{ color: c.text3, fontSize: 13, padding: 24, textAlign: 'center' }}>
+          <div style={{ ...card, color: c.text3, fontSize: 14, padding: '32px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+            <span style={{ fontSize: 28 }}>{allRows.length > 0 ? '✅' : '🏠'}</span>
             {allRows.length > 0 ? (
               <>
-                Nothing {status === 'paid' ? 'collected' : status === 'overdue' ? 'overdue' : 'outstanding'} in this period.{' '}
-                <button onClick={() => setStatus('')} style={{ ...button(), height: 26, marginLeft: 6 }}>
+                Nothing {status === 'paid' ? 'collected' : status === 'overdue' ? 'overdue' : 'outstanding'} in this period.
+                <button onClick={() => setStatus('')} style={button()}>
                   Show all
                 </button>
               </>
+            ) : scope.owner ? (
+              `No active contracts for ${scope.owner.name} in this period. Set ${scope.owner.name} as the workspace on its properties.`
             ) : (
-              scope.owner
-                ? `No active contracts for ${scope.owner.name} in this period. Set ${scope.owner.name} as the workspace on its properties.`
-                : 'No active contracts in this period. Create a contract and set it to Active.'
+              'No active contracts in this period. Create a contract and set it to Active.'
             )}
           </div>
-        ) : mode === 'month' ? (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ color: c.text3, textAlign: 'left', fontSize: 12 }}>
-                <th style={{ padding: '6px 8px', fontWeight: 500 }}>Property</th>
-                <th style={{ padding: '6px 8px', fontWeight: 500 }}>Tenant</th>
-                <th style={{ padding: '6px 8px', fontWeight: 500 }}>Due</th>
-                <th style={{ padding: '6px 8px', fontWeight: 500, textAlign: 'right' }}>Rent</th>
-                <th style={{ padding: '6px 8px', fontWeight: 500 }}>Status</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ rental, cells }) => {
-                const cell = cells[0];
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {rows.map(({ rental, cells }) => {
+              const focus = cells.find((cell) => cell.month === focusMonth) ?? cells[cells.length - 1];
+              const unpaid = cells.filter((cell) => cell.status === 'due' || cell.status === 'overdue');
+              const oldestUnpaid = unpaid[0];
+              const collected = cells.reduce((sum, cell) => sum + (cell.status === 'paid' ? cell.payment?.amount ?? 0 : 0), 0);
+              const due = focus ? dueDateInMonth(focus.month, rental.dueDay) : null;
+              const daysLate = due ? Math.max(0, Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${due}T00:00:00Z`)) / 86_400_000)) : 0;
+              const focusText =
+                !focus || focus.status === 'none'
+                  ? ''
+                  : focus.status === 'paid'
+                    ? `${monthLabel(focus.month)} paid`
+                    : focus.status === 'overdue'
+                      ? `${monthLabel(focus.month)} · ${daysLate} day${daysLate === 1 ? '' : 's'} late`
+                      : focus.status === 'due'
+                        ? `${monthLabel(focus.month)} due ${Number((due ?? '').slice(8, 10))} ${monthLabel(focus.month)}`
+                        : `${monthLabel(focus.month)} upcoming`;
+              const remindText = oldestUnpaid
+                ? `Hi ${rental.tenantName.split(' ')[0] || 'there'}, a friendly reminder that the rent for ${rental.propertyName} for ${monthLabel(oldestUnpaid.month, true)} (${rm(rental.rent)}) ${oldestUnpaid.status === 'overdue' ? 'was' : 'is'} due on ${Number(dueDateInMonth(oldestUnpaid.month, rental.dueDay).slice(8, 10))} ${monthLabel(oldestUnpaid.month)}. Please let us know once it's paid. Thank you!`
+                : '';
+              const remind = oldestUnpaid ? whatsappLink(rental.tenantPhone, remindText) : null;
 
-                return (
-                  <tr key={rental.id} style={{ borderTop: `1px solid ${c.border}` }}>
-                    <td style={{ padding: '10px 8px', fontWeight: 500 }}>{rental.propertyName}</td>
-                    <td style={{ padding: '10px 8px', color: c.text2 }}>{rental.tenantName}</td>
-                    <td style={{ padding: '10px 8px', color: c.text2 }}>{dueDateInMonth(cell.month, rental.dueDay).slice(8)} {monthLabel(cell.month)}</td>
-                    <td style={{ padding: '10px 8px', textAlign: 'right' }}>{rm(cell.payment?.amount || rental.rent)}</td>
-                    <td style={{ padding: '10px 8px' }}>
-                      {cell.status !== 'none' && (
-                        <span style={{ ...STATUS_STYLE[cell.status], fontSize: 12, padding: '2px 8px', borderRadius: 10 }}>
-                          {STATUS_LABEL[cell.status]}
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ padding: '10px 8px', textAlign: 'right' }}>
+              return (
+                <div key={rental.id} style={{ ...card, padding: 14, display: 'flex', flexDirection: 'column', gap: 12, containerType: 'inline-size' }}>
+                  {/* Who + where */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+                    <span style={{ width: 40, height: 40, borderRadius: 10, background: c.bg2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
+                      {rental.propertyType === 'SHOP' ? '🏪' : rental.propertyType === 'LANDED' ? '🏡' : rental.propertyType === 'ROOM' ? '🛏️' : '🏢'}
+                    </span>
+                    <div style={{ flex: '1 1 160px', minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rental.propertyName}</div>
+                      <div style={{ fontSize: 13, color: c.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {rental.tenantName} · {rm(rental.rent)}/month · due on the {rental.dueDay}
+                        {rental.dueDay === 1 ? 'st' : rental.dueDay === 2 ? 'nd' : rental.dueDay === 3 ? 'rd' : 'th'}
+                      </div>
+                    </div>
+                    {focus && focus.status !== 'none' ? pillFor(focus.status, focusText) : null}
+                  </div>
+
+                  {/* Months: tap one to record or view */}
+                  {mode !== 'month' && (
+                    <div>
+                      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cells.length}, minmax(0, 1fr))`, gap: 'clamp(2px, 0.8cqw, 4px)' }}>
+                        {cells.map((cell) => {
+                          const selected = selection?.rental.id === rental.id && selection.month === cell.month;
+                          const isNow = cell.month === monthStart(today);
+
+                          return cell.status === 'none' ? (
+                            <div key={cell.month} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                              <span style={{ fontSize: 'clamp(8px, 2.7cqw, 10.5px)', color: c.text3 }}>{cells.length > 12 ? monthLabel(cell.month).charAt(0) : monthLabel(cell.month)}</span>
+                              <span style={{ height: 30, width: '100%', borderRadius: 6, border: `1px dashed ${c.border}` }} />
+                            </div>
+                          ) : (
+                            <button
+                              key={cell.month}
+                              onClick={() => setSelection({ rental, month: cell.month })}
+                              title={`${monthLabel(cell.month, true)} · ${STATUS_LABEL[cell.status]}${cell.payment?.receiptNumber ? ` · ${cell.payment.receiptNumber}` : ''}`}
+                              style={{ all: 'unset', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 0 }}
+                            >
+                              <span style={{ fontSize: 'clamp(8px, 2.7cqw, 10.5px)', color: isNow ? c.text : c.text3, fontWeight: isNow ? 700 : 400 }}>
+                                {cells.length > 12 ? monthLabel(cell.month).charAt(0) : monthLabel(cell.month)}
+                              </span>
+                              <span
+                                style={{
+                                  ...STATUS_STYLE[cell.status],
+                                  height: 30,
+                                  width: '100%',
+                                  borderRadius: 6,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: 13,
+                                  fontWeight: 700,
+                                  boxSizing: 'border-box',
+                                  border: selected ? `2px solid ${c.accent}` : isNow ? `1.5px solid ${c.border2}` : 'none',
+                                }}
+                              >
+                                {cell.status === 'paid' ? '✓' : cell.status === 'overdue' ? '!' : cell.status === 'due' ? '•' : ''}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12.5, color: c.text3, flex: '1 1 140px' }}>
+                      {mode === 'month' ? (focus?.payment?.receiptNumber ? `Receipt ${focus.payment.receiptNumber}` : '') : `Collected ${rm(collected)}`}
+                      {unpaid.length > 0 && mode !== 'month' ? <span style={{ color: 'var(--t-color-amber11)' }}> · {unpaid.length} unpaid</span> : null}
+                    </span>
+                    {remind && (
+                      <a
+                        href={remind}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ ...button(), height: 34, display: 'inline-flex', alignItems: 'center', textDecoration: 'none', background: '#25D366', border: '1px solid #25D366', color: '#fff' }}
+                      >
+                        Remind
+                      </a>
+                    )}
+                    {unpaid.length >= 2 && (
                       <button
                         onClick={() => {
                           setSelection(null);
-                          setStatementFor(rental);
+                          setCatchUpFor(rental);
                         }}
-                        style={{ ...button(), marginRight: 6, color: c.text2 }}
+                        style={{ ...button(), height: 34 }}
+                        title="Record several months at once"
                       >
-                        Statement
+                        Catch up ({unpaid.length})
                       </button>
-                      {cell.status !== 'none' && (
-                        <button onClick={() => setSelection({ rental, month: cell.month })} style={button(cell.status !== 'paid')}>
-                          {cell.status === 'paid' ? 'View' : 'Record'}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-          <div style={{ minWidth: 160 + months.length * 38 + 90, display: 'grid', gridTemplateColumns: `minmax(160px, 1.4fr) repeat(${months.length}, minmax(34px, 1fr)) minmax(80px, auto)`, gap: 4, alignItems: 'center', fontSize: 12 }}>
-            <div />
-            {months.map((month) => (
-              <div key={month} style={{ textAlign: 'center', color: month === monthStart(today) ? c.text : c.text3, fontWeight: month === monthStart(today) ? 600 : 400 }}>
-                {monthLabel(month)}
-                {mode === 'range' && month.slice(5, 7) === '01' ? <div style={{ fontSize: 10 }}>{month.slice(0, 4)}</div> : null}
-              </div>
-            ))}
-            <div style={{ textAlign: 'right', color: c.text3 }}>Collected</div>
-
-            {rows.map(({ rental, cells }) => (
-              <div key={rental.id} style={{ display: 'contents' }}>
-                <div style={{ lineHeight: 1.3, paddingRight: 8 }}>
-                  <div style={{ fontWeight: 500, fontSize: 13 }}>{rental.propertyName}</div>
-                  <div style={{ color: c.text3 }}>
-                    {rental.tenantName} · {rm(rental.rent)} ·{' '}
+                    )}
                     <button
                       onClick={() => {
                         setSelection(null);
                         setStatementFor(rental);
                       }}
-                      title="Year statement for the tenant"
-                      style={{ fontFamily: c.font, fontSize: 12, color: c.accent, background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                      style={{ ...button(), height: 34, color: c.text2 }}
                     >
                       Statement
                     </button>
+                    {(oldestUnpaid ?? focus) && (oldestUnpaid ?? focus).status !== 'none' && (
+                      <button onClick={() => setSelection({ rental, month: (oldestUnpaid ?? focus).month })} style={{ ...button(Boolean(oldestUnpaid)), height: 34 }}>
+                        {oldestUnpaid ? `Record ${monthLabel(oldestUnpaid.month)}` : 'View receipt'}
+                      </button>
+                    )}
                   </div>
                 </div>
-                {cells.map((cell) => {
-                  const selected = selection?.rental.id === rental.id && selection.month === cell.month;
-
-                  return cell.status === 'none' ? (
-                    <div key={cell.month} />
-                  ) : (
-                    <button
-                      key={cell.month}
-                      title={`${monthLabel(cell.month, true)} · ${STATUS_LABEL[cell.status]}${cell.payment?.receiptNumber ? ` · ${cell.payment.receiptNumber}` : ''}`}
-                      onClick={() => setSelection({ rental, month: cell.month })}
-                      style={{
-                        ...STATUS_STYLE[cell.status],
-                        height: 30,
-                        borderRadius: 8,
-                        border: selected ? `2px solid ${c.accent}` : STATUS_STYLE[cell.status].border ?? 'none',
-                        cursor: 'pointer',
-                        fontFamily: c.font,
-                        fontSize: 11,
-                        fontWeight: 500,
-                        padding: 0,
-                      }}
-                    >
-                      {cell.status === 'paid' ? '✓' : cell.status === 'overdue' ? '!' : cell.status === 'due' ? '•' : ''}
-                    </button>
-                  );
-                })}
-                <div style={{ textAlign: 'right', fontWeight: 500 }}>
-                  {rm(cells.reduce((sum, cell) => sum + (cell.status === 'paid' ? cell.payment?.amount ?? 0 : 0), 0))}
-                </div>
-              </div>
-            ))}
-          </div>
+              );
+            })}
           </div>
         )}
 
         {mode !== 'month' && rows.length > 0 && (
-          <div style={{ display: 'flex', gap: 16, fontSize: 12, color: c.text2 }}>
+          <div style={{ display: 'flex', gap: 14, fontSize: 12, color: c.text2, flexWrap: 'wrap' }}>
             {(['paid', 'due', 'overdue', 'upcoming'] as CellStatus[]).map((key) => (
               <span key={key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ ...STATUS_STYLE[key], width: 12, height: 12, borderRadius: 3, display: 'inline-block' }} />
                 {STATUS_LABEL[key]}
               </span>
             ))}
-            <span style={{ color: c.text3 }}>Overdue = {GRACE_DAYS} days after the due day. Click a month to record or view.</span>
+            <span style={{ color: c.text3 }}>Overdue = {GRACE_DAYS} days after the due day.</span>
           </div>
         )}
       </div>
 
-      {settingsOpen && <ReceiptSettingsPanel onClose={() => setSettingsOpen(false)} />}
 
-      {statementFor && (
-        <StatementPanel
-          key={statementFor.id}
-          rentalId={statementFor.id}
-          propertyName={statementFor.propertyName}
-          tenantName={statementFor.tenantName}
-          tenantPhone={statementFor.tenantPhone}
-          initialYear={Number((mode === 'range' ? rangeTo : anchor).slice(0, 4))}
-          onClose={() => setStatementFor(null)}
-        />
-      )}
 
-      {selection && (
-        <PaymentPanel
-          key={`${selection.rental.id}|${selection.month}`}
-          selection={selection}
-          payment={paymentByCell.get(`${selection.rental.id}|${selection.month}`)}
-          status={cellStatus(selection.rental, selection.month, paymentByCell.get(`${selection.rental.id}|${selection.month}`), today)}
-          lastMethod={[...payments].reverse().find((p) => p.rentalId === selection.rental.id && p.method)?.method ?? 'BANK_TRANSFER'}
-          onClose={() => setSelection(null)}
-          onSaved={reload}
-        />
-      )}
     </div>
   );
 };
@@ -584,6 +711,8 @@ const PaymentPanel = ({
   const [method, setMethod] = useState(payment?.method ?? lastMethod);
   const [notes, setNotes] = useState('');
   const [sendToTenant, setSendToTenant] = useState(true);
+  // Back-dated payments: the receipt can carry the payment date instead of today.
+  const [receiptOnPaidDate, setReceiptOnPaidDate] = useState(month < monthStart(todayIso()));
   const [busy, setBusy] = useState<'' | 'preview' | 'save' | 'correct'>('');
   const [paymentId, setPaymentId] = useState<string | null>(payment?.id ?? null);
   const [receipt, setReceipt] = useState<ReceiptViewData | null>(null);
@@ -624,6 +753,7 @@ const PaymentPanel = ({
         paidOn,
         method,
         notes,
+        receiptDate: receiptOnPaidDate && paidOn < todayIso() ? paidOn : null,
         action,
       });
 
@@ -670,90 +800,173 @@ const PaymentPanel = ({
     </button>
   );
 
+  const first = rental.tenantName.split(' ')[0] || 'there';
+  const period = monthLabel(month, true);
+  const dueIso = dueDateInMonth(month, rental.dueDay);
+  const whatsappText = isPaid
+    ? `Hi ${first}, thank you! We've received your rent for ${rental.propertyName} for ${period}${payment?.amount ? ` (${rm(payment.amount)})` : ''}.${payment?.receiptNumber ? ` Receipt no. ${payment.receiptNumber}.` : ''}`
+    : `Hi ${first}, a friendly reminder that the rent for ${rental.propertyName} for ${period} (${rm(rental.rent)}) ${status === 'overdue' ? 'was' : 'is'} due on ${Number(dueIso.slice(8, 10))} ${monthLabel(month)}. Please let us know once it's paid. Thank you!`;
+  const whatsapp = whatsappLink(rental.tenantPhone, whatsappText);
+  const chipStyle = (active: boolean): CSSProperties => ({
+    fontFamily: c.font,
+    fontSize: 13,
+    fontWeight: 500,
+    height: 32,
+    padding: '0 12px',
+    borderRadius: 16,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    background: active ? 'var(--t-color-blue3)' : c.bg,
+    color: active ? 'var(--t-color-blue11)' : c.text,
+    border: `1px solid ${active ? 'var(--t-color-blue7)' : c.border2}`,
+  });
+  const dateChip = (label: string, iso: string) => (
+    <button key={label} onClick={() => setPaidOn(iso)} style={chipStyle(paidOn === iso)}>
+      {label}
+    </button>
+  );
+  const methodChip = (value: string, label: string) => (
+    <button
+      key={value}
+      onClick={() => setMethod(value)}
+      style={{
+        fontFamily: c.font,
+        fontSize: 13,
+        fontWeight: 500,
+        height: 32,
+        padding: '0 12px',
+        borderRadius: 16,
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+        background: method === value ? 'var(--t-color-blue3)' : c.bg,
+        color: method === value ? 'var(--t-color-blue11)' : c.text,
+        border: `1px solid ${method === value ? 'var(--t-color-blue7)' : c.border2}`,
+      }}
+    >
+      {label}
+    </button>
+  );
+
   return (
-    <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 'min(520px, 100%)', borderLeft: `1px solid ${c.border}`, background: c.bg, display: 'flex', flexDirection: 'column', overflow: 'auto', boxShadow: '-8px 0 24px rgba(0,0,0,0.08)', zIndex: 2 }}>
-      <div style={{ padding: '14px 16px', borderBottom: `1px solid ${c.border}`, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 600, fontSize: 14 }}>{rental.propertyName}</div>
-          <div style={{ fontSize: 12, color: c.text2, marginTop: 2 }}>
-            {rental.tenantName} · rent for {monthLabel(month, true)}
+    <div
+      style={{
+        height: '100%',
+        background: c.bg,
+        display: 'flex',
+        flexDirection: 'column',
+        fontFamily: c.font,
+        color: c.text,
+      }}
+    >
+      {/* Header */}
+      <div style={{ padding: '14px 16px', borderBottom: `1px solid ${c.border}`, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 650, fontSize: 16 }}>{period} rent</div>
+          <div style={{ fontSize: 13, color: c.text3, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {rental.propertyName} · {rental.tenantName}
           </div>
         </div>
-        <span style={{ ...STATUS_STYLE[status], fontSize: 12, padding: '2px 8px', borderRadius: 10 }}>{STATUS_LABEL[status]}</span>
-        <button onClick={onClose} style={{ ...button(), width: 28, height: 28, padding: 0 }} aria-label="Close">×</button>
+        <span style={{ ...STATUS_STYLE[status], fontSize: 12, fontWeight: 600, padding: '3px 9px', borderRadius: 999 }}>{STATUS_LABEL[status]}</span>
+        <button onClick={onClose} style={{ ...button(), width: 32, height: 32, padding: 0, border: 'none', fontSize: 18, background: 'transparent' }} aria-label="Close">
+          ×
+        </button>
       </div>
 
-      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {(() => {
-          const first = rental.tenantName.split(' ')[0] || 'there';
-          const period = monthLabel(month, true);
-          const due = dueDateInMonth(month, rental.dueDay);
-          const text = isPaid
-            ? `Hi ${first}, thank you! We've received your rent for ${rental.propertyName} for ${period}${payment?.amount ? ` (${rm(payment.amount)})` : ''}.${payment?.receiptNumber ? ` Receipt no. ${payment.receiptNumber}.` : ''}`
-            : `Hi ${first}, a friendly reminder that the rent for ${rental.propertyName} for ${period} (${rm(rental.rent)}) ${status === 'overdue' ? 'was' : 'is'} due on ${Number(due.slice(8, 10))} ${monthLabel(month)}. Please let us know once it's paid. Thank you!`;
-          const link = whatsappLink(rental.tenantPhone, text);
-
-          return link ? (
-            <a
-              href={link}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ ...button(), height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', background: '#25D366', border: '1px solid #25D366', color: '#fff' }}
-            >
-              {isPaid ? 'Send thank-you on WhatsApp' : status === 'overdue' ? 'Remind on WhatsApp (overdue)' : 'Remind on WhatsApp'}
-            </a>
-          ) : (
-            <div style={{ fontSize: 12, color: c.text3 }}>Add the tenant's phone number to message them on WhatsApp.</div>
-          );
-        })()}
+      {/* Body */}
+      <div style={{ flex: 1, overflow: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
         {!isPaid && (
           <>
-            <label style={field}>
-              Amount received (RM)
-              <input value={amount} onChange={(e) => setAmount(readValue(e))} style={{ ...control, height: 34, fontSize: 15, fontWeight: 600 }} />
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <label style={field}>
-                Paid on
-                <input type="date" value={paidOn} onChange={(e) => setPaidOn(readValue(e))} style={control} />
-              </label>
-              <label style={field}>
-                Method
-                <select value={method} onChange={(e) => setMethod(readValue(e))} style={control}>
-                  {METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                </select>
-              </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 12, color: c.text3 }}>
+                Amount received · due {Number(dueIso.slice(8, 10))} {monthLabel(month)}
+              </span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, borderBottom: `2px solid ${c.accent}`, paddingBottom: 4 }}>
+                <span style={{ fontSize: 20, fontWeight: 600, color: c.text3 }}>RM</span>
+                <input
+                  value={amount}
+                  inputMode="decimal"
+                  onChange={(e) => setAmount(readValue(e))}
+                  style={{ fontFamily: c.font, fontSize: 30, fontWeight: 700, color: c.text, border: 'none', outline: 'none', background: 'transparent', width: '100%', minWidth: 0, padding: 0 }}
+                />
+              </div>
             </div>
-            <label style={field}>
-              Notes (optional)
-              <input value={notes} onChange={(e) => setNotes(readValue(e))} placeholder="Shown on the receipt" style={control} />
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-              <input type="checkbox" checked={sendToTenant} onChange={() => setSendToTenant(!sendToTenant)} />
-              Send receipt to tenant (WhatsApp / email)
-            </label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => submit('preview')} disabled={busy !== ''} style={{ ...button(), flex: 1 }}>
-                {busy === 'preview' ? 'Preparing…' : receipt ? 'Update preview' : 'Preview receipt'}
-              </button>
-              <button onClick={() => submit(sendToTenant ? 'send' : 'issue')} disabled={busy !== ''} style={{ ...button(true), flex: 1.4 }}>
-                {busy === 'save' ? 'Saving…' : sendToTenant ? 'Save and send' : 'Save receipt'}
-              </button>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: c.text3, textTransform: 'uppercase', letterSpacing: 0.4 }}>Paid on</span>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                {dateChip('Today', todayIso())}
+                {dateChip('Yesterday', addDays(todayIso(), -1))}
+                <input type="date" value={paidOn} onChange={(e) => { const v = readValue(e); if (v) setPaidOn(v); }} style={{ ...control, height: 32 }} />
+              </div>
             </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: c.text3, textTransform: 'uppercase', letterSpacing: 0.4 }}>Paid by</span>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{METHODS.map((m) => methodChip(m.value, m.label))}</div>
+            </div>
+
+            {paidOn < todayIso() && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: c.text3, textTransform: 'uppercase', letterSpacing: 0.4 }}>Receipt dated</span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button onClick={() => setReceiptOnPaidDate(false)} style={chipStyle(!receiptOnPaidDate)}>
+                    Today
+                  </button>
+                  <button onClick={() => setReceiptOnPaidDate(true)} style={chipStyle(receiptOnPaidDate)}>
+                    Payment date · {Number(paidOn.slice(8, 10))} {monthLabel(paidOn)} {paidOn.slice(0, 4)}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <input value={notes} onChange={(e) => setNotes(readValue(e))} placeholder="Note on the receipt (optional)" style={{ ...control, height: 36 }} />
+
+            <button onClick={() => setSendToTenant(!sendToTenant)} style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13.5 }}>
+              <span style={{ width: 40, height: 22, borderRadius: 11, background: sendToTenant ? '#25D366' : c.border2, position: 'relative', flexShrink: 0 }}>
+                <span style={{ position: 'absolute', top: 2, left: sendToTenant ? 20 : 2, width: 18, height: 18, borderRadius: 9, background: '#fff' }} />
+              </span>
+              Send the receipt to the tenant (WhatsApp / email)
+            </button>
           </>
         )}
+
+        {isPaid && paymentId && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <a
+              href={new RestApiClient().resolveUrl('/s/receipts/share', { query: { payment: paymentId } })}
+              target="_blank"
+              rel="noreferrer"
+              style={{ ...button(true), height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', fontSize: 14 }}
+            >
+              📤 Send receipt to tenant
+            </a>
+            <span style={{ fontSize: 12, color: c.text3, lineHeight: 1.4 }}>
+              Opens the receipt PDF. On your phone tap <b>Share PDF</b> → WhatsApp → the tenant. On a PC, download it and attach
+              it in the WhatsApp chat.
+            </span>
+          </div>
+        )}
+        {whatsapp && !isPaid && (
+          <a
+            href={whatsapp}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ ...button(), height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', background: '#fff', border: '1px solid #25D366', color: '#128C7E' }}
+          >
+            {isPaid ? '💬 Send thank-you on WhatsApp' : status === 'overdue' ? '💬 Remind on WhatsApp (overdue)' : '💬 Remind on WhatsApp'}
+          </a>
+        )}
+        {!whatsapp && <div style={{ fontSize: 12, color: c.text3 }}>Add the tenant’s phone number to message them on WhatsApp.</div>}
 
         {(receipt || loadingReceipt) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div style={{ flex: 1, fontSize: 12, color: c.text2, fontWeight: 500 }}>
-                {isPaid ? 'Receipt' : 'Draft preview (no number used yet)'}
-              </div>
+              <div style={{ flex: 1, fontSize: 12, color: c.text2, fontWeight: 500 }}>{isPaid ? 'Receipt' : 'Draft preview (no number used yet)'}</div>
               {zoomButton(-0.1, '−', 'Zoom out')}
               <span style={{ fontSize: 12, color: c.text2, minWidth: 38, textAlign: 'center' }}>{Math.round(scale * 100)}%</span>
               {zoomButton(0.1, '+', 'Zoom in')}
             </div>
-            <div style={{ background: c.bg2, borderRadius: c.radius, padding: 10, overflow: 'auto', maxHeight: 520 }}>
+            <div style={{ background: c.bg2, borderRadius: 10, padding: 10, overflow: 'auto' }}>
               {loadingReceipt && !receipt ? (
                 <div style={{ color: c.text3, fontSize: 13, padding: 24, textAlign: 'center' }}>Loading receipt…</div>
               ) : receipt ? (
@@ -764,23 +977,273 @@ const PaymentPanel = ({
         )}
 
         {isPaid && (
+          <div style={{ fontSize: 12, color: c.text3 }}>
+            Issued receipts can’t be edited. <b>Correct receipt</b> voids this one and makes a draft copy to fix and resend.
+          </div>
+        )}
+      </div>
+
+      {/* Actions stay at the bottom */}
+      <div style={{ display: 'flex', gap: 8, padding: '12px 16px', borderTop: `1px solid ${c.border}`, background: c.bg, flexWrap: 'wrap' }}>
+        {isPaid ? (
           <>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {paymentId && (
-                <button
-                  onClick={() => navigate(AppPath.RecordShowPage, { objectNameSingular: 'rentPayment', objectRecordId: paymentId })}
-                  style={{ ...button(), flex: 1 }}
-                >
-                  Open payment (PDF download)
-                </button>
-              )}
-              <button onClick={correct} disabled={busy !== ''} style={{ ...button(), flex: 1 }}>
-                {busy === 'correct' ? 'Correcting…' : 'Correct receipt'}
+            {paymentId && (
+              <button onClick={() => navigate(AppPath.RecordShowPage, { objectNameSingular: 'rentPayment', objectRecordId: paymentId })} style={{ ...button(), flex: 1, height: 44 }}>
+                Open (PDF)
               </button>
+            )}
+            <button onClick={correct} disabled={busy !== ''} style={{ ...button(), flex: 1, height: 44 }}>
+              {busy === 'correct' ? 'Correcting…' : 'Correct receipt'}
+            </button>
+          </>
+        ) : (
+          <>
+            <button onClick={() => submit('preview')} disabled={busy !== ''} style={{ ...button(), flex: 1, height: 44 }}>
+              {busy === 'preview' ? 'Preparing…' : receipt ? 'Update preview' : 'Preview'}
+            </button>
+            <button onClick={() => submit(sendToTenant ? 'send' : 'issue')} disabled={busy !== ''} style={{ ...button(true), flex: 1.6, height: 44 }}>
+              {busy === 'save' ? 'Saving…' : sendToTenant ? 'Save & send receipt' : 'Save receipt'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------- catch up
+
+// Records several months for one contract in one go — one receipt per month.
+const CatchUpPanel = ({
+  rental,
+  months,
+  lastMethod,
+  onClose,
+  onSaved,
+}: {
+  rental: Rental;
+  months: Array<{ month: string; status: CellStatus }>;
+  lastMethod: string;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) => {
+  const today = todayIso();
+  const open = months.filter((m) => m.status === 'due' || m.status === 'overdue' || m.status === 'upcoming');
+  const [picked, setPicked] = useState<string[]>(open.filter((m) => m.status !== 'upcoming').map((m) => m.month));
+  const [amount, setAmount] = useState(String(rental.rent || ''));
+  const [dateMode, setDateMode] = useState<'same' | 'due'>('same');
+  const [paidOn, setPaidOn] = useState(today);
+  const [method, setMethod] = useState(lastMethod);
+  const [receiptOnPaidDate, setReceiptOnPaidDate] = useState(true);
+  const [sendToTenant, setSendToTenant] = useState(false);
+  const [progress, setProgress] = useState<Record<string, 'waiting' | 'saving' | 'done' | 'failed'>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [running, setRunning] = useState(false);
+
+  const amountValue = Number(amount.replace(/[^\d.]/g, ''));
+  const ordered = open.map((m) => m.month).filter((month) => picked.includes(month));
+  const paidOnFor = (month: string) => (dateMode === 'same' ? paidOn : dueDateInMonth(month, rental.dueDay));
+  const finished = ordered.length > 0 && ordered.every((month) => progress[month] === 'done' || progress[month] === 'failed');
+
+  const chip = (active: boolean): CSSProperties => ({
+    fontFamily: c.font,
+    fontSize: 13,
+    fontWeight: 500,
+    height: 32,
+    padding: '0 12px',
+    borderRadius: 16,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    background: active ? 'var(--t-color-blue3)' : c.bg,
+    color: active ? 'var(--t-color-blue11)' : c.text,
+    border: `1px solid ${active ? 'var(--t-color-blue7)' : c.border2}`,
+  });
+  const label: CSSProperties = { fontSize: 12, fontWeight: 600, color: c.text3, textTransform: 'uppercase', letterSpacing: 0.4 };
+
+  const run = async () => {
+    if (!(amountValue > 0) || ordered.length === 0) return;
+    setRunning(true);
+    setProgress(Object.fromEntries(ordered.map((month) => [month, 'waiting'])));
+    setErrors({});
+    for (const month of ordered) {
+      setProgress((current) => ({ ...current, [month]: 'saving' }));
+      try {
+        const date = paidOnFor(month);
+        const result = await new RestApiClient().post<RecordResponse>('/s/ledger/record', {
+          rentalId: rental.id,
+          month,
+          amount: amountValue,
+          paidOn: date,
+          method,
+          notes: '',
+          receiptDate: receiptOnPaidDate && date < today ? date : null,
+          action: sendToTenant ? 'send' : 'issue',
+        });
+
+        if (!result.success) throw new Error(result.message ?? 'Could not save.');
+        setProgress((current) => ({ ...current, [month]: 'done' }));
+      } catch (error) {
+        setProgress((current) => ({ ...current, [month]: 'failed' }));
+        setErrors((current) => ({ ...current, [month]: error instanceof Error ? error.message : 'Could not save.' }));
+      }
+    }
+    setRunning(false);
+    await onSaved();
+  };
+
+  const doneCount = ordered.filter((month) => progress[month] === 'done').length;
+
+  return (
+    <div style={{ height: '100%', background: c.bg, display: 'flex', flexDirection: 'column', fontFamily: c.font, color: c.text }}>
+      <div style={{ padding: '14px 16px', borderBottom: `1px solid ${c.border}`, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 650, fontSize: 16 }}>Catch up past months</div>
+          <div style={{ fontSize: 13, color: c.text3, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {rental.propertyName} · {rental.tenantName} · one receipt per month
+          </div>
+        </div>
+        <button onClick={onClose} disabled={running} style={{ ...button(), width: 32, height: 32, padding: 0, border: 'none', fontSize: 18, background: 'transparent' }} aria-label="Close">
+          ×
+        </button>
+      </div>
+
+      <div style={{ flex: 1, overflow: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <span style={{ ...label, flex: 1 }}>Months</span>
+            {!running && !finished && (
+              <button
+                onClick={() => setPicked(picked.length === open.length ? [] : open.map((m) => m.month))}
+                style={{ ...button(), height: 26, fontSize: 12, border: 'none', background: 'transparent', color: 'var(--t-color-blue11)' }}
+              >
+                {picked.length === open.length ? 'Clear' : 'Select all'}
+              </button>
+            )}
+          </div>
+          {open.length === 0 && <span style={{ fontSize: 13, color: c.text3 }}>Nothing unpaid in this period. Go back a year with ‹ to catch up older months.</span>}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 6 }}>
+            {open.map(({ month, status }) => {
+              const on = picked.includes(month);
+              const state = progress[month];
+
+              return (
+                <button
+                  key={month}
+                  disabled={running || finished}
+                  onClick={() => setPicked(on ? picked.filter((m) => m !== month) : [...picked, month])}
+                  title={errors[month] ?? ''}
+                  style={{
+                    ...chip(on),
+                    height: 46,
+                    borderRadius: 10,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 1,
+                    ...(state === 'done' ? { background: 'var(--t-color-green3)', color: 'var(--t-color-green11)', borderColor: 'var(--t-color-green7)' } : {}),
+                    ...(state === 'failed' ? { background: 'var(--t-color-red3)', color: 'var(--t-color-red11)', borderColor: 'var(--t-color-red7)' } : {}),
+                  }}
+                >
+                  <span style={{ fontWeight: 600 }}>
+                    {state === 'done' ? '✓ ' : state === 'failed' ? '✗ ' : state === 'saving' ? '… ' : on ? '☑ ' : '☐ '}
+                    {monthLabel(month)} {month.slice(2, 4)}
+                  </span>
+                  <span style={{ fontSize: 10.5, opacity: 0.8 }}>{status === 'upcoming' ? 'in advance' : status === 'overdue' ? 'overdue' : 'due'}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {!finished && (
+          <>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={label}>Amount each month</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, borderBottom: `2px solid ${c.accent}`, paddingBottom: 4 }}>
+                <span style={{ fontSize: 18, fontWeight: 600, color: c.text3 }}>RM</span>
+                <input
+                  value={amount}
+                  inputMode="decimal"
+                  disabled={running}
+                  onChange={(e) => setAmount(readValue(e))}
+                  style={{ fontFamily: c.font, fontSize: 26, fontWeight: 700, color: c.text, border: 'none', outline: 'none', background: 'transparent', width: '100%', minWidth: 0, padding: 0 }}
+                />
+              </div>
             </div>
-            <div style={{ fontSize: 12, color: c.text3 }}>
-              Issued receipts can't be edited. Correct receipt voids this one and makes a draft copy to fix and resend.
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span style={label}>Paid on</span>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button onClick={() => setDateMode('same')} style={chip(dateMode === 'same')}>
+                  Same date for all
+                </button>
+                <button onClick={() => setDateMode('due')} style={chip(dateMode === 'due')}>
+                  Each month’s due date
+                </button>
+                {dateMode === 'same' && (
+                  <input type="date" value={paidOn} onChange={(e) => { const v = readValue(e); if (v) setPaidOn(v); }} style={{ ...control, height: 32 }} />
+                )}
+              </div>
             </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span style={label}>Paid by</span>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {METHODS.map((m) => (
+                  <button key={m.value} onClick={() => setMethod(m.value)} style={chip(method === m.value)}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span style={label}>Receipts dated</span>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button onClick={() => setReceiptOnPaidDate(true)} style={chip(receiptOnPaidDate)}>
+                  Payment date
+                </button>
+                <button onClick={() => setReceiptOnPaidDate(false)} style={chip(!receiptOnPaidDate)}>
+                  Today
+                </button>
+              </div>
+            </div>
+
+            <button onClick={() => setSendToTenant(!sendToTenant)} style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13.5 }}>
+              <span style={{ width: 40, height: 22, borderRadius: 11, background: sendToTenant ? '#25D366' : c.border2, position: 'relative', flexShrink: 0 }}>
+                <span style={{ position: 'absolute', top: 2, left: sendToTenant ? 20 : 2, width: 18, height: 18, borderRadius: 9, background: '#fff' }} />
+              </span>
+              Send each receipt to the tenant
+            </button>
+          </>
+        )}
+
+        {finished && (
+          <div style={{ fontSize: 14, lineHeight: 1.5 }}>
+            {doneCount === ordered.length ? '✅' : '⚠️'} {doneCount} of {ordered.length} month{ordered.length === 1 ? '' : 's'} recorded.
+            {Object.entries(errors).map(([month, message]) => (
+              <div key={month} style={{ fontSize: 12.5, color: 'var(--t-color-red11)' }}>
+                {monthLabel(month, true)}: {message}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, padding: '12px 16px', borderTop: `1px solid ${c.border}`, background: c.bg, alignItems: 'center' }}>
+        {finished ? (
+          <button onClick={onClose} style={{ ...button(true), flex: 1, height: 44 }}>
+            Done
+          </button>
+        ) : (
+          <>
+            <span style={{ flex: 1, fontSize: 13, color: c.text2 }}>
+              {ordered.length} receipt{ordered.length === 1 ? '' : 's'} · {rm(ordered.length * (amountValue || 0))}
+            </span>
+            <button onClick={run} disabled={running || ordered.length === 0 || !(amountValue > 0)} style={{ ...button(true), flex: 1.4, height: 44, opacity: ordered.length && amountValue > 0 ? 1 : 0.55 }}>
+              {running ? `Recording ${doneCount + 1} of ${ordered.length}…` : `Record ${ordered.length} month${ordered.length === 1 ? '' : 's'}`}
+            </button>
           </>
         )}
       </div>

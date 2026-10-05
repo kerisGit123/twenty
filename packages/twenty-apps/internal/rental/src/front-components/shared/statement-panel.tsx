@@ -183,18 +183,11 @@ export const StatementPanel = ({
   return (
     <div
       style={{
-        position: 'absolute',
-        top: 0,
-        right: 0,
-        bottom: 0,
-        width: 'min(560px, 100%)',
-        borderLeft: `1px solid ${c.border}`,
+        height: '100%',
         background: c.bg,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'auto',
-        boxShadow: '-8px 0 24px rgba(0,0,0,0.08)',
-        zIndex: 3,
         fontFamily: c.font,
         color: c.text,
       }}

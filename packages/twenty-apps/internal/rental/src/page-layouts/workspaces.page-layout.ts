@@ -1,4 +1,8 @@
-import { definePageLayout, PageLayoutTabLayoutMode } from 'twenty-sdk/define';
+import {
+  definePageLayout,
+  PageLayoutTabLayoutMode,
+  PageLayoutWidgetVerticalListHeightBehavior,
+} from 'twenty-sdk/define';
 
 import {
   WORKSPACES_FRONT_COMPONENT_ID,
@@ -17,18 +21,16 @@ export default definePageLayout({
       title: 'Workspaces',
       position: 0,
       icon: 'IconBriefcase',
-      layoutMode: PageLayoutTabLayoutMode.GRID,
+      layoutMode: PageLayoutTabLayoutMode.VERTICAL_LIST,
       widgets: [
         {
           universalIdentifier: WORKSPACES_WIDGET_ID,
           title: 'Workspaces',
           type: 'FRONT_COMPONENT',
           position: {
-            layoutMode: PageLayoutTabLayoutMode.GRID,
-            row: 0,
-            column: 0,
-            rowSpan: 24,
-            columnSpan: 12,
+            layoutMode: PageLayoutTabLayoutMode.VERTICAL_LIST,
+            index: 0,
+            heightBehavior: PageLayoutWidgetVerticalListHeightBehavior.FIT_CONTENT,
           },
           configuration: {
             configurationType: 'FRONT_COMPONENT',

@@ -136,7 +136,7 @@ export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
   };
 
   return (
-    <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 'min(860px, 100%)', borderLeft: `1px solid ${c.border}`, background: c.bg, display: 'flex', flexDirection: 'column', boxShadow: '-8px 0 24px rgba(0,0,0,0.08)', zIndex: 3, fontFamily: c.font, color: c.text }}>
+    <div style={{ height: '100%', overflow: 'auto', background: c.bg, display: 'flex', flexDirection: 'column', fontFamily: c.font, color: c.text }}>
       <div style={{ padding: '14px 16px', borderBottom: `1px solid ${c.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 600, fontSize: 14 }}>Receipt settings</div>

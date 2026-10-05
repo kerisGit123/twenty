@@ -19,6 +19,7 @@ type LedgerRecordBody = {
   paidOn?: string;
   method?: string;
   notes?: string;
+  receiptDate?: string | null; // YYYY-MM-DD to back-date the receipt; empty = issue date
   action?: 'preview' | 'issue' | 'send';
 };
 
@@ -80,7 +81,8 @@ const handler = async (
             paidOn: body.paidOn || null,
             ...(body.method ? { method: body.method } : {}),
             notes: body.notes ?? '',
-          },
+            receiptDate: /^\d{4}-\d{2}-\d{2}$/.test(body.receiptDate ?? '') ? body.receiptDate : null,
+          } as never,
         },
         id: true,
       },

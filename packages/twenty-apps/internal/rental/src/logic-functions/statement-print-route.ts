@@ -40,7 +40,12 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     const title = `${template.language === 'MS' ? 'Penyata sewa' : 'Rent statement'} ${year} - ${tenant}`;
     const pdf = await buildTemplatePdf(template, ctx, title);
 
-    return pdfPageResponse(pdf, `${title.replace(/[^\w\- ]+/g, '').trim()}.pdf`, title);
+    const share =
+      template.language === 'MS'
+        ? `Salam, dilampirkan penyata pembayaran sewa bagi tahun ${year}. Terima kasih.`
+        : `Hi, attached is your rent statement for ${year}. Thank you.`;
+
+    return pdfPageResponse(pdf, `${title.replace(/[^\w\- ]+/g, '').trim()}.pdf`, title, { text: share });
   } catch (error) {
     console.error('[rental] statement print failed:', error);
 

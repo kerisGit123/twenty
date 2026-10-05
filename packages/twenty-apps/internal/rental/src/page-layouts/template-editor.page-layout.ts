@@ -1,4 +1,8 @@
-import { definePageLayout, PageLayoutTabLayoutMode } from 'twenty-sdk/define';
+import {
+  definePageLayout,
+  PageLayoutTabLayoutMode,
+  PageLayoutWidgetVerticalListHeightBehavior,
+} from 'twenty-sdk/define';
 
 import {
   TEMPLATE_EDITOR_FRONT_COMPONENT_ID,
@@ -17,18 +21,16 @@ export default definePageLayout({
       title: 'Templates',
       position: 0,
       icon: 'IconTemplate',
-      layoutMode: PageLayoutTabLayoutMode.GRID,
+      layoutMode: PageLayoutTabLayoutMode.VERTICAL_LIST,
       widgets: [
         {
           universalIdentifier: TEMPLATE_EDITOR_WIDGET_ID,
           title: 'Templates',
           type: 'FRONT_COMPONENT',
           position: {
-            layoutMode: PageLayoutTabLayoutMode.GRID,
-            row: 0,
-            column: 0,
-            rowSpan: 24,
-            columnSpan: 12,
+            layoutMode: PageLayoutTabLayoutMode.VERTICAL_LIST,
+            index: 0,
+            heightBehavior: PageLayoutWidgetVerticalListHeightBehavior.FIT_CONTENT,
           },
           configuration: {
             configurationType: 'FRONT_COMPONENT',

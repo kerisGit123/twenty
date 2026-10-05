@@ -247,6 +247,7 @@ export const receiptHandler = async (
           status: true,
           receiptNumber: true,
           receiptSentAt: true,
+          receiptDate: true,
           receiptSnapshot: true,
           paymentType: true,
           ownerId: true,
@@ -340,8 +341,11 @@ export const receiptHandler = async (
   const period = isDeposit ? { from: '', to: '' } : monthBounds(payment.rentPeriod);
   const propertyAddress = formatAddress(payment.property?.propertyAddress);
 
+  // A back-dated receipt keeps its chosen date; otherwise the day it's issued.
+  const fixedReceiptDate = (payment.receiptDate as string | null | undefined) ?? null;
   const receiptDateIso =
-    isRegenerate && payment.receiptSentAt ? toMalaysiaDate(payment.receiptSentAt) : isRegenerate && mode !== 'preview' ? paidOn : todayIso();
+    fixedReceiptDate ??
+    (isRegenerate && payment.receiptSentAt ? toMalaysiaDate(payment.receiptSentAt) : isRegenerate && mode !== 'preview' ? paidOn : todayIso());
   const receivedBy =
     settings?.receivedBy?.trim() ||
     process.env.RECEIPT_RECEIVED_BY?.trim() ||

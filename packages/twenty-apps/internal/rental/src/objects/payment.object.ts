@@ -210,5 +210,16 @@ export default defineObject({
       isNullable: true,
       defaultValue: null,
     },
+    {
+      // Set when a receipt is back-dated to the payment date; otherwise the
+      // receipt is dated the day it's issued.
+      universalIdentifier: '7445ecc0-c46b-4c5f-a359-d3267934c1fb',
+      type: FieldType.DATE,
+      name: 'receiptDate',
+      label: 'Receipt date',
+      description: 'Date printed on the receipt. Empty = the day it was issued.',
+      icon: 'IconCalendarEvent',
+      isNullable: true,
+    },
   ],
 });
