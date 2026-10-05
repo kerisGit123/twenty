@@ -1,5 +1,5 @@
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from 'react';
-import { CoreApiClient } from 'twenty-client-sdk/core';
+import { RestApiClient } from 'twenty-client-sdk/rest';
 import { defineFrontComponent } from 'twenty-sdk/define';
 import { openSidePanelPage, SidePanelPages } from 'twenty-sdk/front-component';
 
@@ -7,36 +7,13 @@ import { TODAY_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3
 import { openList, openPage } from 'src/front-components/shared/open-page';
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { dueDateInMonth, monthStart, nextMonthStart, todayIso } from 'src/logic-functions/utils/dates';
-import { type TenantPhone, whatsappLink } from 'src/shared/whatsapp-link';
+import type { Contract, TodayData } from 'src/logic-functions/page-data/today-data';
+import { whatsappLink } from 'src/shared/whatsapp-link';
 
 // ---------------------------------------------------------------- types
 
-type Contract = {
-  id: string;
-  status: string;
-  startDate: string | null;
-  endDate: string | null;
-  dueDay: number;
-  rent: number;
-  stampedOn: string | null;
-  ownerId: string | null;
-  propertyName: string;
-  tenantId: string | null;
-  tenantName: string;
-  tenantPhone: TenantPhone;
-};
-
-type Person = { id: string; name: string; birthday: string; phone: TenantPhone };
-type Doc = { id: string; name: string; expiresOn: string; ownerId: string | null };
-type Expense = { id: string; name: string; amount: number; hasBill: boolean; noBillNeeded: boolean; ownerId: string | null };
-
-type Data = {
-  contracts: Contract[];
-  paid: Set<string>; // `${contractId}|YYYY-MM-01`
-  people: Person[];
-  documents: Doc[];
-  expenses: Expense[];
-};
+// Server data with paid months as a set for quick lookups.
+type Data = Omit<TodayData, 'paid'> & { paid: Set<string> };
 
 type Kind = 'overdue' | 'due' | 'ending' | 'stamp' | 'document' | 'birthday' | 'bills';
 
@@ -104,116 +81,6 @@ const openRecord = (objectNameSingular: string, recordId: string) =>
   openSidePanelPage({ page: SidePanelPages.ViewRecord, recordId, objectNameSingular });
 
 // ---------------------------------------------------------------- data
-
-const loadData = async (today: string): Promise<Data> => {
-  const client = new CoreApiClient();
-  const since = monthStart(addDays(today, -186));
-
-  const [{ rentals }, { rentPayments }, { people }, { documents }, { expenses }] = await Promise.all([
-    client.query({
-      rentals: {
-        __args: { filter: { status: { neq: 'DRAFT' } }, first: 200 },
-        edges: {
-          node: {
-            id: true,
-            status: true,
-            startDate: true,
-            endDate: true,
-            dueDay: true,
-            stampedOn: true,
-            monthlyRent: { amountMicros: true },
-            property: { name: true, ownerId: true },
-            tenantId: true,
-            tenant: {
-              name: { firstName: true, lastName: true },
-              phones: { primaryPhoneNumber: true, primaryPhoneCallingCode: true },
-            },
-          },
-        },
-      },
-    }),
-    client.query({
-      rentPayments: {
-        __args: {
-          filter: { paymentType: { eq: 'RENT' }, status: { in: ['ISSUED', 'SENT'] }, rentPeriod: { gte: since } },
-          first: 500,
-        },
-        edges: { node: { rentalId: true, rentPeriod: true } },
-      },
-    }),
-    client.query({
-      people: {
-        __args: { filter: { birthday: { is: 'NOT_NULL' } }, first: 500 },
-        edges: {
-          node: {
-            id: true,
-            name: { firstName: true, lastName: true },
-            birthday: true,
-            phones: { primaryPhoneNumber: true, primaryPhoneCallingCode: true },
-          },
-        },
-      },
-    }),
-    client.query({
-      documents: {
-        __args: { filter: { expiresOn: { lte: addDays(today, 60) } }, first: 200 },
-        edges: { node: { id: true, name: true, expiresOn: true, ownerId: true } },
-      },
-    }),
-    client.query({
-      expenses: {
-        __args: { filter: { expenseDate: { gte: addDays(today, -365) } }, first: 500 },
-        edges: { node: { id: true, name: true, amount: { amountMicros: true }, receipt: true, noBillNeeded: true, ownerId: true } },
-      },
-    }),
-  ]);
-
-  return {
-    contracts: (rentals?.edges ?? []).map(({ node }) => ({
-      id: node.id,
-      status: (node.status as string) ?? '',
-      startDate: node.startDate ?? null,
-      endDate: node.endDate ?? null,
-      dueDay: node.dueDay ?? 1,
-      rent: money(node.monthlyRent),
-      stampedOn: node.stampedOn ?? null,
-      ownerId: node.property?.ownerId ?? null,
-      propertyName: node.property?.name ?? 'Property',
-      tenantId: node.tenantId ?? null,
-      tenantName: personName(node.tenant?.name) || 'Tenant',
-      tenantPhone: node.tenant?.phones ?? null,
-    })),
-    paid: new Set(
-      (rentPayments?.edges ?? [])
-        .filter(({ node }) => node.rentalId && node.rentPeriod)
-        .map(({ node }) => `${node.rentalId}|${monthStart(node.rentPeriod as string)}`),
-    ),
-    people: (people?.edges ?? [])
-      .filter(({ node }) => node.birthday)
-      .map(({ node }) => ({
-        id: node.id,
-        name: personName(node.name) || 'Someone',
-        birthday: node.birthday as string,
-        phone: node.phones ?? null,
-      })),
-    documents: (documents?.edges ?? [])
-      .filter(({ node }) => node.expiresOn)
-      .map(({ node }) => ({
-        id: node.id,
-        name: node.name ?? 'Document',
-        expiresOn: node.expiresOn as string,
-        ownerId: node.ownerId ?? null,
-      })),
-    expenses: (expenses?.edges ?? []).map(({ node }) => ({
-      id: node.id,
-      name: node.name ?? '',
-      amount: money(node.amount),
-      hasBill: ((node.receipt as unknown as unknown[] | null) ?? []).length > 0,
-      noBillNeeded: Boolean(node.noBillNeeded),
-      ownerId: node.ownerId ?? null,
-    })),
-  };
-};
 
 // Everything that needs doing, plus what's coming in the next 30 days.
 const buildItems = (data: Data, today: string): Item[] => {
@@ -483,8 +350,13 @@ const Today = () => {
   const scope = useOwnerScope();
 
   useEffect(() => {
-    loadData(today)
-      .then(setData)
+    // The server reads everything and keeps only the caller's workspaces.
+    new RestApiClient()
+      .post<{ success: boolean; data?: TodayData; message?: string }>('/s/pages/data', { page: 'today' })
+      .then((result) => {
+        if (!result.success || !result.data) throw new Error(result.message ?? 'Could not load Today.');
+        setData({ ...result.data, paid: new Set(result.data.paid) });
+      })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, [today]);
 
@@ -532,7 +404,7 @@ const Today = () => {
     const upcoming = items.filter((i) => !attentionKeys.has(i.key) && i.date >= today);
 
     return { overdue, dueSoon, ending, stamping, documents, missingBills, attention, upcoming };
-  }, [data, today, scope.ownerId]);
+  }, [data, today, scope.key]);
 
   const date = new Date(`${today}T00:00:00Z`);
   const heading = `${DAYS[date.getUTCDay()]}, ${Number(today.slice(8, 10))} ${MONTHS[date.getUTCMonth()]}`;

@@ -1,6 +1,7 @@
 import { defineLogicFunction } from 'twenty-sdk/define';
-import { CoreApiClient } from 'twenty-client-sdk/core';
 
+import { appClient } from 'src/logic-functions/utils/app-client';
+import { inScope, NOT_ALLOWED, resolveScope } from 'src/logic-functions/utils/scope';
 import { CORRECT_RECEIPT_ROUTE_ID } from 'src/constants/universal-identifiers';
 import { receiptHandler } from 'src/logic-functions/handlers/send-receipt-handler';
 import { jsonRoute } from 'src/logic-functions/utils/json-route';
@@ -10,7 +11,7 @@ import { jsonRoute } from 'src/logic-functions/utils/json-route';
 const correctReceipt = async (paymentId: string, memberId?: string) => {
   if (!paymentId) return { success: false, status: 400, message: 'No payment selected.' };
 
-  const client = new CoreApiClient();
+  const client = appClient();
   const { rentPayments } = await client.query({
     rentPayments: {
       __args: { filter: { id: { eq: paymentId } }, first: 1 },
@@ -28,6 +29,7 @@ const correctReceipt = async (paymentId: string, memberId?: string) => {
           rentalId: true,
           propertyId: true,
           tenantId: true,
+          ownerId: true,
         },
       },
     },
@@ -35,6 +37,7 @@ const correctReceipt = async (paymentId: string, memberId?: string) => {
   const payment = rentPayments?.edges?.[0]?.node;
 
   if (!payment?.id) return { success: false, status: 404, message: 'Payment not found.' };
+  if (!inScope(await resolveScope(client, memberId), payment.ownerId)) return NOT_ALLOWED;
   if (payment.status !== 'ISSUED' && payment.status !== 'SENT') {
     return {
       success: false,

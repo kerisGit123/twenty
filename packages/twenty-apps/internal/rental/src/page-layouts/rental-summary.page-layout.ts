@@ -256,7 +256,7 @@ export default definePageLayout({
         },
         {
           universalIdentifier: '8bd86fd0-b395-44d6-b5fe-7003809b15d2',
-          title: 'Income by owner (this year)',
+          title: 'Income by workspace (this year)',
           type: 'GRAPH',
           objectUniversalIdentifier: PAYMENT_OBJECT_ID,
           position: at(16, 0, 6, 6),
@@ -272,7 +272,7 @@ export default definePageLayout({
         },
         {
           universalIdentifier: '591fe351-e9d6-497a-bade-84bf10255823',
-          title: 'Expenses by owner (this year)',
+          title: 'Expenses by workspace (this year)',
           type: 'GRAPH',
           objectUniversalIdentifier: EXPENSE_OBJECT_ID,
           position: at(16, 6, 6, 6),

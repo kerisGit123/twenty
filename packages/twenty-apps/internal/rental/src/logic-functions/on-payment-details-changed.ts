@@ -3,8 +3,8 @@ import {
   type ObjectRecordUpdateEvent,
 } from 'twenty-sdk/define';
 import { type DatabaseEventBatchPayload } from 'twenty-sdk/logic-function';
-import { CoreApiClient } from 'twenty-client-sdk/core';
 
+import { appClient } from 'src/logic-functions/utils/app-client';
 import { receiptHandler } from 'src/logic-functions/handlers/send-receipt-handler';
 
 // Fields printed on the receipt.
@@ -32,7 +32,7 @@ type PaymentEventRecord = Partial<Record<(typeof RECEIPT_FIELDS)[number], unknow
 const handler = async (
   batch: DatabaseEventBatchPayload<ObjectRecordUpdateEvent<PaymentEventRecord>>,
 ): Promise<void> => {
-  const client = new CoreApiClient();
+  const client = appClient();
 
   for (const event of batch.events) {
     const paymentId = event.properties.after?.id ?? event.recordId;

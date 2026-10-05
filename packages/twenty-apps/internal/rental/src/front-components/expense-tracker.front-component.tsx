@@ -1,5 +1,5 @@
 import { type CSSProperties, type ReactNode, type SyntheticEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { CoreApiClient } from 'twenty-client-sdk/core';
+import { RestApiClient } from 'twenty-client-sdk/rest';
 import { defineFrontComponent } from 'twenty-sdk/define';
 import {
   AppPath,
@@ -10,6 +10,7 @@ import {
 } from 'twenty-sdk/front-component';
 
 import { EXPENSE_TRACKER_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
+import type { Expense, ExpensesData, Option } from 'src/logic-functions/page-data/expenses-data';
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { monthStart, nextMonthStart, todayIso } from 'src/logic-functions/utils/dates';
 import {
@@ -21,22 +22,6 @@ import {
 
 // ---------------------------------------------------------------- types
 
-type Expense = {
-  id: string;
-  name: string;
-  date: string | null;
-  amount: number;
-  category: string;
-  paidTo: string;
-  propertyId: string | null;
-  propertyName: string;
-  ownerId: string | null;
-  ownerName: string;
-  files: number;
-  noBillNeeded: boolean;
-};
-
-type Option = { id: string; name: string; ownerId?: string | null };
 type Mode = 'month' | 'year' | 'range';
 type GroupBy = 'month' | 'property' | 'owner' | 'category';
 type FilterKey = 'owner' | 'property' | 'category';
@@ -85,88 +70,6 @@ const openExpense = (id: string) =>
   openSidePanelPage({ page: SidePanelPages.ViewRecord, recordId: id, objectNameSingular: 'expense' });
 
 // ---------------------------------------------------------------- data
-
-const loadExpenses = async (client: CoreApiClient, from: string, to: string): Promise<Expense[]> => {
-  const rows: Expense[] = [];
-  let after: string | undefined;
-
-  for (;;) {
-    const { expenses: page } = await client.query({
-      expenses: {
-        __args: {
-          filter: { and: [{ expenseDate: { gte: from } }, { expenseDate: { lt: to } }] },
-          orderBy: [{ expenseDate: 'DescNullsLast' }],
-          first: 200,
-          ...(after ? { after } : {}),
-        },
-        edges: {
-          node: {
-            id: true,
-            name: true,
-            expenseDate: true,
-            amount: { amountMicros: true },
-            category: true,
-            paidTo: true,
-            receipt: true,
-            noBillNeeded: true,
-            propertyId: true,
-            ownerId: true,
-            property: { name: true },
-            owner: { name: true },
-          },
-        },
-        pageInfo: { hasNextPage: true, endCursor: true },
-      },
-    });
-
-    for (const { node } of page?.edges ?? []) {
-      const files = (node.receipt as unknown as Array<{ isDeleted?: boolean }> | null) ?? [];
-
-      rows.push({
-        id: node.id,
-        name: node.name ?? '',
-        date: node.expenseDate ?? null,
-        amount: (node.amount?.amountMicros ?? 0) / 1_000_000,
-        category: (node.category as string | null) ?? 'OTHER',
-        paidTo: node.paidTo ?? '',
-        propertyId: node.propertyId ?? null,
-        propertyName: node.property?.name ?? '',
-        ownerId: node.ownerId ?? null,
-        ownerName: node.owner?.name ?? '',
-        files: files.filter((file) => !file?.isDeleted).length,
-        noBillNeeded: Boolean(node.noBillNeeded),
-      });
-    }
-
-    if (!page?.pageInfo?.hasNextPage || !page.pageInfo.endCursor) break;
-    after = page.pageInfo.endCursor;
-  }
-
-  return rows;
-};
-
-const loadOptions = async (client: CoreApiClient) => {
-  const [{ owners }, { properties }] = await Promise.all([
-    client.query({
-      owners: { __args: { first: 200, orderBy: [{ name: 'AscNullsLast' }] }, edges: { node: { id: true, name: true } } },
-    }),
-    client.query({
-      properties: {
-        __args: { first: 500, orderBy: [{ name: 'AscNullsLast' }] },
-        edges: { node: { id: true, name: true, ownerId: true } },
-      },
-    }),
-  ]);
-
-  return {
-    owners: (owners?.edges ?? []).map(({ node }) => ({ id: node.id, name: node.name ?? 'Owner' })),
-    properties: (properties?.edges ?? []).map(({ node }) => ({
-      id: node.id,
-      name: node.name ?? 'Property',
-      ownerId: node.ownerId ?? null,
-    })),
-  };
-};
 
 // ---------------------------------------------------------------- styles
 
@@ -406,12 +309,16 @@ const ExpenseTracker = () => {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const client = new CoreApiClient();
-      const [rows, options] = await Promise.all([loadExpenses(client, from, to), loadOptions(client)]);
+      // The server reads the expenses and keeps only the caller's workspaces.
+      const result = await new RestApiClient().post<{ success: boolean; data?: ExpensesData; message?: string }>(
+        '/s/pages/data',
+        { page: 'expenses', from, to },
+      );
 
-      setExpenses(rows);
-      setOwners(options.owners);
-      setProperties(options.properties);
+      if (!result.success || !result.data) throw new Error(result.message ?? 'Could not load expenses.');
+      setExpenses(result.data.expenses);
+      setOwners(result.data.owners);
+      setProperties(result.data.properties);
     } catch (error) {
       await enqueueSnackbar({
         message: error instanceof Error ? error.message : 'Could not load expenses.',
@@ -440,7 +347,7 @@ const ExpenseTracker = () => {
         (!missingOnly || (e.files === 0 && !e.noBillNeeded)) &&
         (!term || [e.name, e.paidTo, e.propertyName, e.ownerName, expenseCategory(e.category).label].some((text) => text.toLowerCase().includes(term))),
     );
-  }, [expenses, filters, search, missingOnly, scope.ownerId]);
+  }, [expenses, filters, search, missingOnly, scope.key]);
 
   const stats = useMemo(() => {
     const total = visible.reduce((s, e) => s + e.amount, 0);
@@ -463,7 +370,7 @@ const ExpenseTracker = () => {
       withFiles: visible.filter((e) => e.files > 0 || e.noBillNeeded).length,
       missing: expenses.filter((e) => scope.matches(e.ownerId) && e.files === 0 && !e.noBillNeeded).length,
       byGroup,
-      byOwner: sumBy((e) => e.ownerName || 'No owner'),
+      byOwner: sumBy((e) => e.ownerName || 'No workspace'),
       byProperty: sumBy((e) => e.propertyName || 'No property'),
     };
   }, [visible]);
@@ -475,7 +382,7 @@ const ExpenseTracker = () => {
         : groupBy === 'property'
         ? e.propertyName || 'No property'
         : groupBy === 'owner'
-        ? e.ownerName || 'No owner'
+        ? e.ownerName || 'No workspace'
         : expenseGroup(e.category).label;
     const map = new Map<string, Expense[]>();
 
@@ -494,7 +401,7 @@ const ExpenseTracker = () => {
   }, [visible, groupBy]);
 
   const filterOptions: Record<FilterKey, Array<{ value: string; label: string }>> = {
-    owner: [...owners.map((o) => ({ value: o.id, label: o.name })), { value: NONE, label: 'No owner' }],
+    owner: [...owners.map((o) => ({ value: o.id, label: o.name })), { value: NONE, label: 'No workspace' }],
     property: [...properties.map((p) => ({ value: p.id, label: p.name })), { value: NONE, label: 'No property' }],
     category: EXPENSE_CATEGORIES.map((x) => ({ value: x.value, label: x.label, section: expenseGroup(x.value).label })),
   };
@@ -554,7 +461,7 @@ const ExpenseTracker = () => {
           {(['owner', 'property', 'category'] as FilterKey[]).map((key) => (
             <MultiFilter
               key={key}
-              label={key === 'owner' ? 'Owner' : key === 'property' ? 'Property' : 'Category'}
+              label={key === 'owner' ? 'Workspace' : key === 'property' ? 'Property' : 'Category'}
               options={filterOptions[key]}
               selected={filters[key]}
               open={openFilter === key}
@@ -594,7 +501,7 @@ const ExpenseTracker = () => {
         {/* breakdowns */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
           <Bars title="By type" rows={stats.byGroup} />
-          <Bars title="By owner" rows={stats.byOwner} />
+          <Bars title="By workspace" rows={stats.byOwner} />
           <Bars title="By property" rows={stats.byProperty} />
         </div>
 
@@ -615,7 +522,7 @@ const ExpenseTracker = () => {
                   fontWeight: groupBy === option ? 600 : 400,
                 }}
               >
-                {option === 'category' ? 'Type' : option[0].toUpperCase() + option.slice(1)}
+                {option === 'category' ? 'Type' : option === 'owner' ? 'Workspace' : option[0].toUpperCase() + option.slice(1)}
               </button>
             ))}
           </div>
@@ -744,27 +651,24 @@ const AddExpensePanel = ({
     }
     setBusy(true);
     try {
-      const { createExpense } = await new CoreApiClient().mutation({
-        createExpense: {
-          __args: {
-            data: {
-              name: name.trim(),
-              expenseDate: date,
-              amount: { amountMicros: Math.round(value * 1_000_000), currencyCode: 'MYR' },
-              category,
-              method,
-              paidTo: paidTo.trim(),
-              notes: notes.trim(),
-              propertyId: propertyId || null,
-              ownerId: ownerId || null,
-            },
-          },
-          id: true,
+      const result = await new RestApiClient().post<{ success: boolean; id?: string; message?: string }>(
+        '/s/expenses/create',
+        {
+          name: name.trim(),
+          expenseDate: date,
+          amount: value,
+          category,
+          method,
+          paidTo,
+          notes,
+          propertyId: propertyId || null,
+          ownerId: ownerId || null,
         },
-      });
+      );
 
+      if (!result.success || !result.id) throw new Error(result.message ?? 'Could not save.');
       await enqueueSnackbar({ message: 'Expense added. Attach the bill in the panel.', variant: 'success' });
-      if (createExpense?.id) await onSaved(createExpense.id);
+      await onSaved(result.id);
     } catch (error) {
       await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not save.', variant: 'error' });
     } finally {

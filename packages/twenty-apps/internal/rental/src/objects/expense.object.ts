@@ -28,7 +28,7 @@ export default defineObject({
   namePlural: 'expenses',
   labelSingular: 'Expense',
   labelPlural: 'Expenses',
-  description: 'Money spent, grouped by owner and property',
+  description: 'Money spent, grouped by workspace and property',
   icon: 'IconCashOff',
   labelIdentifierFieldMetadataUniversalIdentifier: EXPENSE_NAME_FIELD_ID,
   fields: [

@@ -1,7 +1,8 @@
 import { defineLogicFunction, type RoutePayload } from 'twenty-sdk/define';
 import { Response } from 'twenty-sdk/logic-function';
-import { CoreApiClient } from 'twenty-client-sdk/core';
 
+import { appClient } from 'src/logic-functions/utils/app-client';
+import { inScope, NOT_ALLOWED, resolveScope } from 'src/logic-functions/utils/scope';
 import { LEDGER_RECORD_ROUTE_ID } from 'src/constants/universal-identifiers';
 import { receiptHandler } from 'src/logic-functions/handlers/send-receipt-handler';
 import { monthStart } from 'src/logic-functions/utils/dates';
@@ -44,10 +45,13 @@ const handler = async (
   }
 
   try {
-    const client = new CoreApiClient();
+    const client = appClient();
     const rental = await loadRental(client, body.rentalId);
 
     if (!rental) return json({ success: false, message: 'Rental not found.' }, 404);
+    if (!inScope(await resolveScope(client, context?.workspaceMemberId), rental.property?.ownerId)) {
+      return json(NOT_ALLOWED, 403);
+    }
 
     const month = monthStart(body.month);
     const existing = await findRentPaymentForMonth(client, rental.id, month);

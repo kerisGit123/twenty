@@ -11,7 +11,7 @@ import {
 
 export default defineNavigationMenuItem({
   universalIdentifier: DOCUMENTS_NAV_ITEM_ID,
-  position: 1,
+  position: 0,
   folderUniversalIdentifier: RECORDS_FOLDER_NAV_ID,
   type: NavigationMenuItemType.OBJECT,
   targetObjectUniversalIdentifier: DOCUMENT_OBJECT_ID,

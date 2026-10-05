@@ -1,9 +1,12 @@
 import { type CSSProperties, useEffect, useState } from 'react';
-import { CoreApiClient } from 'twenty-client-sdk/core';
+import { RestApiClient } from 'twenty-client-sdk/rest';
 import { AppPath, navigate } from 'twenty-sdk/front-component';
 
-// "Workspace" switcher for the rental pages: All, or one owner (Family,
-// Company A...). The choice is remembered per user across all pages.
+// Workspace switcher for the rental pages. A rental "workspace" (Family,
+// Company A...) is the owner column on properties, payments, expenses and
+// documents. The server decides which ones the signed-in person may see (all
+// for admins, their memberships for everyone else) and only sends those; this
+// just picks one of them or all of them. The choice is remembered per user.
 
 export type Owner = { id: string; name: string; type: string };
 
@@ -27,28 +30,26 @@ const writeStored = (value: string) => {
   }
 };
 
-// ownerId is '' for All. matches() says whether a record's owner is in scope.
+// Lets other components (e.g. a workspace page) pick the workspace before
+// opening a rental page.
+export const rememberOwnerScope = (ownerId: string) => writeStored(ownerId);
+
+// ownerId is '' for All. matches() says whether a record's workspace is the
+// picked one (the server has already removed workspaces the person can't see).
 export const useOwnerScope = () => {
   const [owners, setOwners] = useState<Owner[]>([]);
+  const [all, setAll] = useState(true);
   const [ownerId, setOwnerIdState] = useState<string>(readStored);
 
   useEffect(() => {
-    new CoreApiClient()
-      .query({
-        owners: {
-          __args: { first: 200, orderBy: [{ name: 'AscNullsLast' }] },
-          edges: { node: { id: true, name: true, ownerType: true } },
-        },
-      })
-      .then(({ owners: page }) => {
-        const list = (page?.edges ?? []).map(({ node }) => ({
-          id: node.id,
-          name: node.name ?? 'Owner',
-          type: (node.ownerType as string | null) ?? '',
-        }));
+    new RestApiClient()
+      .post<{ success: boolean; all: boolean; owners: Owner[] }>('/s/scope', {})
+      .then((result) => {
+        const list = result.owners ?? [];
 
         setOwners(list);
-        // A remembered owner that was deleted falls back to All.
+        setAll(Boolean(result.all));
+        // A remembered workspace that is gone (or no longer allowed) falls back to All.
         setOwnerIdState((current) => (current && !list.some((o) => o.id === current) ? ALL : current));
       })
       .catch(() => setOwners([]));
@@ -64,6 +65,9 @@ export const useOwnerScope = () => {
     ownerId,
     setOwnerId,
     owner: owners.find((o) => o.id === ownerId) ?? null,
+    restricted: !all,
+    // Changes whenever what's in scope changes; use it as a memo dependency.
+    key: `${ownerId}|${all ? '*' : owners.map((o) => o.id).join(',')}`,
     matches: (recordOwnerId: string | null | undefined) => !ownerId || recordOwnerId === ownerId,
   };
 };
@@ -163,7 +167,7 @@ export const OwnerSwitcher = ({ scope }: { scope: ReturnType<typeof useOwnerScop
         }}
       >
         <Badge name={owner?.name ?? ''} type={owner?.type ?? ''} />
-        {owner?.name ?? 'All owners'}
+        {owner?.name ?? (scope.restricted ? 'All my workspaces' : 'All workspaces')}
         <span style={{ color: c.text3, fontSize: 11 }}>▾</span>
       </button>
       {open && (
@@ -185,11 +189,11 @@ export const OwnerSwitcher = ({ scope }: { scope: ReturnType<typeof useOwnerScop
           }}
         >
           <span style={{ fontSize: 11, color: c.text3, padding: '4px 8px', textTransform: 'uppercase', letterSpacing: 0.4 }}>
-            Switch owner
+            Switch workspace
           </span>
           <button onClick={() => pick('')} style={row(!ownerId)}>
             <Badge name="" type="" />
-            <span style={{ flex: 1 }}>All owners</span>
+            <span style={{ flex: 1 }}>{scope.restricted ? 'All my workspaces' : 'All workspaces'}</span>
             {!ownerId && <span style={{ color: 'var(--t-color-green11)' }}>✓</span>}
           </button>
           {owners.map((o) => (
@@ -208,7 +212,7 @@ export const OwnerSwitcher = ({ scope }: { scope: ReturnType<typeof useOwnerScop
             style={{ ...row(false), color: 'var(--t-color-green11)', fontWeight: 500 }}
           >
             <span style={{ width: 22, textAlign: 'center', fontSize: 16 }}>+</span>
-            Manage owners
+            Manage workspaces
           </button>
         </div>
       )}

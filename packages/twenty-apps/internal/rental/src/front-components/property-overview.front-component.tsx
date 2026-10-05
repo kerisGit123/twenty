@@ -388,7 +388,7 @@ const PropertyOverview = () => {
           </span>
         )}
         {data.propertyType && <span style={pill('gray')}>{TYPE_LABEL[data.propertyType] ?? data.propertyType}</span>}
-        {data.ownerName && <span style={pill('blue')}>Owner: {data.ownerName}</span>}
+        {data.ownerName && <span style={pill('blue')}>Workspace: {data.ownerName}</span>}
       </div>
       {data.address && <div style={{ fontSize: 13, color: c.text3, marginTop: -6 }}>{data.address}</div>}
 

@@ -3,15 +3,15 @@ import {
   type ObjectRecordCreateEvent,
 } from 'twenty-sdk/define';
 import { type DatabaseEventBatchPayload } from 'twenty-sdk/logic-function';
-import { CoreApiClient } from 'twenty-client-sdk/core';
 
+import { appClient } from 'src/logic-functions/utils/app-client';
 import { syncWhatsappLink } from 'src/logic-functions/utils/owner-sync';
 
 // New person: build their WhatsApp link from the phone number.
 const handler = async (
   batch: DatabaseEventBatchPayload<ObjectRecordCreateEvent<{ id?: string | null }>>,
 ): Promise<void> => {
-  const client = new CoreApiClient();
+  const client = appClient();
 
   for (const event of batch.events) {
     const recordId = event.properties.after?.id ?? event.recordId;

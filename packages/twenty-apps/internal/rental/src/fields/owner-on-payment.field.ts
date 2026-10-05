@@ -15,7 +15,7 @@ export default defineField({
   objectUniversalIdentifier: PAYMENT_OBJECT_ID,
   type: FieldType.RELATION,
   name: 'owner',
-  label: 'Owner',
+  label: 'Workspace',
   icon: 'IconBriefcase',
   isNullable: true,
   relationTargetObjectMetadataUniversalIdentifier: OWNER_OBJECT_ID,

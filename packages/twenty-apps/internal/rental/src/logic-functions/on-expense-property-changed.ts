@@ -3,15 +3,15 @@ import {
   type ObjectRecordUpdateEvent,
 } from 'twenty-sdk/define';
 import { type DatabaseEventBatchPayload } from 'twenty-sdk/logic-function';
-import { CoreApiClient } from 'twenty-client-sdk/core';
 
+import { appClient } from 'src/logic-functions/utils/app-client';
 import { fillExpenseOwner } from 'src/logic-functions/utils/owner-sync';
 
 // Property set on an expense: take its owner when none is set.
 const handler = async (
   batch: DatabaseEventBatchPayload<ObjectRecordUpdateEvent<{ id?: string | null }>>,
 ): Promise<void> => {
-  const client = new CoreApiClient();
+  const client = appClient();
 
   for (const event of batch.events) {
     const recordId = event.properties.after?.id ?? event.recordId;

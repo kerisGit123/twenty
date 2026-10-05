@@ -1,6 +1,6 @@
 import { defineLogicFunction } from 'twenty-sdk/define';
-import { CoreApiClient } from 'twenty-client-sdk/core';
 
+import { appClient } from 'src/logic-functions/utils/app-client';
 import { CREATE_DUE_DRAFTS_CRON_ID } from 'src/constants/universal-identifiers';
 import { dueDateInMonth, monthStart, todayIso } from 'src/logic-functions/utils/dates';
 import {
@@ -15,7 +15,7 @@ import {
 // month yet, creates a Draft rent payment. Idempotent, so a missed run is
 // caught up the next day.
 const handler = async (): Promise<{ created: number; checked: number }> => {
-  const client = new CoreApiClient();
+  const client = appClient();
   const today = todayIso();
   const thisMonth = monthStart(today);
   let created = 0;

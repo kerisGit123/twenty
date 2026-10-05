@@ -1,5 +1,4 @@
 import { type CSSProperties, type SyntheticEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { CoreApiClient } from 'twenty-client-sdk/core';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { defineFrontComponent } from 'twenty-sdk/define';
 import { AppPath, enqueueSnackbar, navigate } from 'twenty-sdk/front-component';
@@ -8,7 +7,8 @@ import { RENT_LEDGER_FRONT_COMPONENT_ID } from 'src/constants/universal-identifi
 import { ReceiptSettingsPanel } from 'src/front-components/shared/receipt-settings-panel';
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { ReceiptView, type ReceiptViewData } from 'src/front-components/shared/receipt-view';
-import { type TenantPhone, whatsappLink } from 'src/shared/whatsapp-link';
+import type { LedgerData, Payment, Rental } from 'src/logic-functions/page-data/ledger-data';
+import { whatsappLink } from 'src/shared/whatsapp-link';
 import {
   dueDateInMonth,
   monthStart,
@@ -17,33 +17,6 @@ import {
 } from 'src/logic-functions/utils/dates';
 
 // ---------------------------------------------------------------- types
-
-type Rental = {
-  id: string;
-  name: string;
-  status: string;
-  startDate: string | null;
-  endDate: string | null;
-  dueDay: number;
-  rent: number; // RM
-  propertyName: string;
-  propertyType: string | null;
-  ownerId: string | null;
-  tenantName: string;
-  tenantPhone: TenantPhone;
-};
-
-type Payment = {
-  id: string;
-  status: string;
-  rentalId: string;
-  month: string; // YYYY-MM-01
-  amount: number; // RM
-  receiptNumber: string;
-  paidOn: string | null;
-  method: string | null;
-  fileUrl: string | null;
-};
 
 type CellStatus = 'paid' | 'due' | 'overdue' | 'upcoming' | 'none';
 
@@ -183,118 +156,6 @@ const button = (primary = false): CSSProperties => ({
 
 // ---------------------------------------------------------------- data
 
-const loadRentals = async (client: CoreApiClient): Promise<Rental[]> => {
-  const rentals: Rental[] = [];
-  let after: string | undefined;
-
-  for (;;) {
-    const { rentals: page } = await client.query({
-      rentals: {
-        __args: { first: 200, ...(after ? { after } : {}) },
-        edges: {
-          node: {
-            id: true,
-            name: true,
-            status: true,
-            startDate: true,
-            endDate: true,
-            dueDay: true,
-            monthlyRent: { amountMicros: true },
-            property: { name: true, propertyType: true, ownerId: true },
-            tenant: {
-              name: { firstName: true, lastName: true },
-              phones: { primaryPhoneNumber: true, primaryPhoneCallingCode: true },
-            },
-          },
-        },
-        pageInfo: { hasNextPage: true, endCursor: true },
-      },
-    });
-
-    for (const { node } of page?.edges ?? []) {
-      if (node.status === 'DRAFT') continue;
-
-      rentals.push({
-        id: node.id,
-        name: node.name ?? '',
-        status: node.status ?? '',
-        startDate: node.startDate ?? null,
-        endDate: node.endDate ?? null,
-        dueDay: node.dueDay ?? 1,
-        rent: (node.monthlyRent?.amountMicros ?? 0) / 1_000_000,
-        propertyName: node.property?.name ?? node.name ?? 'Property',
-        propertyType: (node.property?.propertyType as string | null) ?? null,
-        ownerId: node.property?.ownerId ?? null,
-        tenantName: [node.tenant?.name?.firstName, node.tenant?.name?.lastName].filter(Boolean).join(' '),
-        tenantPhone: node.tenant?.phones ?? null,
-      });
-    }
-
-    if (!page?.pageInfo?.hasNextPage || !page.pageInfo.endCursor) break;
-    after = page.pageInfo.endCursor;
-  }
-
-  return rentals.sort((a, b) => a.propertyName.localeCompare(b.propertyName));
-};
-
-const loadPayments = async (client: CoreApiClient, from: string, to: string): Promise<Payment[]> => {
-  const payments: Payment[] = [];
-  let after: string | undefined;
-
-  for (;;) {
-    const { rentPayments: page } = await client.query({
-      rentPayments: {
-        __args: {
-          first: 200,
-          ...(after ? { after } : {}),
-          filter: {
-            paymentType: { eq: 'RENT' },
-            status: { neq: 'VOID' },
-            and: [{ rentPeriod: { gte: from } }, { rentPeriod: { lt: to } }],
-          },
-        },
-        edges: {
-          node: {
-            id: true,
-            status: true,
-            rentalId: true,
-            rentPeriod: true,
-            amount: { amountMicros: true },
-            receiptNumber: true,
-            paidOn: true,
-            method: true,
-            receiptFile: true,
-          },
-        },
-        pageInfo: { hasNextPage: true, endCursor: true },
-      },
-    });
-
-    for (const { node } of page?.edges ?? []) {
-      if (!node.rentalId || !node.rentPeriod) continue;
-
-      const files = node.receiptFile as unknown as Array<{ url?: string }> | null;
-
-      payments.push({
-        id: node.id,
-        status: node.status ?? 'DRAFT',
-        rentalId: node.rentalId,
-        month: monthStart(node.rentPeriod),
-        amount: (node.amount?.amountMicros ?? 0) / 1_000_000,
-        receiptNumber: node.receiptNumber ?? '',
-        paidOn: node.paidOn ?? null,
-        method: node.method ?? null,
-        fileUrl: files?.[0]?.url ?? null,
-      });
-    }
-
-    if (!page?.pageInfo?.hasNextPage || !page.pageInfo.endCursor) break;
-    after = page.pageInfo.endCursor;
-  }
-
-  return payments;
-};
-
 // ---------------------------------------------------------------- component
 
 type RecordResponse = {
@@ -332,14 +193,15 @@ const RentLedger = () => {
     if (months.length === 0) return;
     setLoading(true);
     try {
-      const client = new CoreApiClient();
-      const [nextRentals, nextPayments] = await Promise.all([
-        loadRentals(client),
-        loadPayments(client, months[0], nextMonthStart(months[months.length - 1])),
-      ]);
+      // The server reads the ledger and keeps only the caller's workspaces.
+      const result = await new RestApiClient().post<{ success: boolean; data?: LedgerData; message?: string }>(
+        '/s/pages/data',
+        { page: 'ledger', from: months[0], to: nextMonthStart(months[months.length - 1]) },
+      );
 
-      setRentals(nextRentals);
-      setPayments(nextPayments);
+      if (!result.success || !result.data) throw new Error(result.message ?? 'Could not load the ledger.');
+      setRentals(result.data.rentals);
+      setPayments(result.data.payments);
     } catch (error) {
       await enqueueSnackbar({
         message: error instanceof Error ? error.message : 'Could not load the ledger.',
@@ -383,7 +245,7 @@ const RentLedger = () => {
 
         return true;
       });
-  }, [rentals, months, paymentByCell, search, type, today, scope.ownerId]);
+  }, [rentals, months, paymentByCell, search, type, today, scope.key]);
 
   const rows = useMemo(
     () =>
@@ -526,7 +388,7 @@ const RentLedger = () => {
               </>
             ) : (
               scope.owner
-                ? `No active contracts for ${scope.owner.name} in this period. Set ${scope.owner.name} as the owner on its properties.`
+                ? `No active contracts for ${scope.owner.name} in this period. Set ${scope.owner.name} as the workspace on its properties.`
                 : 'No active contracts in this period. Create a contract and set it to Active.'
             )}
           </div>

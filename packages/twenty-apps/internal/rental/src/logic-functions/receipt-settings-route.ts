@@ -1,8 +1,8 @@
 import { defineLogicFunction, type RoutePayload } from 'twenty-sdk/define';
 import { Response } from 'twenty-sdk/logic-function';
-import { CoreApiClient } from 'twenty-client-sdk/core';
-import { MetadataApiClient } from 'twenty-client-sdk/metadata';
 
+import { appClient, appMetadataClient } from 'src/logic-functions/utils/app-client';
+import { resolveScope } from 'src/logic-functions/utils/scope';
 import { loadReceiptSettings } from 'src/logic-functions/handlers/send-receipt-handler';
 import { type ReceiptSettingsRecord } from 'src/logic-functions/utils/receipt-settings';
 
@@ -25,7 +25,7 @@ const json = (body: unknown, status = 200) =>
 
 const workspaceName = async () => {
   try {
-    const result = (await new MetadataApiClient().query({
+    const result = (await appMetadataClient().query({
       currentWorkspace: { displayName: true },
     } as never)) as { currentWorkspace?: { displayName?: string | null } };
 
@@ -37,12 +37,16 @@ const workspaceName = async () => {
 
 // POST { action: 'get' } -> current settings (+ workspace name as fallback)
 // POST { action: 'save', values } -> creates or updates the one settings record
-const handler = async (event: RoutePayload): Promise<Response> => {
+const handler = async (event: RoutePayload, context?: { workspaceMemberId?: string | null }): Promise<Response> => {
   const body = (event.body ?? {}) as { action?: string; values?: ReceiptSettingsRecord };
 
   try {
-    const client = new CoreApiClient();
+    const client = appClient();
     const current = await loadReceiptSettings(client);
+
+    if (body.action === 'save' && !(await resolveScope(client, context?.workspaceMemberId)).all) {
+      return json({ success: false, message: 'Only admins can change the receipt settings.' }, 403);
+    }
 
     if (body.action !== 'save') {
       return json({

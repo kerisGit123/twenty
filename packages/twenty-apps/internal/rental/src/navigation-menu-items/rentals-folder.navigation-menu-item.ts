@@ -10,6 +10,6 @@ export default defineNavigationMenuItem({
   universalIdentifier: RENTALS_FOLDER_NAV_ID,
   name: 'Rentals',
   icon: 'IconBuildingCommunity',
-  position: 4,
+  position: 5,
   type: NavigationMenuItemType.FOLDER,
 });

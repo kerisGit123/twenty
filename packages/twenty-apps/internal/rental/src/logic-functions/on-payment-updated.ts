@@ -3,8 +3,8 @@ import {
   type ObjectRecordUpdateEvent,
 } from 'twenty-sdk/define';
 import { type DatabaseEventBatchPayload } from 'twenty-sdk/logic-function';
-import { CoreApiClient } from 'twenty-client-sdk/core';
 
+import { appClient } from 'src/logic-functions/utils/app-client';
 import { ON_PAYMENT_UPDATED_FUNCTION_ID } from 'src/constants/universal-identifiers';
 import { fillPaymentFromRental } from 'src/logic-functions/utils/rental-service';
 
@@ -15,7 +15,7 @@ type PaymentEventRecord = { id?: string | null; rentalId?: string | null };
 const handler = async (
   batch: DatabaseEventBatchPayload<ObjectRecordUpdateEvent<PaymentEventRecord>>,
 ): Promise<void> => {
-  const client = new CoreApiClient();
+  const client = appClient();
 
   for (const event of batch.events) {
     const paymentId = event.properties.after?.id ?? event.recordId;

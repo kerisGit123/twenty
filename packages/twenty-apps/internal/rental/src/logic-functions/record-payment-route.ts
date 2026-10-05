@@ -1,6 +1,7 @@
 import { defineLogicFunction } from 'twenty-sdk/define';
-import { CoreApiClient } from 'twenty-client-sdk/core';
 
+import { appClient } from 'src/logic-functions/utils/app-client';
+import { inScope, NOT_ALLOWED, resolveScope } from 'src/logic-functions/utils/scope';
 import { RECORD_PAYMENT_ROUTE_ID } from 'src/constants/universal-identifiers';
 import { jsonRoute } from 'src/logic-functions/utils/json-route';
 import {
@@ -14,16 +15,19 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 
 // "Record payment" on a rental: a Draft rent payment for the next unpaid
 // month, amount = monthly rent, method = last one used.
-const recordPayment = async (rentalId: string) => {
+const recordPayment = async (rentalId: string, memberId?: string) => {
   if (!rentalId) {
     return { success: false, status: 400, message: 'No rental selected.' };
   }
 
-  const client = new CoreApiClient();
+  const client = appClient();
   const rental = await loadRental(client, rentalId);
 
   if (!rental) {
     return { success: false, status: 404, message: 'Rental not found.' };
+  }
+  if (!inScope(await resolveScope(client, memberId), rental.property?.ownerId)) {
+    return NOT_ALLOWED;
   }
   if (rental.status === 'ENDED') {
     return { success: false, status: 400, message: 'This rental has ended.' };

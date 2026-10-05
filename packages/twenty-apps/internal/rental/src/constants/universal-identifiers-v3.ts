@@ -62,3 +62,55 @@ export const TODAY_NAV_ITEM_ID = '4636711e-5c3a-4ab8-bc7a-dadf2da7ff13';
 export const PERSON_OVERVIEW_FRONT_COMPONENT_ID = '14da1079-ddea-451e-a1bc-8be8e1ae2728';
 export const PERSON_OVERVIEW_TAB_ID = 'c06041e3-6375-486f-8419-5a14fc5046a6';
 export const PERSON_OVERVIEW_WIDGET_ID = '626db159-3587-479b-831b-df0b1da8dc6c';
+
+// Workspace memberships (link table: rental workspace <-> team member)
+export const MEMBERSHIP_OBJECT_ID = 'd6203b12-2968-4473-bba6-136e81609737';
+export const MEMBERSHIP_OWNER_FIELD_ID = '09838e6f-b17b-4832-8ac9-402b21546f3c';
+export const OWNER_MEMBERSHIPS_FIELD_ID = '46ba5381-5cb7-45fa-98da-3fb7696af07d';
+export const MEMBERSHIP_MEMBER_FIELD_ID = '0e0faa71-590a-4677-aa7f-55a789f286e6';
+export const MEMBER_MEMBERSHIPS_FIELD_ID = 'dfe8e6dc-1331-43b7-9b32-c08517f72eca';
+
+// Workspace page: members tab
+export const MEMBERSHIP_NAME_FIELD_ID = 'e09bcea1-60dd-45d6-98fc-d00fa1745d77';
+export const OWNER_PAGE_LAYOUT_ID = '0e71c9b7-0646-4e6d-a9c7-c93b36c8716b';
+export const OWNER_TAB_DETAILS_ID = '67d703b3-cfbf-4afd-b691-2c5fe7d45397';
+export const OWNER_WIDGET_FIELDS_ID = 'd91c11fa-ef71-4222-91e2-88c5d08acb87';
+export const OWNER_TAB_MEMBERS_ID = '7f0a2b8f-4487-47da-9d79-e35f2861e1d1';
+export const OWNER_WIDGET_MEMBERS_ID = '179cd5f1-d827-4bfc-878f-e9824c826230';
+export const OWNER_TAB_TIMELINE_ID = '12b0c23d-aa05-40d4-aad9-8c06c0258cfa';
+export const OWNER_WIDGET_TIMELINE_ID = '0c82b6fa-31fc-4d26-bc27-b95c4bf8eeac';
+export const WORKSPACE_MEMBERS_FRONT_COMPONENT_ID = 'd1056ab4-88a6-4af2-8042-c8c373d6cc08';
+
+// Invites into a rental workspace
+export const MEMBERSHIP_EMAIL_FIELD_ID = '3a5224c2-f8d5-43e7-a45f-776da4c541dd';
+export const ON_MEMBER_JOINED_FUNCTION_ID = '03119595-7436-46a2-8132-589a34412989';
+
+// Access wall: server-side page data and scope
+export const MEMBERSHIP_ALL_WORKSPACES_FIELD_ID = '87cb47b6-fe50-4fe0-a8a3-1eb41c482092';
+export const SCOPE_ROUTE_FUNCTION_ID = '9251cb83-e625-4db2-b7e6-0848ffaab2a0';
+export const PAGE_DATA_ROUTE_FUNCTION_ID = '29eae91d-7eca-405b-a19b-7f20e3debd2b';
+export const EXPENSE_CREATE_ROUTE_FUNCTION_ID = '3e4f30ad-70b8-4c2d-bd29-05999cc2b20f';
+export const STAFF_ROLE_ID = '9ae9d9a4-9fdb-476a-931e-8198ff90d962';
+
+// Personal workspace + workspace hub
+export const OWNER_TYPE_PERSONAL_OPTION_ID = '134d3bda-50d5-4816-b745-76d9126806aa';
+export const WORKSPACE_OVERVIEW_FRONT_COMPONENT_ID = '33e886d1-9e39-4e95-93f5-2e6a859e9abb';
+export const OWNER_TAB_OVERVIEW_ID = '990adb3d-3e80-4d6a-92fa-d18b7af866b3';
+export const OWNER_WIDGET_OVERVIEW_ID = '67edeed5-b663-4ec8-934b-19976d38a0d4';
+export const OWNER_TAB_PROPERTIES_ID = '2b9f1327-3cf7-4314-aaca-7972eb3abc37';
+export const OWNER_WIDGET_PROPERTIES_ID = '065cc319-d79f-4f36-8737-fd159b2cc9f1';
+export const OWNER_TAB_PAYMENTS_ID = '633d3221-3962-4112-b393-7d697cbd29e3';
+export const OWNER_WIDGET_PAYMENTS_ID = '1172afb6-f7a5-4e45-8f90-1552dda5f428';
+export const OWNER_TAB_EXPENSES_ID = '5cf235e0-467e-4f0c-9bf4-c11bcc45bc03';
+export const OWNER_WIDGET_EXPENSES_ID = '2c95920e-e3db-4ab8-ad43-1e8cc8e58f24';
+export const OWNER_TAB_DOCUMENTS_ID = '01704965-6852-437e-96b1-c3e31242f7d2';
+export const OWNER_WIDGET_DOCUMENTS_ID = '6e50fbf1-d72d-4def-87f7-0b3472c744b9';
+export const WORKSPACE_PROPERTIES_VIEW_ID = '7e0f120c-2195-439e-821c-b505a7b3b63d';
+
+// Workspaces page
+export const WORKSPACES_ROUTE_FUNCTION_ID = '389d8fc1-dac5-4017-bbbf-8bf78e756c84';
+export const WORKSPACES_FRONT_COMPONENT_ID = '371d134e-dc47-46b5-bc33-03466d61b27f';
+export const WORKSPACES_PAGE_LAYOUT_ID = 'd3d834b4-429f-4672-bfad-23316c28c07a';
+export const WORKSPACES_TAB_ID = '0dcc94fa-3895-4a9e-bd55-6be41b4465f4';
+export const WORKSPACES_WIDGET_ID = 'ce9dd43f-f558-4274-bec9-c0a1c2002710';
+export const WORKSPACES_NAV_ITEM_ID = '5bfa4399-a909-4a93-ae30-725eeb33e656';

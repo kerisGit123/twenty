@@ -3,8 +3,8 @@ import {
   type ObjectRecordCreateEvent,
 } from 'twenty-sdk/define';
 import { type DatabaseEventBatchPayload } from 'twenty-sdk/logic-function';
-import { CoreApiClient } from 'twenty-client-sdk/core';
 
+import { appClient } from 'src/logic-functions/utils/app-client';
 import { ON_RENTAL_CREATED_FUNCTION_ID } from 'src/constants/universal-identifiers';
 import {
   fillRentalDefaults,
@@ -19,7 +19,7 @@ type RentalEventRecord = { id?: string | null; propertyId?: string | null };
 const handler = async (
   batch: DatabaseEventBatchPayload<ObjectRecordCreateEvent<RentalEventRecord>>,
 ): Promise<void> => {
-  const client = new CoreApiClient();
+  const client = appClient();
 
   for (const event of batch.events) {
     const rentalId = event.properties.after?.id ?? event.recordId;

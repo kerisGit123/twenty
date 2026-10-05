@@ -13,15 +13,17 @@ import {
   OWNER_TYPE_NGO_OPTION_ID,
   OWNER_TYPE_OTHER_OPTION_ID,
 } from 'src/constants/universal-identifiers-v2';
+import { OWNER_TYPE_PERSONAL_OPTION_ID } from 'src/constants/universal-identifiers-v3';
 
-// Who owns properties and books income/expenses: Family, Company A, NGO C...
-// Rent income and expenses roll up to an owner for yearly/tax reporting.
+// A rental workspace — the top of the hierarchy: Personal, Family, Company A,
+// NGO C... Properties, payments, expenses and documents all belong to one, and
+// people are invited into them. Anything not assigned goes to Personal.
 export default defineObject({
   universalIdentifier: OWNER_OBJECT_ID,
   nameSingular: 'owner',
   namePlural: 'owners',
-  labelSingular: 'Owner',
-  labelPlural: 'Owners',
+  labelSingular: 'Workspace',
+  labelPlural: 'Workspaces',
   description: 'Who the property, income and expenses belong to (family, company, NGO)',
   icon: 'IconBriefcase',
   labelIdentifierFieldMetadataUniversalIdentifier: OWNER_NAME_FIELD_ID,
@@ -41,11 +43,12 @@ export default defineObject({
       icon: 'IconCategory',
       isNullable: true,
       options: [
-        { id: OWNER_TYPE_FAMILY_OPTION_ID, value: 'FAMILY', label: 'Family', position: 0, color: 'pink' },
-        { id: OWNER_TYPE_INDIVIDUAL_OPTION_ID, value: 'INDIVIDUAL', label: 'Individual', position: 1, color: 'blue' },
-        { id: OWNER_TYPE_COMPANY_OPTION_ID, value: 'COMPANY', label: 'Company', position: 2, color: 'turquoise' },
-        { id: OWNER_TYPE_NGO_OPTION_ID, value: 'NGO', label: 'NGO / Society', position: 3, color: 'green' },
-        { id: OWNER_TYPE_OTHER_OPTION_ID, value: 'OTHER', label: 'Other', position: 4, color: 'gray' },
+        { id: OWNER_TYPE_PERSONAL_OPTION_ID, value: 'PERSONAL', label: 'Personal', position: 0, color: 'gray' },
+        { id: OWNER_TYPE_FAMILY_OPTION_ID, value: 'FAMILY', label: 'Family', position: 1, color: 'pink' },
+        { id: OWNER_TYPE_INDIVIDUAL_OPTION_ID, value: 'INDIVIDUAL', label: 'Individual', position: 2, color: 'blue' },
+        { id: OWNER_TYPE_COMPANY_OPTION_ID, value: 'COMPANY', label: 'Company', position: 3, color: 'turquoise' },
+        { id: OWNER_TYPE_NGO_OPTION_ID, value: 'NGO', label: 'NGO / Society', position: 4, color: 'green' },
+        { id: OWNER_TYPE_OTHER_OPTION_ID, value: 'OTHER', label: 'Other', position: 5, color: 'gray' },
       ],
     },
     {

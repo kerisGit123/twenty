@@ -1,6 +1,7 @@
 import { CoreApiClient } from 'twenty-client-sdk/core';
-import { MetadataApiClient } from 'twenty-client-sdk/metadata';
 
+import { appClient, appMetadataClient } from 'src/logic-functions/utils/app-client';
+import { inScope, NOT_ALLOWED, resolveScope } from 'src/logic-functions/utils/scope';
 import { PAYMENT_RECEIPT_FILE_FIELD_ID } from 'src/constants/universal-identifiers';
 import { ringgitInWords } from 'src/logic-functions/utils/amount-in-words';
 import { daysInMonth, toMalaysiaDate, todayIso } from 'src/logic-functions/utils/dates';
@@ -169,7 +170,7 @@ export const loadReceiptSettings = async (
 
 const workspaceName = async () => {
   try {
-    const result = (await new MetadataApiClient().query({
+    const result = (await appMetadataClient().query({
       currentWorkspace: { displayName: true },
     } as never)) as { currentWorkspace?: { displayName?: string | null } };
 
@@ -226,7 +227,7 @@ export const receiptHandler = async (
     return { success: false, status: 400, message: 'No payment selected.' };
   }
 
-  const client = new CoreApiClient();
+  const client = appClient();
 
   const { rentPayments } = await client.query({
     rentPayments: {
@@ -239,6 +240,7 @@ export const receiptHandler = async (
           receiptSentAt: true,
           receiptSnapshot: true,
           paymentType: true,
+          ownerId: true,
           amount: { amountMicros: true, currencyCode: true },
           paidOn: true,
           rentPeriod: true,
@@ -268,6 +270,10 @@ export const receiptHandler = async (
 
   if (!payment?.id) {
     return { success: false, status: 404, message: 'Payment not found.' };
+  }
+  // Only for the sender's workspaces (automations have no sender: full access).
+  if (!inScope(await resolveScope(client, senderWorkspaceMemberId), payment.ownerId)) {
+    return NOT_ALLOWED;
   }
 
   const currentStatus = payment.status ?? 'DRAFT';
@@ -373,7 +379,7 @@ export const receiptHandler = async (
         ? `${receiptNumber}-VOID.pdf`
         : `${receiptNumber}.pdf`;
 
-  const uploaded = await new MetadataApiClient().uploadFile({
+  const uploaded = await appMetadataClient().uploadFile({
     fileBuffer: Buffer.from(pdf),
     filename: fileName,
     fieldMetadataUniversalIdentifier: PAYMENT_RECEIPT_FILE_FIELD_ID,
