@@ -3,6 +3,7 @@ import { type ReactNode } from 'react';
 import { ObjectSortDropdownButton } from '@/object-record/object-sort-dropdown/components/ObjectSortDropdownButton';
 import { useRecordIndexContextOrThrow } from '@/object-record/record-index/contexts/RecordIndexContext';
 import { TopBar } from '@/ui/layout/top-bar/components/TopBar';
+import { RentalWorkspaceClearFilterEffect } from '@/rental-workspace/components/RentalWorkspaceClearFilterEffect';
 import { QueryParamsFiltersEffect } from '@/views/components/QueryParamsFiltersEffect';
 import { QueryParamsSortsEffect } from '@/views/components/QueryParamsSortsEffect';
 import { ViewBarPageTitle } from '@/views/components/ViewBarPageTitle';
@@ -59,6 +60,7 @@ export const ViewBar = ({
       <QueryParamsFiltersEffect />
       <QueryParamsSortsEffect />
       <QueryParamsCleanupEffect />
+      <RentalWorkspaceClearFilterEffect />
       <ViewBarPageTitle />
       <TopBar
         className={className}

@@ -8,6 +8,7 @@ import { IconSearch } from 'twenty-ui/icon';
 import { MOBILE_VIEWPORT, themeCssVariables } from 'twenty-ui/theme';
 
 import { useIsNavigationDrawerContentExpanded } from '@/navigation/hooks/useIsNavigationDrawerContentExpanded';
+import { RentalWorkspaceSwitcher } from '@/rental-workspace/components/RentalWorkspaceSwitcher';
 import { useOpenRecordsSearchPageInSidePanel } from '@/side-panel/hooks/useOpenRecordsSearchPageInSidePanel';
 import { MultiWorkspaceDropdownButton } from '@/ui/navigation/navigation-drawer/components/MultiWorkspaceDropdown/MultiWorkspaceDropdownButton';
 import { useIsMobile } from 'twenty-ui/utilities';
@@ -119,6 +120,8 @@ export const NavigationDrawerHeader = () => {
           </StyledRightActions>
         )}
       </StyledHeaderRow>
+      {/* Fork: Rental app workspace (Personal, Family, Company A...) */}
+      <RentalWorkspaceSwitcher />
       {!isExpanded && !isMobile && (
         <StyledCollapsedSearch>
           <FrontComponentMediaSessionIndicator />

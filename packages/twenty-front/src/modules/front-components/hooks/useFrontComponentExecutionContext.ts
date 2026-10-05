@@ -56,6 +56,17 @@ import { useIsMobile } from 'twenty-ui/utilities';
 import { FileFolder } from '~/generated-metadata/graphql';
 import { useCopyToClipboard } from '~/hooks/useCopyToClipboard';
 import { useNavigateApp } from '~/hooks/useNavigateApp';
+import {
+  RENTAL_WORKSPACE_CHANGED_EVENT,
+  RENTAL_WORKSPACE_STORAGE_KEY,
+} from '@/rental-workspace/constants/RentalWorkspace';
+
+// Fork: the sidebar's Rental workspace switcher mirrors this storage entry.
+const notifyRentalWorkspaceChange = (key: string) => {
+  if (key === RENTAL_WORKSPACE_STORAGE_KEY) {
+    window.dispatchEvent(new Event(RENTAL_WORKSPACE_CHANGED_EVENT));
+  }
+};
 
 const FRONT_COMPONENT_CLIPBOARD_MAX_LENGTH = 64 * 1024;
 const FRONT_COMPONENT_CLIPBOARD_RATE_LIMIT_MS = 1000;
@@ -581,6 +592,7 @@ export const useFrontComponentExecutionContext = ({
       key,
       serializedValue,
     });
+    notifyRentalWorkspaceChange(key);
   };
 
   const storageDelete: FrontComponentHostCommunicationApi['storageDelete'] =
@@ -590,6 +602,7 @@ export const useFrontComponentExecutionContext = ({
         storageType,
         key,
       });
+      notifyRentalWorkspaceChange(key);
     };
 
   const storageClear: FrontComponentHostCommunicationApi['storageClear'] =

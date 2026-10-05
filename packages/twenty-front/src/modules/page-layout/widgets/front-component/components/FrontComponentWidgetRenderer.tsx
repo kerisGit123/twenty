@@ -10,6 +10,7 @@ import { type PageLayoutWidget } from '@/page-layout/types/PageLayoutWidget';
 import { PageLayoutWidgetNoDataDisplay } from '@/page-layout/widgets/components/PageLayoutWidgetNoDataDisplay';
 import { StyledWidgetContentFrame } from '@/page-layout/widgets/components/WidgetContentFrame';
 import { isWidgetConfigurationOfType } from '@/side-panel/pages/page-layout/utils/isWidgetConfigurationOfType';
+import { useRentalWorkspaceRemountKey } from '@/rental-workspace/hooks/useRentalWorkspaceRemountKey';
 import { useLayoutRenderingContext } from '@/ui/layout/contexts/LayoutRenderingContext';
 
 const StyledContainer = styled(StyledWidgetContentFrame)<{
@@ -40,6 +41,8 @@ export const FrontComponentWidgetRenderer = ({
   const isPageLayoutInEditMode = useIsPageLayoutInEditMode();
   const { presentation } = usePageLayoutContentContext();
   const { targetRecordIdentifier } = useLayoutRenderingContext();
+  // Fork: restart when the Rental workspace is switched from the sidebar.
+  const rentalWorkspaceKey = useRentalWorkspaceRemountKey();
 
   const configuration = widget.configuration;
 
@@ -67,6 +70,7 @@ export const FrontComponentWidgetRenderer = ({
     >
       <Suspense fallback={<FrontComponentSkeletonLoader />}>
         <FrontComponentRenderer
+          key={rentalWorkspaceKey}
           frontComponentId={frontComponentId}
           selectedRecordIds={selectedRecordIds}
           objectNameSingular={targetRecordIdentifier?.targetObjectNameSingular}

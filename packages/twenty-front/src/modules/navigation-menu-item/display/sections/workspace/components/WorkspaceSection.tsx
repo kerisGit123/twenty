@@ -20,6 +20,7 @@ import {
 import { WorkspaceSectionContainer } from '@/navigation-menu-item/display/sections/workspace/components/WorkspaceSectionContainer';
 import { getNavigationMenuItemComputedLink } from '@/navigation-menu-item/display/utils/getNavigationMenuItemComputedLink';
 import { lastVisitedViewPerObjectMetadataItemState } from '@/navigation/states/lastVisitedViewPerObjectMetadataItemState';
+import { useRentalWorkspace } from '@/rental-workspace/hooks/useRentalWorkspace';
 import { objectMetadataItemsSelector } from '@/object-metadata/states/objectMetadataItemsSelector';
 import { type EnrichedObjectMetadataItem } from '@/object-metadata/types/EnrichedObjectMetadataItem';
 import { useHasPermissionFlag } from '@/settings/roles/hooks/useHasPermissionFlag';
@@ -41,6 +42,8 @@ const StyledRightIconsContainer = styled.div`
 `;
 
 export const WorkspaceSection = () => {
+  // Fork: redraw links (they carry the Rental workspace filter) on change.
+  useRentalWorkspace();
   const isMobile = useIsMobile();
   const items = useNavigationMenuItemSectionItems();
   const objectMetadataItems = useAtomStateValue(objectMetadataItemsSelector);

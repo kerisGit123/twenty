@@ -4,10 +4,25 @@ import { getPageLayoutNavigationMenuItemComputedLink } from '@/navigation-menu-i
 import { getRecordNavigationMenuItemComputedLink } from '@/navigation-menu-item/display/record/utils/getRecordNavigationMenuItemComputedLink';
 import { getViewNavigationMenuItemComputedLink } from '@/navigation-menu-item/display/view/utils/getViewNavigationMenuItemComputedLink';
 import { type EnrichedObjectMetadataItem } from '@/object-metadata/types/EnrichedObjectMetadataItem';
+import { getSelectedRentalWorkspace } from '@/rental-workspace/states/rentalWorkspaceSelection';
+import { appendRentalWorkspaceFilter } from '@/rental-workspace/utils/appendRentalWorkspaceFilter';
 import { type View } from '@/views/types/View';
 import { NavigationMenuItemType } from 'twenty-shared/types';
 import { isDefined } from 'twenty-shared/utils';
 import { type NavigationMenuItem } from '~/generated-metadata/graphql';
+
+// Fork: lists of Rental objects open filtered to the selected Rental workspace.
+const withRentalWorkspace = (
+  link: string,
+  objectMetadataId: string | null | undefined,
+  objectMetadataItems: EnrichedObjectMetadataItem[],
+) => {
+  const objectMetadataItem = objectMetadataItems.find((item) => item.id === objectMetadataId);
+
+  return isDefined(objectMetadataItem)
+    ? appendRentalWorkspaceFilter(link, objectMetadataItem.nameSingular, getSelectedRentalWorkspace())
+    : link;
+};
 
 export const getNavigationMenuItemComputedLink = ({
   item,
@@ -28,19 +43,23 @@ export const getNavigationMenuItemComputedLink = ({
         ? lastVisitedViewPerObjectMetadataItem?.[item.targetObjectMetadataId]
         : undefined;
 
-      return getObjectNavigationMenuItemComputedLink({
-        item,
+      return withRentalWorkspace(
+        getObjectNavigationMenuItemComputedLink({
+          item,
+          objectMetadataItems,
+          views,
+          lastVisitedViewId,
+          isInitialObjectViewEnabled,
+        }),
+        item.targetObjectMetadataId,
         objectMetadataItems,
-        views,
-        lastVisitedViewId,
-        isInitialObjectViewEnabled,
-      });
+      );
     }
     case NavigationMenuItemType.VIEW:
-      return getViewNavigationMenuItemComputedLink(
-        item,
+      return withRentalWorkspace(
+        getViewNavigationMenuItemComputedLink(item, objectMetadataItems, views),
+        views.find((view) => view.id === item.viewId)?.objectMetadataId,
         objectMetadataItems,
-        views,
       );
     case NavigationMenuItemType.LINK:
       return getLinkNavigationMenuItemComputedLink(item);
