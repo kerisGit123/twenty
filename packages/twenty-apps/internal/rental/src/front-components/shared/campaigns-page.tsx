@@ -176,6 +176,7 @@ export const Campaigns = () => {
   const [confirmDelete, setConfirmDelete] = useState('');
   const [results, setResults] = useState<Record<string, CampaignResults>>({});
   const [cleanup, setCleanup] = useState(false);
+  const [howOpen, setHowOpen] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -244,19 +245,20 @@ export const Campaigns = () => {
 
     return (
       <div key={x.id} style={{ ...card, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, ...(isReady ? { borderColor: 'var(--t-color-green7)' } : {}) }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
           <span style={{ width: 40, height: 40, borderRadius: 10, background: c.bg2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
             {x.kind === 'GREETING' ? occasion.icon : kind.icon}
           </span>
-          <div style={{ flex: '1 1 180px', minWidth: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
             <div style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name}</div>
-            <div style={{ fontSize: 13, color: c.text3 }}>
-              {kind.label}
-              {x.kind === 'GREETING' && x.occasion !== 'CUSTOM' ? ` · ${occasion.label}` : ''} · {x.status === 'DONE' ? 'sent' : 'send'} {day(x.sendOn)}
-              {x.status === 'SCHEDULED' && due > 0 ? ` (in ${due} day${due === 1 ? '' : 's'})` : ''}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 12.5, color: c.text3 }}>
+              <span style={{ ...pill(isReady ? 'green' : status.color), fontSize: 11.5, padding: '2px 8px' }}>{isReady ? 'Ready' : status.label}</span>
+              <span>
+                {kind.label} · {x.status === 'DONE' ? 'sent' : ''} {day(x.sendOn)}
+                {x.status === 'SCHEDULED' && due > 0 ? ` · in ${due}d` : ''}
+              </span>
             </div>
           </div>
-          <span style={pill(isReady ? 'green' : status.color)}>{isReady ? 'Ready to send' : status.label}</span>
         </div>
         {(sent > 0 || skipped > 0) && (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 12.5, color: c.text2, alignItems: 'center' }}>
@@ -275,7 +277,7 @@ export const Campaigns = () => {
             )}
           </div>
         )}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           {confirmDelete === x.id ? (
             <>
               <span style={{ fontSize: 13, color: c.text2, alignSelf: 'center', flex: 1 }}>Delete this campaign?</span>
@@ -288,17 +290,17 @@ export const Campaigns = () => {
             </>
           ) : (
             <>
-              <button onClick={() => setConfirmDelete(x.id)} style={button('danger')} title="Delete">
-                🗑
-              </button>
-              <button onClick={() => setEditing(x)} style={button()}>
-                Edit
-              </button>
               {x.status !== 'DRAFT' && (
-                <button onClick={() => setSending(x)} style={button(isReady ? 'whatsapp' : 'plain')}>
-                  {x.status === 'DONE' ? 'View' : isReady ? '💬 Send now' : 'Send early'}
+                <button onClick={() => setSending(x)} style={{ ...button(isReady ? 'whatsapp' : 'plain'), flex: '1 1 140px', height: 40 }}>
+                  {x.status === 'DONE' ? 'Results & replies' : isReady ? '💬 Send now' : 'Send early'}
                 </button>
               )}
+              <button onClick={() => setEditing(x)} style={{ ...button(), height: 40, flex: x.status === 'DRAFT' ? '1 1 140px' : '0 0 auto' }}>
+                {x.status === 'DRAFT' ? 'Finish & schedule' : 'Edit'}
+              </button>
+              <button onClick={() => setConfirmDelete(x.id)} style={{ ...button('danger'), height: 40, width: 40, padding: 0 }} title="Delete" aria-label="Delete">
+                🗑
+              </button>
             </>
           )}
         </div>
@@ -350,11 +352,11 @@ export const Campaigns = () => {
         </Sheet>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 'clamp(4px, 2vw, 16px)', maxWidth: 980 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: 'clamp(8px, 2vw, 16px)', maxWidth: 980 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 220px', minWidth: 0 }}>
             <div style={{ fontSize: 20, fontWeight: 650 }}>Campaigns</div>
-            <div style={{ fontSize: 13, color: c.text3 }}>Holiday greetings, newsletters and announcements — sent from your WhatsApp, one tap per person.</div>
+            <div style={{ fontSize: 13, color: c.text3 }}>Greetings, newsletters and announcements on WhatsApp.</div>
           </div>
           <button onClick={() => setCleanup(true)} style={button()} title="People without a number, opted out, wrong numbers, languages">
             🧹 Contacts
@@ -362,21 +364,21 @@ export const Campaigns = () => {
           <OwnerSwitcher scope={scope} />
         </div>
 
-        {/* Start one */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))', gap: 10 }}>
+        {/* What to do now comes first */}
+        {!loading && section('Ready to send', ready)}
+
+        {/* Start one: three compact tiles */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
           {CAMPAIGN_KINDS.map((k) => (
             <button
               key={k.value}
               onClick={() => newCampaign(k.value)}
-              style={{ all: 'unset', cursor: 'pointer', boxSizing: 'border-box', ...card, padding: 14, display: 'flex', alignItems: 'center', gap: 12 }}
+              title={k.value === 'GREETING' ? 'Raya, CNY, Deepavali, Christmas…' : k.value === 'NEWSLETTER' ? 'Industry news, tips, updates' : 'Maintenance, new rules, changes'}
+              style={{ all: 'unset', cursor: 'pointer', boxSizing: 'border-box', ...card, padding: '12px 6px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, textAlign: 'center', minWidth: 0 }}
             >
-              <span style={{ fontSize: 24 }}>{k.icon}</span>
-              <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span style={{ fontSize: 14, fontWeight: 600 }}>New {k.label.toLowerCase()}</span>
-                <span style={{ fontSize: 12, color: c.text3 }}>
-                  {k.value === 'GREETING' ? 'Raya, CNY, Deepavali, Christmas…' : k.value === 'NEWSLETTER' ? 'Industry news, tips, updates' : 'Maintenance, new rules, changes'}
-                </span>
-              </span>
+              <span style={{ fontSize: 22 }}>{k.icon}</span>
+              <span style={{ fontSize: 'clamp(10.5px, 3cqw, 14px)', fontWeight: 600, lineHeight: 1.2, whiteSpace: 'nowrap', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.label}</span>
+              <span style={{ fontSize: 11, color: 'var(--t-color-blue11)', fontWeight: 600 }}>＋ New</span>
             </button>
           ))}
         </div>
@@ -395,7 +397,7 @@ export const Campaigns = () => {
                     key={occasion.value}
                     onClick={() => newCampaign('GREETING', occasion.value, date)}
                     title={occasion.approx ? 'Date can move by a day — check the official announcement' : undefined}
-                    style={{ all: 'unset', cursor: 'pointer', boxSizing: 'border-box', ...card, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, minWidth: 190 }}
+                    style={{ all: 'unset', cursor: 'pointer', boxSizing: 'border-box', ...card, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, minWidth: 170 }}
                   >
                     <span style={{ fontSize: 22 }}>{occasion.icon}</span>
                     <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -419,17 +421,21 @@ export const Campaigns = () => {
           <div style={{ ...card, color: c.text3, fontSize: 14, padding: '28px 16px', textAlign: 'center' }}>No campaigns yet — plan a greeting for the next holiday above.</div>
         ) : (
           <>
-            {section('Ready to send', ready)}
             {section('Scheduled', scheduled)}
             {section('Drafts', drafts)}
             {section('Sent', done)}
           </>
         )}
 
-        <div style={{ fontSize: 12, color: c.text3, lineHeight: 1.5 }}>
-          Messages go out from your own WhatsApp: each tap opens the chat with the message written — press Send there. Want everyone at once? Use “Copy message” and paste it in a WhatsApp
-          broadcast list (people who saved your number get it privately) or a group. People can opt out: tick “No greetings / newsletters” on their record.
-        </div>
+        <button onClick={() => setHowOpen(!howOpen)} style={{ ...button(), alignSelf: 'flex-start', border: 'none', background: 'transparent', fontSize: 12.5, color: c.text3, padding: 0 }}>
+          {howOpen ? '▾' : '▸'} How sending works
+        </button>
+        {howOpen && (
+          <div style={{ fontSize: 12.5, color: c.text3, lineHeight: 1.5 }}>
+            Messages go out from your own WhatsApp: each tap opens the chat with the message written — press Send there. For everyone at once, use Group / list in the send panel
+            and share to a WhatsApp broadcast list (people who saved your number get it privately) or a group. People can opt out on their WhatsApp tab.
+          </div>
+        )}
         <button onClick={() => navigate(AppPath.RecordIndexPage, { objectNamePlural: 'campaigns' })} style={{ ...button(), alignSelf: 'flex-start', border: 'none', background: 'transparent', fontSize: 12, color: c.text3 }}>
           Open as a table →
         </button>
