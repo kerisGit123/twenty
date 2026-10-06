@@ -5,6 +5,12 @@ import {
   CAMPAIGN_CONTENT_FIELD_ID,
   CAMPAIGN_KIND_FIELD_ID,
   CAMPAIGN_KIND_OPTION_IDS,
+  CAMPAIGN_KIND_RENTAL_OPTION_ID,
+  CAMPAIGN_REPEAT_FIELD_ID,
+  CAMPAIGN_SOURCE_FIELD_ID,
+  CAMPAIGN_SOURCE_OPTION_IDS,
+  CAMPAIGN_SOURCE_OPTIONS_FIELD_ID,
+  CAMPAIGN_STATUS_TEMPLATE_OPTION_ID,
   CAMPAIGN_MEDIA_FIELD_ID,
   CAMPAIGN_MESSAGE_EN_FIELD_ID,
   CAMPAIGN_MESSAGE_MS_FIELD_ID,
@@ -18,7 +24,10 @@ import {
   CAMPAIGN_STATUS_FIELD_ID,
   CAMPAIGN_STATUS_OPTION_IDS,
 } from 'src/constants/universal-identifiers-v4';
-import { CAMPAIGN_KINDS, CAMPAIGN_STATUSES, OCCASIONS } from 'src/shared/campaigns';
+import { CAMPAIGN_KINDS, CAMPAIGN_SOURCES, CAMPAIGN_STATUSES, OCCASIONS } from 'src/shared/campaigns';
+
+const KIND_IDS = [...CAMPAIGN_KIND_OPTION_IDS, CAMPAIGN_KIND_RENTAL_OPTION_ID];
+const STATUS_IDS = [...CAMPAIGN_STATUS_OPTION_IDS, CAMPAIGN_STATUS_TEMPLATE_OPTION_ID];
 
 // A message for many people at once — a holiday greeting, a newsletter or an
 // announcement — sent from your own WhatsApp, one tap per person, in each
@@ -41,7 +50,7 @@ export default defineObject({
       label: 'Kind',
       icon: 'IconCategory',
       defaultValue: "'GREETING'",
-      options: CAMPAIGN_KINDS.map((k, index) => ({ id: CAMPAIGN_KIND_OPTION_IDS[index], value: k.value, label: k.label, position: index, color: k.color })),
+      options: CAMPAIGN_KINDS.map((k, index) => ({ id: KIND_IDS[index], value: k.value, label: k.label, position: index, color: k.color })),
     },
     {
       universalIdentifier: CAMPAIGN_OCCASION_FIELD_ID,
@@ -60,7 +69,35 @@ export default defineObject({
       label: 'Status',
       icon: 'IconProgress',
       defaultValue: "'DRAFT'",
-      options: CAMPAIGN_STATUSES.map((s, index) => ({ id: CAMPAIGN_STATUS_OPTION_IDS[index], value: s.value, label: s.label, position: index, color: s.color })),
+      options: CAMPAIGN_STATUSES.map((s, index) => ({ id: STATUS_IDS[index], value: s.value, label: s.label, position: index, color: s.color })),
+    },
+    {
+      universalIdentifier: CAMPAIGN_SOURCE_FIELD_ID,
+      type: FieldType.SELECT,
+      name: 'source',
+      label: 'From your data',
+      description: 'For rent & receipts campaigns: who gets it and what is filled in comes from the ledger and contracts.',
+      icon: 'IconDatabase',
+      defaultValue: "'NONE'",
+      options: CAMPAIGN_SOURCES.map((x, index) => ({ id: CAMPAIGN_SOURCE_OPTION_IDS[index], value: x.value, label: x.label, position: index, color: 'gray' as const })),
+    },
+    {
+      universalIdentifier: CAMPAIGN_SOURCE_OPTIONS_FIELD_ID,
+      type: FieldType.RAW_JSON,
+      name: 'sourceOptions',
+      label: 'Data options',
+      description: 'e.g. overdue only, which workspaces, which year.',
+      icon: 'IconAdjustments',
+      isNullable: true,
+    },
+    {
+      universalIdentifier: CAMPAIGN_REPEAT_FIELD_ID,
+      type: FieldType.RAW_JSON,
+      name: 'repeat',
+      label: 'Repeats',
+      description: 'Daily / monthly (on a day) / yearly: it comes back to Today with a fresh list.',
+      icon: 'IconRepeat',
+      isNullable: true,
     },
     {
       universalIdentifier: CAMPAIGN_SEND_ON_FIELD_ID,

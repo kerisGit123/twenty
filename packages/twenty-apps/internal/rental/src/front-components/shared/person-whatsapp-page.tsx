@@ -5,7 +5,7 @@ import { enqueueSnackbar, useRecordId } from 'twenty-sdk/front-component';
 import { ContactLogger } from 'src/front-components/shared/contact-log';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { LANGUAGES } from 'src/shared/campaigns';
-import { activityKind, type HistoryEntry } from 'src/shared/contacts';
+import { activityKind, type HistoryEntry, QUIET_AFTER } from 'src/shared/contacts';
 
 // A person's WhatsApp page: language and opt-out, a message button, open
 // follow-ups, and everything the app has sent them (greetings, newsletters,
@@ -99,6 +99,11 @@ export const PersonWhatsapp = () => {
   const followUps = entries.filter((e) => e.followUpOn && !e.done).sort((a, b) => (a.followUpOn ?? '').localeCompare(b.followUpOn ?? ''));
   const sentCount = entries.filter((e) => e.kind !== 'activity').length;
   const replies = entries.filter((e) => e.kind === 'activity' && e.outcome && e.outcome !== 'WRONG_NUMBER').length;
+  // How they respond to campaigns: answered = a reply logged against it.
+  const campaigns = entries.filter((e) => e.kind === 'campaign');
+  const answered = campaigns.filter((e) => e.outcome && e.outcome !== 'WRONG_NUMBER').length;
+  const lastReply = entries.filter((e) => e.kind === 'activity' && e.outcome && e.outcome !== 'WRONG_NUMBER').map((e) => e.at).sort().pop() ?? null;
+  const quiet = campaigns.length >= QUIET_AFTER && answered === 0 && !person.noCampaigns;
 
   return (
     <div style={{ fontFamily: c.font, color: c.text, padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -140,6 +145,21 @@ export const PersonWhatsapp = () => {
           {person.noCampaigns ? '🛑 Opted out — turn back on' : 'Opt out of campaigns'}
         </button>
       </div>
+
+      {campaigns.length > 0 && (
+        <div style={{ borderRadius: 12, background: c.bg2, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 13.5 }}>
+            <b>Campaigns:</b> {campaigns.length} sent · {answered} answered
+            {campaigns.length ? ` (${Math.round((answered / campaigns.length) * 100)}%)` : ''}
+            {lastReply ? ` · last reply ${new Date(lastReply).toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kuala_Lumpur' })}` : ''}
+          </span>
+          {quiet && (
+            <span style={{ fontSize: 12.5, color: 'var(--t-color-amber11)' }}>
+              No answer to {campaigns.length} campaigns — check the number is still theirs, or opt them out.
+            </span>
+          )}
+        </div>
+      )}
 
       {logOpen && (
         <div style={{ border: `1px solid ${c.border}`, borderRadius: 12, padding: 12 }}>

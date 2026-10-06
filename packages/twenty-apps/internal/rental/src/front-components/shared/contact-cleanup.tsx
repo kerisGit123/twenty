@@ -3,12 +3,12 @@ import { RestApiClient } from 'twenty-client-sdk/rest';
 import { enqueueSnackbar, openSidePanelPage, SidePanelPages } from 'twenty-sdk/front-component';
 
 import { LANGUAGES, PERSON_TAGS } from 'src/shared/campaigns';
-import { type CleanupPerson } from 'src/shared/contacts';
+import { type CleanupPerson, QUIET_AFTER } from 'src/shared/contacts';
 
 // Tidy the contact book so campaigns reach more people: who has no number,
-// a wrong number, opted out, or the wrong language.
+// a wrong number, opted out, the wrong language, or never answers.
 
-type Tab = 'noPhone' | 'wrong' | 'optedOut' | 'language';
+type Tab = 'noPhone' | 'wrong' | 'quiet' | 'optedOut' | 'language';
 
 const c = {
   font: 'var(--t-font-family)',
@@ -73,6 +73,7 @@ export const ContactCleanup = ({ onClose }: { onClose: () => void }) => {
   const lists: Record<Tab, CleanupPerson[]> = {
     noPhone: relevant.filter((p) => !p.phone),
     wrong: relevant.filter((p) => p.wrongNumber),
+    quiet: relevant.filter((p) => p.phone && !p.optedOut && p.campaignsSent >= QUIET_AFTER && p.answered === 0),
     optedOut: relevant.filter((p) => p.optedOut),
     language: relevant.filter((p) => p.phone && !p.optedOut),
   };
@@ -95,6 +96,7 @@ export const ContactCleanup = ({ onClose }: { onClose: () => void }) => {
   const tabs: Array<[Tab, string, string]> = [
     ['noPhone', 'No phone number', 'Add a number so they can be messaged.'],
     ['wrong', 'Wrong number', 'You logged a wrong number — fix it on their record.'],
+    ['quiet', 'Never answer', `Sent ${QUIET_AFTER}+ campaigns and never replied — maybe an old number, or they’d rather not get them.`],
     ['optedOut', 'Opted out', 'They don’t get greetings, newsletters or announcements. Rent reminders still go out.'],
     ['language', 'Languages', 'Each person gets greetings in this language.'],
   ];
@@ -133,7 +135,7 @@ export const ContactCleanup = ({ onClose }: { onClose: () => void }) => {
               <span style={{ flex: '1 1 180px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
                 <span style={{ fontSize: 14, fontWeight: 500 }}>{p.name}</span>
                 <span style={{ fontSize: 12, color: c.text3 }}>
-                  {[p.isTenant ? 'Tenant' : '', ...p.tags.filter((t) => t !== 'TENANT').map((t) => TAG[t] ?? t), p.phone ?? 'no number'].filter(Boolean).join(' · ')}
+                  {[p.isTenant ? 'Tenant' : '', ...p.tags.filter((t) => t !== 'TENANT').map((t) => TAG[t] ?? t), p.phone ?? 'no number', tab === 'quiet' ? `${p.campaignsSent} campaigns, no reply` : ''].filter(Boolean).join(' · ')}
                 </span>
               </span>
               {tab === 'language' && (
@@ -148,6 +150,11 @@ export const ContactCleanup = ({ onClose }: { onClose: () => void }) => {
                     </button>
                   ))}
                 </div>
+              )}
+              {tab === 'quiet' && (
+                <button onClick={() => setPerson(p, { noCampaigns: true })} style={button}>
+                  Opt out
+                </button>
               )}
               {tab === 'optedOut' && (
                 <button onClick={() => setPerson(p, { noCampaigns: false })} style={button}>

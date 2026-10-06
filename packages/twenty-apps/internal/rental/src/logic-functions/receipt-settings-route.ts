@@ -15,6 +15,7 @@ const EDITABLE = [
   'depositTitle',
   'receivedBy',
   'footerText',
+  'paymentDetails',
 ] as const;
 
 const json = (body: unknown, status = 200) =>

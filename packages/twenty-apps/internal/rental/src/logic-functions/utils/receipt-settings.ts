@@ -43,6 +43,7 @@ export type ReceiptSettingsRecord = {
   depositTitle?: string | null;
   receivedBy?: string | null;
   footerText?: string | null;
+  paymentDetails?: string | null; // {pay_to} in rent reminders
   // Signed link to the uploaded signature image, if any (read-only).
   signatureUrl?: string | null;
 };

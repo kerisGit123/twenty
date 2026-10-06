@@ -80,6 +80,20 @@ const loadActivities = async (client: CoreApiClient, filter: Record<string, unkn
 
 type CampaignLite = { id: string; name: string; kind: string; occasion: string; ownerId: string | null; sent: Record<string, string> };
 
+// Rent & receipts campaigns tick off "person|thing"; history counts people
+// (latest send wins).
+const byPersonSent = (sent: Record<string, string>) => {
+  const out: Record<string, string> = {};
+
+  for (const [key, at] of Object.entries(sent)) {
+    const personId = key.split('|')[0];
+
+    if (!out[personId] || at > out[personId]) out[personId] = at;
+  }
+
+  return out;
+};
+
 const loadCampaigns = async (client: CoreApiClient): Promise<CampaignLite[]> => {
   const { campaigns } = (await client.query({
     campaigns: { __args: { first: 300 }, edges: { node: { id: true, name: true, kind: true, occasion: true, ownerId: true, progress: true } } },
@@ -91,7 +105,7 @@ const loadCampaigns = async (client: CoreApiClient): Promise<CampaignLite[]> => 
     kind: (node.kind as string) ?? 'GREETING',
     occasion: (node.occasion as string) ?? 'CUSTOM',
     ownerId: (node.ownerId as string | null) ?? null,
-    sent: ((node.progress as { sent?: Record<string, string> } | null)?.sent) ?? {},
+    sent: byPersonSent(((node.progress as { sent?: Record<string, string> } | null)?.sent) ?? {}),
   }));
 };
 
@@ -168,6 +182,19 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       let after: string | undefined;
       const wrong = new Set((await loadActivities(client, { kind: { eq: 'WRONG_NUMBER' } })).map((a) => a.personId));
       const tenants = new Set(tenancies.filter((t) => inScope(scope, t.ownerId)).map((t) => t.tenantId));
+      // Campaigns each person got (yours only), and how many they answered.
+      const [campaignList, activities] = await Promise.all([loadCampaigns(client), loadActivities(client, { campaignId: { is: 'NOT_NULL' } })]);
+      const sentTo = new Map<string, number>();
+      const answeredBy = new Map<string, number>();
+
+      for (const campaign of campaignList.filter((x) => inScope(scope, x.ownerId))) {
+        const byPerson = results(campaign, activities).byPerson;
+
+        for (const personId of Object.keys(campaign.sent)) {
+          sentTo.set(personId, (sentTo.get(personId) ?? 0) + 1);
+          if (byPerson[personId] && byPerson[personId] !== 'WRONG_NUMBER') answeredBy.set(personId, (answeredBy.get(personId) ?? 0) + 1);
+        }
+      }
 
       for (;;) {
         const { people: page } = (await client.query({
@@ -194,6 +221,8 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
             tags: node.tags ?? [],
             isTenant: tenants.has(node.id),
             wrongNumber: wrong.has(node.id),
+            campaignsSent: sentTo.get(node.id) ?? 0,
+            answered: answeredBy.get(node.id) ?? 0,
           });
         }
         if (!page?.pageInfo?.hasNextPage || !page.pageInfo.endCursor || people.length >= 3000) break;

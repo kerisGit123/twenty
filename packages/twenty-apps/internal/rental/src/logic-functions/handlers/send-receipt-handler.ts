@@ -158,6 +158,7 @@ export const loadReceiptSettings = async (
             depositTitle: true,
             receivedBy: true,
             footerText: true,
+            paymentDetails: true,
             signature: { url: true },
           },
         },

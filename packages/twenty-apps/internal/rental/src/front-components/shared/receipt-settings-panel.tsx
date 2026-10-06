@@ -213,6 +213,11 @@ export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
             Footer text
             <textarea value={values.footerText ?? ''} onChange={set('footerText')} placeholder={DEFAULT_TEXT.footerText} rows={2} style={{ ...control, resize: 'vertical' }} />
           </label>
+          <label style={field}>
+            How tenants pay you
+            <input value={values.paymentDetails ?? ''} onChange={set('paymentDetails')} placeholder="Maybank 1234 5678 9012 (Your Name) or DuitNow 012-345 6789" style={control} />
+            <span style={{ fontSize: 11.5, color: c.text3, fontWeight: 400 }}>Goes into rent reminders as {'{pay_to}'}.</span>
+          </label>
         </div>
 
         <div style={{ flex: '1 1 360px', padding: 16, background: c.bg2, display: 'flex', flexDirection: 'column', gap: 10 }}>

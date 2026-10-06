@@ -102,6 +102,15 @@ export default defineObject({
       isNullable: true,
     },
     {
+      universalIdentifier: '43f38e0f-b48d-47f3-9daa-1b58069617b2',
+      type: FieldType.TEXT,
+      name: 'paymentDetails',
+      label: 'How tenants pay you',
+      description: 'Bank account / DuitNow — used as {pay_to} in rent reminders, e.g. "Maybank 1234 5678 9012 (Keris Tang) or DuitNow 012-345 6789".',
+      icon: 'IconBuildingBank',
+      isNullable: true,
+    },
+    {
       // Uploaded here (Twenty's file box); printed above the signature line on
       // template receipts and year statements.
       universalIdentifier: '84914222-9fe6-4dfb-9ae3-adc952f57b55',

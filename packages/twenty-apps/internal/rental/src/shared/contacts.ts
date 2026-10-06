@@ -49,6 +49,11 @@ export type CleanupPerson = {
   tags: string[];
   isTenant: boolean;
   wrongNumber: boolean;
+  campaignsSent: number; // campaigns sent to them
+  answered: number; // of those, how many they replied to
 };
+
+// Sent this many campaigns with no answer: "quiet" (old number? not interested?).
+export const QUIET_AFTER = 3;
 
 export type FollowUp = { id: string; personId: string; personName: string; phone: string | null; note: string; followUpOn: string; campaignId: string | null; ownerId: string | null };

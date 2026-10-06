@@ -2,12 +2,20 @@ import { defineLogicFunction, type RoutePayload } from 'twenty-sdk/define';
 import { Response } from 'twenty-sdk/logic-function';
 
 import { CAMPAIGN_SHARE_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers-v4';
+import { loadReceiptSettings } from 'src/logic-functions/handlers/send-receipt-handler';
 import { appClient } from 'src/logic-functions/utils/app-client';
 import { inScope, resolveScope } from 'src/logic-functions/utils/scope';
-import { isVideo, type Language, messageFor } from 'src/shared/campaigns';
+import { buildSmartRecipients, type SmartRecipient } from 'src/logic-functions/utils/smart-audience';
+import { loadStatementSource } from 'src/logic-functions/utils/statement-data';
+import { buildTemplatePdf } from 'src/logic-functions/utils/template-pdf';
+import { pickTemplate } from 'src/logic-functions/utils/templates';
+import { DEFAULT_SOURCE_OPTIONS, isVideo, type Language, messageFor, type SourceOptions } from 'src/shared/campaigns';
+import { statementContext } from 'src/shared/doc-template/context';
 import { toE164 } from 'src/shared/whatsapp-link';
 
-// GET /s/campaigns/share?id=<campaign>[&person=<person>][&lang=EN|MS|ZH]
+// GET /s/campaigns/share?id=<campaign>[&person=<person> | &key=<row>][&lang=EN|MS|ZH]
+// (key: one row of a rent & receipts campaign — its values and its receipt or
+// statement PDF come with it)
 // A campaign's photos / video with its message, ready to send from WhatsApp:
 // on a phone "Share" attaches everything (pick WhatsApp, then the person or a
 // broadcast list); on a computer copy the photo, open the chat and paste.
@@ -47,7 +55,20 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     const { campaigns } = (await client.query({
       campaigns: {
         __args: { filter: { id: { eq: query.id } }, first: 1 },
-        edges: { node: { id: true, name: true, ownerId: true, messageEn: true, messageMs: true, messageZh: true, media: { label: true, url: true, extension: true } } },
+        edges: {
+          node: {
+            id: true,
+            name: true,
+            ownerId: true,
+            messageEn: true,
+            messageMs: true,
+            messageZh: true,
+            media: { label: true, url: true, extension: true },
+            source: true,
+            sourceOptions: true,
+            progress: true,
+          },
+        },
       },
     } as never)) as {
       campaigns?: {
@@ -60,6 +81,9 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
             messageMs?: string | null;
             messageZh?: string | null;
             media?: Array<{ label?: string; url?: string; extension?: string | null }> | null;
+            source?: string | null;
+            sourceOptions?: SourceOptions | null;
+            progress?: { sent?: Record<string, string>; skipped?: Record<string, string> } | null;
           };
         }>;
       };
@@ -71,8 +95,16 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
     // The person (or everyone, for a broadcast list or group).
     let person: { name: string; firstName: string; phone: string | null; language: Language } | null = null;
+    let row: SmartRecipient | undefined;
 
-    if (query.person) {
+    if (query.key && campaign.source && campaign.source !== 'NONE') {
+      const handled = new Set([query.key, ...Object.keys(campaign.progress?.sent ?? {}), ...Object.keys(campaign.progress?.skipped ?? {})]);
+      const rows = await buildSmartRecipients(client, scope, campaign.source, { ...DEFAULT_SOURCE_OPTIONS, ...(campaign.sourceOptions ?? {}) }, handled);
+
+      row = rows.find((x) => x.key === query.key);
+      if (!row) return html('<p>This message isn’t due any more — it may have been paid or sent already.</p>', 404);
+      person = { name: row.name, firstName: row.firstName, phone: row.phone, language: row.language };
+    } else if (query.person) {
       const { people } = (await client.query({
         people: {
           __args: { filter: { id: { eq: query.person } }, first: 1 },
@@ -95,7 +127,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
     const language: Language = query.lang === 'MS' || query.lang === 'ZH' || query.lang === 'EN' ? query.lang : person?.language ?? 'EN';
     const messages = { EN: campaign.messageEn ?? '', MS: campaign.messageMs ?? '', ZH: campaign.messageZh ?? '' };
-    let text = messageFor(messages, language, person?.firstName ?? '');
+    let text = messageFor(messages, language, person?.firstName ?? '', row?.values ?? {});
 
     if (!person) text = text.replace(/^Hi,?\s*/, 'Hi all, ').replace(/^Salam,?\s*/, 'Salam semua, ').replace(/^，/, '各位，');
 
@@ -123,6 +155,38 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         video: isVideo(extension),
       });
     }
+
+    // A rent & receipts row brings its own PDF.
+    const addFile = async (url: string, name: string) => {
+      const parsed = new URL(url);
+      const response = await fetch(`${process.env.TWENTY_API_URL}${parsed.pathname}${parsed.search}`);
+
+      if (response.ok) files.unshift({ name, type: 'application/pdf', data: Buffer.from(await response.arrayBuffer()).toString('base64'), video: false });
+    };
+
+    if (row?.attachment?.kind === 'receipt') {
+      const { rentPayments } = (await client.query({
+        rentPayments: { __args: { filter: { id: { eq: row.attachment.paymentId } }, first: 1 }, edges: { node: { receiptNumber: true, receiptFile: { url: true } } } },
+      } as never)) as { rentPayments?: { edges?: Array<{ node: { receiptNumber?: string | null; receiptFile?: Array<{ url?: string | null }> | null } }> } };
+      const payment = rentPayments?.edges?.[0]?.node;
+      const url = payment?.receiptFile?.[0]?.url;
+
+      if (url) await addFile(url, `${payment?.receiptNumber ?? 'Receipt'}.pdf`);
+    }
+
+    if (row?.attachment?.kind === 'statement') {
+      const { rentalId, year } = row.attachment;
+      const [statement, template, settings] = await Promise.all([loadStatementSource(client, scope, rentalId, year), pickTemplate(client, 'STATEMENT'), loadReceiptSettings(client)]);
+
+      if (statement) {
+        const ctx = statementContext(statement, template.language, (settings?.accentColor as string | null) ?? 'BLACK', settings?.signatureUrl);
+        const title = `${template.language === 'MS' ? 'Penyata sewa' : 'Rent statement'} ${year} - ${ctx.values['tenant.name'] || 'tenant'}`;
+        const pdf = await buildTemplatePdf(template, ctx, title);
+
+        files.unshift({ name: `${title.replace(/[^\w\- ]+/g, '').trim()}.pdf`, type: 'application/pdf', data: Buffer.from(pdf).toString('base64'), video: false });
+      }
+    }
+    const onlyPdf = files.length > 0 && files.every((f) => f.type === 'application/pdf');
 
     const waChat = person?.phone ? `https://wa.me/${person.phone.replace(/^\+/, '')}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
     const title = person ? `Send to ${person.name}` : 'Share to a broadcast list or group';
@@ -153,15 +217,15 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
   <div class="card"><textarea id="text">${escape(text)}</textarea><div class="note">You can edit the message before sending.</div></div>
 
   <div class="card phone-only" id="phone">
-    <button class="wa" id="share">📤 Share ${files.length ? (files.some((f) => f.video) ? 'video' : 'photo') + ' + message' : 'message'}</button>
+    <button class="wa" id="share">📤 Share ${files.length ? (onlyPdf ? 'PDF' : files.some((f) => f.video) ? 'video' : 'photo') + ' + message' : 'message'}</button>
     <p class="note" style="margin:8px 0 0">Pick <b>WhatsApp</b>, then ${person ? `<b>${escape(person.name)}</b>` : 'your broadcast list or group'}. The message is also copied — if it doesn’t appear, paste it.</p>
   </div>
 
   <div class="card desktop-only" id="desktop">
     <ol class="steps">
-      ${files.length ? `<li><b>Copy the ${files.some((f) => !f.video && f.type.startsWith('image/')) ? 'photo' : 'file'}</b> (or download it)</li>` : ''}
+      ${onlyPdf ? '<li><b>Download the PDF</b></li>' : files.length ? `<li><b>Copy the ${files.some((f) => !f.video && f.type.startsWith('image/')) ? 'photo' : 'file'}</b> (or download it)</li>` : ''}
       <li><b>Open the chat</b>${person ? '' : ' — pick the broadcast list or group'}</li>
-      ${files.length ? '<li><b>Paste</b> (Ctrl+V) — the message is already typed — and send</li>' : '<li>Press <b>Send</b></li>'}
+      ${onlyPdf ? '<li>Attach it with 📎 (or drag it into the chat) — the message is already typed — and send</li>' : files.length ? '<li><b>Paste</b> (Ctrl+V) — the message is already typed — and send</li>' : '<li>Press <b>Send</b></li>'}
     </ol>
     <div class="row" style="margin-top:10px">
       ${files.some((f) => f.type.startsWith('image/')) ? '<button class="plain" id="copyImage">📋 Copy photo</button>' : ''}

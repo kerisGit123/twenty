@@ -2,7 +2,7 @@ import { type CSSProperties, type ReactNode, type SyntheticEvent, useCallback, u
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { AppPath, copyToClipboard, enqueueSnackbar, navigate } from 'twenty-sdk/front-component';
 
-import { CampaignEditor } from 'src/front-components/shared/campaign-editor';
+import { CampaignEditor, repeatLabel } from 'src/front-components/shared/campaign-editor';
 import { ContactCleanup } from 'src/front-components/shared/contact-cleanup';
 import { SendPanel } from 'src/front-components/shared/campaign-send';
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
@@ -26,6 +26,8 @@ import {
   PERSON_TAGS,
   type Recipient,
   isVideo,
+  type SavedAudienceRow,
+  sourceOf,
   upcomingOccasions,
 } from 'src/shared/campaigns';
 import { activityKind, type CampaignResults, OUTCOMES } from 'src/shared/contacts';
@@ -35,7 +37,7 @@ import { activityKind, type CampaignResults, OUTCOMES } from 'src/shared/contact
 // sent it ticked off. Copy the text for a broadcast list or group too.
 
 type Owner = { id: string; name: string };
-type ListResult = { success: boolean; message?: string; campaigns?: CampaignRow[]; owners?: Owner[]; canUseTags?: boolean };
+type ListResult = { success: boolean; message?: string; campaigns?: CampaignRow[]; owners?: Owner[]; canUseTags?: boolean; audiences?: SavedAudienceRow[] };
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const day = (iso: string | null) => (iso ? `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : '—');
@@ -177,6 +179,7 @@ export const Campaigns = () => {
   const [results, setResults] = useState<Record<string, CampaignResults>>({});
   const [cleanup, setCleanup] = useState(false);
   const [howOpen, setHowOpen] = useState(false);
+  const [audiences, setAudiences] = useState<SavedAudienceRow[]>([]);
 
   const reload = useCallback(async () => {
     try {
@@ -186,6 +189,7 @@ export const Campaigns = () => {
       setCampaigns(result.campaigns ?? []);
       setOwners(result.owners ?? []);
       setCanUseTags(Boolean(result.canUseTags));
+      setAudiences(result.audiences ?? []);
       new RestApiClient()
         .post<{ success: boolean; results?: Record<string, CampaignResults> }>('/s/contacts', { action: 'allResults' })
         .then((res) => res.success && setResults(res.results ?? {}))
@@ -206,6 +210,19 @@ export const Campaigns = () => {
   const scheduled = mine.filter((x) => x.status === 'SCHEDULED' && (x.sendOn ?? today) > today);
   const drafts = mine.filter((x) => x.status === 'DRAFT');
   const done = mine.filter((x) => x.status === 'DONE');
+  const templates = mine.filter((x) => x.status === 'TEMPLATE');
+  const pastCampaigns = mine.filter((x) => Object.keys(x.progress.sent).length > 0).map((x) => ({ id: x.id, name: x.name }));
+
+  // A template is copied into a new campaign — the template itself stays.
+  const fromTemplate = (t: CampaignRow) =>
+    setEditing({
+      ...t,
+      id: undefined,
+      status: 'SCHEDULED',
+      sendOn: today,
+      name: t.name,
+      progress: { sent: {}, skipped: {} },
+    });
   const upcoming = upcomingOccasions(today, 150).slice(0, 5);
   const defaultOwner = scope.ownerId || owners[0]?.id || '';
 
@@ -247,14 +264,15 @@ export const Campaigns = () => {
       <div key={x.id} style={{ ...card, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, ...(isReady ? { borderColor: 'var(--t-color-green7)' } : {}) }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
           <span style={{ width: 40, height: 40, borderRadius: 10, background: c.bg2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
-            {x.kind === 'GREETING' ? occasion.icon : kind.icon}
+            {x.kind === 'GREETING' ? occasion.icon : x.source !== 'NONE' ? sourceOf(x.source).icon : kind.icon}
           </span>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
             <div style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 12.5, color: c.text3 }}>
               <span style={{ ...pill(isReady ? 'green' : status.color), fontSize: 11.5, padding: '2px 8px' }}>{isReady ? 'Ready' : status.label}</span>
               <span>
-                {kind.label} · {x.status === 'DONE' ? 'sent' : ''} {day(x.sendOn)}
+                {x.source !== 'NONE' ? sourceOf(x.source).label : kind.label}
+                {x.status === 'TEMPLATE' ? '' : ` · ${x.repeat.every !== 'NONE' ? repeatLabel(x.repeat).toLowerCase() + ' · next ' : x.status === 'DONE' ? 'sent ' : ''}${day(x.sendOn)}`}
                 {x.status === 'SCHEDULED' && due > 0 ? ` · in ${due}d` : ''}
               </span>
             </div>
@@ -290,13 +308,18 @@ export const Campaigns = () => {
             </>
           ) : (
             <>
-              {x.status !== 'DRAFT' && (
+              {x.status === 'TEMPLATE' && (
+                <button onClick={() => fromTemplate(x)} style={{ ...button('primary'), flex: '1 1 140px', height: 40 }}>
+                  Use template
+                </button>
+              )}
+              {x.status !== 'DRAFT' && x.status !== 'TEMPLATE' && (
                 <button onClick={() => setSending(x)} style={{ ...button(isReady ? 'whatsapp' : 'plain'), flex: '1 1 140px', height: 40 }}>
                   {x.status === 'DONE' ? 'Results & replies' : isReady ? '💬 Send now' : 'Send early'}
                 </button>
               )}
               <button onClick={() => setEditing(x)} style={{ ...button(), height: 40, flex: x.status === 'DRAFT' ? '1 1 140px' : '0 0 auto' }}>
-                {x.status === 'DRAFT' ? 'Finish & schedule' : 'Edit'}
+                {x.status === 'DRAFT' ? 'Finish & schedule' : x.status === 'TEMPLATE' ? 'Edit template' : 'Edit'}
               </button>
               <button onClick={() => setConfirmDelete(x.id)} style={{ ...button('danger'), height: 40, width: 40, padding: 0 }} title="Delete" aria-label="Delete">
                 🗑
@@ -328,6 +351,8 @@ export const Campaigns = () => {
             initial={editing}
             owners={owners}
             canUseTags={canUseTags}
+            audiences={audiences.filter((a) => scope.matches(a.ownerId))}
+            pastCampaigns={pastCampaigns}
             onClose={() => setEditing(null)}
             onSaved={async () => {
               setEditing(null);
@@ -367,13 +392,21 @@ export const Campaigns = () => {
         {/* What to do now comes first */}
         {!loading && section('Ready to send', ready)}
 
-        {/* Start one: three compact tiles */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+        {/* Start one: compact tiles */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(140px, calc(50% - 4px)), 1fr))', gap: 8 }}>
           {CAMPAIGN_KINDS.map((k) => (
             <button
               key={k.value}
               onClick={() => newCampaign(k.value)}
-              title={k.value === 'GREETING' ? 'Raya, CNY, Deepavali, Christmas…' : k.value === 'NEWSLETTER' ? 'Industry news, tips, updates' : 'Maintenance, new rules, changes'}
+              title={
+                k.value === 'GREETING'
+                  ? 'Raya, CNY, Deepavali, Christmas…'
+                  : k.value === 'NEWSLETTER'
+                    ? 'Industry news, tips, updates'
+                    : k.value === 'RENTAL'
+                      ? 'Rent reminders, receipts, statements, renewals — filled in from your ledger'
+                      : 'Maintenance, new rules, changes'
+              }
               style={{ all: 'unset', cursor: 'pointer', boxSizing: 'border-box', ...card, padding: '12px 6px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, textAlign: 'center', minWidth: 0 }}
             >
               <span style={{ fontSize: 22 }}>{k.icon}</span>
@@ -423,6 +456,7 @@ export const Campaigns = () => {
           <>
             {section('Scheduled', scheduled)}
             {section('Drafts', drafts)}
+            {section('Templates', templates, 'start new campaigns from these')}
             {section('Sent', done)}
           </>
         )}

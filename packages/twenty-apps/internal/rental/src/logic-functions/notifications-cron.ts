@@ -2,6 +2,7 @@ import { defineLogicFunction } from 'twenty-sdk/define';
 
 import { NOTIFICATIONS_CRON_FUNCTION_ID } from 'src/constants/universal-identifiers-v3';
 import { appClient } from 'src/logic-functions/utils/app-client';
+import { rollAllCampaigns } from 'src/logic-functions/utils/campaign-rows';
 import { runNotifications } from 'src/logic-functions/utils/notifications';
 
 // Every hour: sends the morning summary and tenant rent reminders once their
@@ -9,6 +10,8 @@ import { runNotifications } from 'src/logic-functions/utils/notifications';
 // Notification log), so running every hour is safe.
 const handler = async () => {
   try {
+    // Repeating campaigns start their new round before Today is summarised.
+    await rollAllCampaigns(appClient()).catch((error) => console.error('[rental] campaign roll failed:', error));
     const result = await runNotifications(appClient());
 
     if (result.sent || result.failed) console.log('[rental] notifications:', result.summary);

@@ -23,14 +23,38 @@ import {
   OCCASIONS,
   occasionOf,
   PERSON_TAGS,
+  CAMPAIGN_SOURCES,
+  cycleStart,
+  DEFAULT_SOURCE_OPTIONS,
+  missingFields,
+  NO_REPEAT,
+  type Repeat,
+  type SavedAudienceRow,
+  sourceOf,
+  type SourceOptions,
 } from 'src/shared/campaigns';
+import { OUTCOMES } from 'src/shared/contacts';
 import { extensionOf, formatBytes } from 'src/shared/documents';
 
 // The campaign editor: five short steps on the left (what, message, photo or
 // video, who, when) and a live WhatsApp preview on the right.
 
 type Owner = { id: string; name: string };
-type Count = { total: number; noPhone: number; optedOut: number; sample: string[]; byLanguage: Record<string, number> };
+type Count = { total: number; noPhone: number; optedOut: number; sample: string[]; byLanguage: Record<string, number>; sampleValues: Record<string, string> | null };
+
+const ordinal = (n: number) => `${n}${n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th'}`;
+
+// Sensible look-back / look-ahead per source.
+const SOURCE_DAYS: Record<string, number[]> = { RECEIPTS: [7, 30, 60], THANK_YOU: [3, 7, 30], RENEWALS: [30, 60, 90], RENT_CHANGE: [30, 60, 90] };
+
+export const repeatLabel = (repeat: Repeat) =>
+  repeat.every === 'DAILY'
+    ? 'Every day'
+    : repeat.every === 'MONTHLY'
+      ? `Every month on the ${ordinal(repeat.day ?? 1)}`
+      : repeat.every === 'YEARLY'
+        ? `Every year on ${repeat.day ?? 1} ${MONTHS[(repeat.month ?? 1) - 1]}`
+        : 'Once';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const day = (iso: string) => `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
@@ -202,12 +226,16 @@ export const CampaignEditor = ({
   initial,
   owners,
   canUseTags,
+  audiences = [],
+  pastCampaigns = [],
   onClose,
   onSaved,
 }: {
   initial: Partial<CampaignRow>;
   owners: Owner[];
   canUseTags: boolean;
+  audiences?: SavedAudienceRow[];
+  pastCampaigns?: Array<{ id: string; name: string }>;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) => {
@@ -229,7 +257,16 @@ export const CampaignEditor = ({
   const [names, setNames] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState('');
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [source, setSource] = useState(initial.source ?? 'NONE');
+  const [sourceOptions, setSourceOptions] = useState<SourceOptions>(initial.sourceOptions ?? { ...DEFAULT_SOURCE_OPTIONS });
+  const [repeat, setRepeat] = useState<Repeat>(initial.repeat ?? NO_REPEAT);
+  const [saved, setSaved] = useState<SavedAudienceRow[]>(audiences);
+  const [audienceName, setAudienceName] = useState<string | null>(null);
   const countTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const smart = kind === 'RENTAL' && source !== 'NONE';
+  // Rent & receipts count messages: one tenant can get two receipts.
+  const unit = (n: number) => (smart ? (n === 1 ? 'message' : 'messages') : n === 1 ? 'person' : 'people');
+  const sourceInfo = sourceOf(smart ? source : 'NONE');
 
   const occasionInfo = occasionOf(occasion);
   const occasionDate = (value: string) => {
@@ -243,17 +280,30 @@ export const CampaignEditor = ({
     if (kind === 'NEWSLETTER') setMessages((m) => ({ ...m, EN: newsletterText(content, 'EN') }));
   }, [kind, content]);
 
+  // A new rent & receipts campaign starts on rent reminders.
+  useEffect(() => {
+    if (kind === 'RENTAL' && source === 'NONE') pickSource('RENT_DUE');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Live audience size.
   useEffect(() => {
     if (countTimer.current) clearTimeout(countTimer.current);
     countTimer.current = setTimeout(async () => {
-      const result = await post<Partial<Count>>({ action: 'count', audience });
+      const result = await post<Partial<Count>>({ action: 'count', audience, source: smart ? source : 'NONE', sourceOptions });
 
       if (result.success) {
-        setCount({ total: result.total ?? 0, noPhone: result.noPhone ?? 0, optedOut: result.optedOut ?? 0, sample: result.sample ?? [], byLanguage: result.byLanguage ?? {} });
+        setCount({
+          total: result.total ?? 0,
+          noPhone: result.noPhone ?? 0,
+          optedOut: result.optedOut ?? 0,
+          sample: result.sample ?? [],
+          byLanguage: result.byLanguage ?? {},
+          sampleValues: result.sampleValues ?? null,
+        });
       }
     }, 400);
-  }, [audience]);
+  }, [audience, smart, source, sourceOptions]);
 
   useEffect(() => {
     const term = search.trim();
@@ -284,6 +334,44 @@ export const CampaignEditor = ({
       if (date) setSendOn(date);
     }
   };
+
+  const pickSource = (value: string) => {
+    const s = sourceOf(value);
+    const year = Number(today.slice(0, 4));
+
+    setSource(value);
+    setMessages({ ...s.messages });
+    setRepeat(s.repeat);
+    setName(s.label);
+    setSourceOptions({
+      ...DEFAULT_SOURCE_OPTIONS,
+      ownerIds: sourceOptions.ownerIds,
+      ...(SOURCE_DAYS[value] ? { days: SOURCE_DAYS[value][1] } : {}),
+      ...(value === 'STATEMENTS' ? { year: Number(today.slice(5, 7)) <= 3 ? year - 1 : year } : {}),
+    });
+    if (s.repeat.every !== 'NONE') setSendOn(cycleStart(s.repeat, today));
+  };
+
+  const pickKind = (value: string) => {
+    setKind(value);
+    if (value === 'RENTAL' && source === 'NONE') pickSource('RENT_DUE');
+    if (value !== 'RENTAL') setRepeat(NO_REPEAT);
+  };
+
+  const saveAudience = async () => {
+    const label = (audienceName ?? '').trim();
+
+    if (!label) return;
+    const result = await post<{ id?: string }>({ action: 'saveAudience', name: label, audience, ownerId: ownerId || null });
+
+    await enqueueSnackbar({ message: result.message ?? (result.success ? 'Audience saved.' : 'Could not save.'), variant: result.success ? 'success' : 'error' });
+    if (result.success && result.id) {
+      setSaved([...saved, { id: result.id, name: label, audience, ownerId: ownerId || null }]);
+      setAudienceName(null);
+    }
+  };
+
+  const insertField = (key: string) => setMessages({ ...messages, [lang]: `${messages[lang]}${messages[lang] && !/\s$/.test(messages[lang]) ? ' ' : ''}{${key}}` });
 
   const toggle = (list: string[], value: string) => (list.includes(value) ? list.filter((x) => x !== value) : [...list, value]);
 
@@ -326,20 +414,27 @@ export const CampaignEditor = ({
     setBusy('');
   };
 
-  const save = async (status: 'DRAFT' | 'SCHEDULED') => {
+  const save = async (status: 'DRAFT' | 'SCHEDULED' | 'TEMPLATE') => {
     setBusy(status);
     try {
+      const copy = status === 'TEMPLATE' && initial.status !== 'TEMPLATE';
       const result = await post<{ id?: string }>({
         action: 'save',
         campaign: {
-          id: initial.id,
+          id: copy ? undefined : initial.id,
+          ...(copy && media.length ? { media } : {}),
           name: name.trim() || (kind === 'GREETING' ? occasionInfo.label : kindOf(kind).label),
           kind,
           occasion: kind === 'GREETING' ? occasion : 'CUSTOM',
           status,
-          sendOn,
+          sendOn: repeat.every !== 'NONE' ? cycleStart(repeat, today) : sendOn,
           ownerId,
           audience,
+          source: smart ? source : 'NONE',
+          sourceOptions,
+          repeat: kind === 'RENTAL' ? repeat : NO_REPEAT,
+          // Started from a template (or saved as one): keep its photos.
+          ...(!initial.id && media.length ? { media } : {}),
           messages: kind === 'NEWSLETTER' ? { ...messages, EN: newsletterText(content, 'EN') } : messages,
           content: kind === 'NEWSLETTER' ? content : null,
         },
@@ -353,17 +448,18 @@ export const CampaignEditor = ({
 
       let failed = 0;
 
-      for (const file of pending) {
+      for (const file of copy ? [] : pending) {
         const upload = await uploadFile(file, { campaignId: result.id }, MEDIA_EXTENSIONS);
 
         if (!upload.success) failed += 1;
       }
       await enqueueSnackbar({
         message:
-          (status === 'DRAFT' ? 'Saved as a draft.' : sendOn <= today ? 'Saved — ready to send.' : `Scheduled for ${day(sendOn)} — it shows on Today.`) +
+          (status === 'TEMPLATE' ? 'Saved as a template — start new campaigns from it.' : status === 'DRAFT' ? 'Saved as a draft.' : repeat.every !== 'NONE' ? `Saved — repeats ${repeatLabel(repeat).toLowerCase()}; each round shows on Today.` : sendOn <= today ? 'Saved — ready to send.' : `Scheduled for ${day(sendOn)} — it shows on Today.`) +
           (failed ? ` ${failed} file${failed === 1 ? '' : 's'} couldn’t be added.` : ''),
         variant: failed ? 'warning' : 'success',
       });
+      if (copy) return; // keep editing the campaign itself
       await onSaved();
     } finally {
       setBusy('');
@@ -373,7 +469,12 @@ export const CampaignEditor = ({
   const built = kind === 'NEWSLETTER' ? newsletterText(content, lang) : '';
   const shownMessages = kind === 'NEWSLETTER' ? { ...messages, EN: newsletterText(content, 'EN') } : messages;
   const sampleName = (count?.sample[0] ?? 'Ahmad Rahman').split(' ')[0];
-  const previewText = messageFor(shownMessages, lang, sampleName);
+  const examples = Object.fromEntries(sourceInfo.fields.map((f) => [f.key, f.example]));
+  const previewValues = smart ? { ...examples, ...(count?.sampleValues ?? {}) } : {};
+  const previewText = messageFor(shownMessages, lang, sampleName, previewValues);
+  const usedKeys = [...new Set([...(shownMessages[lang] ?? '').matchAll(/\{([a-z_]+)\}/g)].map((m) => m[1]))];
+  const unknownKeys = usedKeys.filter((key) => key !== 'name' && !sourceInfo.fields.some((f) => f.key === key));
+  const emptyKeys = smart && count?.sampleValues ? missingFields(shownMessages[lang] ?? '', count.sampleValues).filter((key) => !unknownKeys.includes(key)) : [];
   const writtenAny = LANGUAGES.some((l) => isWritten(shownMessages[l.value]));
   const languageNeeded = (value: Language) => (count?.byLanguage?.[value] ?? 0) > 0;
 
@@ -409,7 +510,7 @@ export const CampaignEditor = ({
             {name.trim() || (initial.id ? 'Edit campaign' : `New ${kindOf(kind).label.toLowerCase()}`)}
           </div>
           <div style={{ fontSize: 12.5, color: c.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {kindOf(kind).label} · {sendOn <= today ? 'today' : shortDay(sendOn)} · {count ? `${count.total} ${count.total === 1 ? 'person' : 'people'}` : '…'}
+            {kindOf(kind).label} · {sendOn <= today ? 'today' : shortDay(sendOn)} · {count ? `${count.total} ${unit(count.total)}` : '…'}
           </div>
         </div>
         <button onClick={() => setPreviewOpen(true)} style={{ ...button(), height: 34, padding: '0 10px' }} title="See it as a WhatsApp message">
@@ -426,9 +527,9 @@ export const CampaignEditor = ({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
             {/* 1. What */}
             <Step n={1} title="What are you sending?">
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(120px, calc(50% - 4px)), 1fr))', gap: 8 }}>
                 {CAMPAIGN_KINDS.map((k) => (
-                  <button key={k.value} onClick={() => setKind(k.value)} style={{ ...tile(kind === k.value), flexDirection: 'column', alignItems: 'center', gap: 4, padding: '10px 4px', textAlign: 'center' }}>
+                  <button key={k.value} onClick={() => pickKind(k.value)} style={{ ...tile(kind === k.value), flexDirection: 'column', alignItems: 'center', gap: 4, padding: '10px 4px', textAlign: 'center' }}>
                     <span style={{ fontSize: 20 }}>{k.icon}</span>
                     <span style={{ fontSize: 'clamp(11px, 3.2cqw, 13.5px)', fontWeight: 600, maxWidth: '100%', lineHeight: 1.2, overflowWrap: 'anywhere' }}>{k.label}</span>
                   </button>
@@ -456,6 +557,19 @@ export const CampaignEditor = ({
                   })}
                 </div>
               )}
+              {kind === 'RENTAL' && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(200px, 100%), 1fr))', gap: 8 }}>
+                  {CAMPAIGN_SOURCES.filter((s) => s.value !== 'NONE').map((s) => (
+                    <button key={s.value} onClick={() => pickSource(s.value)} style={{ ...tile(source === s.value), alignItems: 'flex-start', gap: 8 }}>
+                      <span style={{ fontSize: 18, flexShrink: 0 }}>{s.icon}</span>
+                      <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, gap: 2 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>{s.label}</span>
+                        <span style={{ fontSize: 11.5, color: c.text3, lineHeight: 1.35 }}>{s.description}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
               {kind === 'GREETING' && occasionInfo.approx && (
                 <span style={{ fontSize: 12, color: c.text3 }}>* {occasionInfo.label} follows the moon — the date can move by a day once officially announced.</span>
               )}
@@ -465,7 +579,7 @@ export const CampaignEditor = ({
             <Step
               n={2}
               title="Message"
-              hint="Each person gets their language; {name} becomes their first name."
+              hint={smart ? 'Tap a field to add it — each tenant’s own numbers are filled in.' : 'Each person gets their language; {name} becomes their first name.'}
               right={
                 <div style={{ display: 'flex', background: c.bg2, borderRadius: 10, padding: 2, gap: 2 }}>
                   {LANGUAGES.map((l) => {
@@ -559,12 +673,25 @@ export const CampaignEditor = ({
                     style={{ ...control, height: 'auto', padding: '10px 12px', resize: 'vertical', lineHeight: 1.5, fontSize: 14 }}
                   />
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <button onClick={() => setMessages({ ...messages, [lang]: `${messages[lang]}{name}` })} style={{ ...chip(false), height: 28 }}>
-                      ＋ name
-                    </button>
+                    {smart ? (
+                      sourceInfo.fields.map((f) => (
+                        <button key={f.key} onClick={() => insertField(f.key)} title={`e.g. ${f.example}`} style={{ ...chip(false), height: 28, fontSize: 12.5, padding: '0 10px' }}>
+                          ＋ {f.label}
+                        </button>
+                      ))
+                    ) : (
+                      <button onClick={() => insertField('name')} style={{ ...chip(false), height: 28 }}>
+                        ＋ name
+                      </button>
+                    )}
                     <button onClick={() => setMessages({ ...messages, [lang]: `${messages[lang]}*bold*` })} style={{ ...chip(false), height: 28, fontWeight: 700 }}>
                       B
                     </button>
+                    {smart && sourceInfo.messages[lang] !== messages[lang] && (
+                      <button onClick={() => setMessages({ ...messages, [lang]: sourceInfo.messages[lang] })} style={{ ...chip(false), height: 28 }}>
+                        ↺ Ready-made {LANGUAGES.find((l) => l.value === lang)?.short}
+                      </button>
+                    )}
                     {kind === 'GREETING' && occasion !== 'CUSTOM' && (
                       <button onClick={() => setMessages({ ...messages, [lang]: occasionInfo.messages[lang] })} style={{ ...chip(false), height: 28 }}>
                         ↺ Ready-made {LANGUAGES.find((l) => l.value === lang)?.short}
@@ -578,6 +705,16 @@ export const CampaignEditor = ({
                     <span style={{ flex: 1 }} />
                     <span style={{ fontSize: 11.5, color: c.text3 }}>{messages[lang].length} characters</span>
                   </div>
+                  {unknownKeys.length > 0 && (
+                    <span style={{ fontSize: 12, color: 'var(--t-color-amber11)' }}>
+                      {unknownKeys.map((k) => `{${k}}`).join(', ')} {unknownKeys.length === 1 ? 'isn’t' : 'aren’t'} filled in for this campaign — {smart ? 'use the fields above' : 'only {name} works here'}.
+                    </span>
+                  )}
+                  {emptyKeys.includes('pay_to') && (
+                    <span style={{ fontSize: 12, color: 'var(--t-color-amber11)' }}>
+                      {'{pay_to}'} is empty — add “How tenants pay you” in Receipt settings (Rent ledger → ⚙ Receipt settings).
+                    </span>
+                  )}
                 </>
               )}
             </Step>
@@ -620,6 +757,12 @@ export const CampaignEditor = ({
                   ))}
                 </div>
               )}
+              {smart && sourceInfo.attachment && (
+                <div style={{ borderRadius: 10, background: 'var(--t-color-green2)', border: '1px solid var(--t-color-green6)', padding: '9px 12px', fontSize: 12.5, lineHeight: 1.45 }}>
+                  📎 Each tenant’s {sourceInfo.attachment === 'receipt' ? 'receipt' : 'year statement'} PDF goes with their message — no need to add it here.
+                  {sourceInfo.attachment === 'receipt' && ' Receipts are marked sent as you tick them off.'}
+                </div>
+              )}
               {media.length + pending.length < MAX_MEDIA_FILES && (
                 <FileDrop
                   compact
@@ -638,7 +781,69 @@ export const CampaignEditor = ({
             </Step>
 
             {/* 4. Who */}
-            <Step n={4} title="Who gets it">
+            <Step n={4} title="Who gets it" hint={smart ? 'Worked out from your ledger each time you open it.' : undefined}>
+              {smart && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {source === 'RENT_DUE' && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button onClick={() => setSourceOptions({ ...sourceOptions, status: 'overdue' })} style={chip(sourceOptions.status !== 'due')}>
+                        Overdue only
+                      </button>
+                      <button onClick={() => setSourceOptions({ ...sourceOptions, status: 'due' })} style={chip(sourceOptions.status === 'due')}>
+                        Overdue + due this week
+                      </button>
+                    </div>
+                  )}
+                  {SOURCE_DAYS[source] && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, color: c.text3 }}>{source === 'RENEWALS' ? 'Ending within' : source === 'RENT_CHANGE' ? 'Changing within' : 'Paid in the last'}</span>
+                      {SOURCE_DAYS[source].map((d) => (
+                        <button key={d} onClick={() => setSourceOptions({ ...sourceOptions, days: d })} style={{ ...chip(sourceOptions.days === d), height: 28 }}>
+                          {d} days
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {source === 'STATEMENTS' && repeat.every !== 'NONE' && (
+                    <span style={{ fontSize: 12, color: c.text3 }}>Each round sends the year just ended (sent in Jan–Mar: last year’s statement).</span>
+                  )}
+                  {source === 'STATEMENTS' && repeat.every === 'NONE' && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, color: c.text3 }}>Year</span>
+                      {[Number(today.slice(0, 4)) - 1, Number(today.slice(0, 4))].map((y) => (
+                        <button key={y} onClick={() => setSourceOptions({ ...sourceOptions, year: y })} style={{ ...chip(sourceOptions.year === y), height: 28 }}>
+                          {y}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {owners.length > 1 && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, color: c.text3 }}>in</span>
+                      <button onClick={() => setSourceOptions({ ...sourceOptions, ownerIds: [] })} style={{ ...chip(sourceOptions.ownerIds.length === 0), height: 28 }}>
+                        All workspaces
+                      </button>
+                      {owners.map((o) => (
+                        <button key={o.id} onClick={() => setSourceOptions({ ...sourceOptions, ownerIds: toggle(sourceOptions.ownerIds, o.id) })} style={{ ...chip(sourceOptions.ownerIds.includes(o.id)), height: 28 }}>
+                          {o.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {!smart && saved.length > 0 && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, color: c.text3 }}>Saved</span>
+                  {saved.map((a) => (
+                    <button key={a.id} onClick={() => setAudience({ ...a.audience })} style={{ ...chip(JSON.stringify(a.audience) === JSON.stringify(audience)), height: 28 }}>
+                      👥 {a.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {!smart && (
+              <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
                 {(
                   [
@@ -711,9 +916,62 @@ export const CampaignEditor = ({
                   ))}
                 </div>
               )}
+              {pastCampaigns.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12, color: c.text3 }}>plus people who replied to</span>
+                    <select
+                      value={audience.fromReplies?.campaignId ?? ''}
+                      onChange={(e) => {
+                        const v = readValue(e);
+
+                        setAudience({ ...audience, fromReplies: v ? { campaignId: v, outcomes: audience.fromReplies?.outcomes.length ? audience.fromReplies.outcomes : ['INTERESTED'] } : undefined });
+                      }}
+                      style={{ ...control, width: 'auto', height: 30, flex: '1 1 160px' }}
+                    >
+                      <option value="">— no campaign —</option>
+                      {pastCampaigns.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {audience.fromReplies && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {OUTCOMES.map((o) => (
+                        <button
+                          key={o.value}
+                          onClick={() => audience.fromReplies && setAudience({ ...audience, fromReplies: { ...audience.fromReplies, outcomes: toggle(audience.fromReplies.outcomes, o.value) } })}
+                          style={{ ...chip(Boolean(audience.fromReplies?.outcomes.includes(o.value))), height: 28 }}
+                        >
+                          {o.icon} {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {audienceName === null ? (
+                <button onClick={() => setAudienceName('')} style={{ ...button(), alignSelf: 'flex-start', height: 30, border: 'none', background: 'transparent', padding: 0, color: 'var(--t-color-blue11)', fontSize: 12.5 }}>
+                  💾 Save this audience
+                </button>
+              ) : (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input value={audienceName} onChange={(e) => setAudienceName(readValue(e))} placeholder="Name — e.g. Tenants at Residensi Mawar" style={{ ...control, height: 34 }} />
+                  <button onClick={saveAudience} disabled={!audienceName.trim()} style={{ ...button(true), height: 34 }}>
+                    Save
+                  </button>
+                  <button onClick={() => setAudienceName(null)} style={{ ...button(), height: 34 }}>
+                    Cancel
+                  </button>
+                </div>
+              )}
+              </>
+              )}
               <div style={{ borderRadius: 12, background: c.bg2, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <span style={{ fontSize: 14, fontWeight: 600 }}>
-                  {count === null ? 'Counting…' : count.total === 0 ? 'Nobody yet' : `👥 ${count.total} ${count.total === 1 ? 'person' : 'people'}`}
+                  {count === null ? 'Counting…' : count.total === 0 ? 'Nobody yet' : `${smart ? '💬' : '👥'} ${count.total} ${unit(count.total)}`}
                   {count && count.total > 0 && (
                     <span style={{ fontWeight: 400, color: c.text3 }}>
                       {' '}
@@ -733,7 +991,39 @@ export const CampaignEditor = ({
             </Step>
 
             {/* 5. When */}
-            <Step n={5} title="When & name">
+            <Step n={5} title="When & name" hint={repeat.every !== 'NONE' ? `${repeatLabel(repeat)} — it comes back to Today with a fresh list.` : undefined}>
+              {kind === 'RENTAL' && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {(['NONE', 'DAILY', 'MONTHLY', 'YEARLY'] as const).map((every) => (
+                    <button
+                      key={every}
+                      onClick={() => setRepeat(every === 'NONE' ? NO_REPEAT : every === 'MONTHLY' ? { every, day: repeat.day ?? 5 } : every === 'YEARLY' ? { every, month: repeat.month ?? 1, day: repeat.day ?? 5 } : { every })}
+                      style={{ ...chip(repeat.every === every), height: 30 }}
+                    >
+                      {every === 'NONE' ? 'Once' : every === 'DAILY' ? 'Every day' : every === 'MONTHLY' ? 'Monthly' : 'Yearly'}
+                    </button>
+                  ))}
+                  {repeat.every === 'YEARLY' && (
+                    <select value={String(repeat.month ?? 1)} onChange={(e) => setRepeat({ ...repeat, month: Number(readValue(e)) })} style={{ ...control, width: 'auto', height: 30 }}>
+                      {MONTHS.map((m, i) => (
+                        <option key={m} value={String(i + 1)}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {(repeat.every === 'MONTHLY' || repeat.every === 'YEARLY') && (
+                    <select value={String(repeat.day ?? 1)} onChange={(e) => setRepeat({ ...repeat, day: Number(readValue(e)) })} style={{ ...control, width: 'auto', height: 30 }} title="Day of the month">
+                      {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (
+                        <option key={d} value={String(d)}>
+                          {ordinal(d)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+              {repeat.every === 'NONE' && (
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <button onClick={() => setSendOn(today)} style={chip(sendOn === today)}>
                   Today
@@ -750,6 +1040,7 @@ export const CampaignEditor = ({
                 )}
                 <input type="date" value={sendOn} onChange={(e) => { const v = readValue(e); if (v) setSendOn(v); }} style={{ ...control, width: 'auto', height: 32 }} />
               </div>
+              )}
               <div style={{ display: 'grid', gridTemplateColumns: owners.length > 1 ? 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))' : '1fr', gap: 8 }}>
                 <input value={name} onChange={(e) => setName(readValue(e))} placeholder={kind === 'GREETING' ? `${occasionInfo.label} ${sendOn.slice(0, 4)}` : 'Campaign name'} style={control} />
                 {owners.length > 1 && (
@@ -781,11 +1072,16 @@ export const CampaignEditor = ({
       {/* Footer */}
       <div style={{ display: 'flex', gap: 8, padding: '10px clamp(12px, 3cqw, 18px)', borderTop: `1px solid ${c.border}`, alignItems: 'center' }}>
         {!writtenAny && <span style={{ flex: '1 1 0', minWidth: 0, fontSize: 12.5, color: 'var(--t-color-amber11)' }}>Write the message first.</span>}
-        <button onClick={() => save('DRAFT')} disabled={busy !== ''} style={{ ...button(), height: 46, padding: '0 14px', flex: '0 1 auto' }}>
-          {busy === 'DRAFT' ? 'Saving…' : 'Draft'}
+        {writtenAny && initial.status !== 'TEMPLATE' && (
+          <button onClick={() => save('TEMPLATE')} disabled={busy !== ''} title="Keep this as a starting point for future campaigns" style={{ ...button(), height: 46, padding: '0 12px', flex: '0 1 auto' }}>
+            {busy === 'TEMPLATE' ? 'Saving…' : '☆ Template'}
+          </button>
+        )}
+        <button onClick={() => save(initial.status === 'TEMPLATE' ? 'TEMPLATE' : 'DRAFT')} disabled={busy !== ''} style={{ ...button(), height: 46, padding: '0 14px', flex: '0 1 auto' }}>
+          {busy === 'DRAFT' ? 'Saving…' : initial.status === 'TEMPLATE' ? 'Save template' : 'Draft'}
         </button>
         <button onClick={() => save('SCHEDULED')} disabled={busy !== '' || !writtenAny} style={{ ...button(true), height: 46, padding: '0 16px', flex: '1 1 auto', marginLeft: writtenAny ? 'auto' : 0, maxWidth: 320, opacity: writtenAny ? 1 : 0.6 }}>
-          {busy === 'SCHEDULED' ? 'Saving…' : sendOn <= today ? 'Save · ready to send' : `Schedule · ${shortDay(sendOn)}`}
+          {busy === 'SCHEDULED' ? 'Saving…' : repeat.every !== 'NONE' ? 'Save · repeats' : sendOn <= today ? 'Save · ready to send' : `Schedule · ${shortDay(sendOn)}`}
         </button>
       </div>
     </div>

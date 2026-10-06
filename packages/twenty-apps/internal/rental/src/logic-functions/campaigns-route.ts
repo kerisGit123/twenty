@@ -6,18 +6,22 @@ import { CAMPAIGNS_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers
 import { appClient } from 'src/logic-functions/utils/app-client';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { inScope, NOT_ALLOWED, resolveScope, type Scope } from 'src/logic-functions/utils/scope';
+import { buildSmartRecipients } from 'src/logic-functions/utils/smart-audience';
+import { asAudience, asOptions, asProgress, asRepeat, CAMPAIGN_FIELDS, rollCampaigns, toRow } from 'src/logic-functions/utils/campaign-rows';
 import {
   type Audience,
   CAMPAIGN_KINDS,
   type CampaignRow,
-  EMPTY_AUDIENCE,
   EMPTY_PROGRESS,
   type Language,
-  type NewsletterContent,
   OCCASIONS,
   PERSON_TAGS,
   type Progress,
   type Recipient,
+  CAMPAIGN_SOURCES,
+  cycleStart,
+  repeatCycle,
+  type SourceOptions,
 } from 'src/shared/campaigns';
 import { toE164 } from 'src/shared/whatsapp-link';
 
@@ -38,71 +42,16 @@ type Body = {
   query?: string;
   audience?: Audience;
   campaign?: Partial<CampaignRow>;
+  source?: string;
+  sourceOptions?: SourceOptions;
+  key?: string; // which row to mark (person, or "person|thing")
+  name?: string;
+  ownerId?: string;
 };
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const fail = (message: string, status = 400) => json({ success: false, message }, status);
-
-const asAudience = (value: unknown): Audience => {
-  const a = (value ?? {}) as Partial<Audience>;
-  const strings = (list: unknown) => (Array.isArray(list) ? list.filter((x): x is string => typeof x === 'string').slice(0, 2000) : []);
-
-  return {
-    tags: strings(a.tags),
-    tenants: a.tenants === 'none' || a.tenants === 'all' ? a.tenants : a.tenants === 'active' ? 'active' : EMPTY_AUDIENCE.tenants,
-    ownerIds: strings(a.ownerIds),
-    include: strings(a.include),
-    exclude: strings(a.exclude),
-  };
-};
-
-const asProgress = (value: unknown): Progress => {
-  const p = (value ?? {}) as Partial<Progress>;
-
-  return { sent: { ...(p.sent ?? {}) }, skipped: { ...(p.skipped ?? {}) } };
-};
-
-const CAMPAIGN_FIELDS = {
-  id: true,
-  name: true,
-  kind: true,
-  occasion: true,
-  status: true,
-  sendOn: true,
-  ownerId: true,
-  audience: true,
-  messageEn: true,
-  messageMs: true,
-  messageZh: true,
-  content: true,
-  progress: true,
-  media: { fileId: true, label: true, url: true, extension: true },
-  createdAt: true,
-} as const;
-
-const toRow = (node: Record<string, unknown>): CampaignRow => ({
-  id: node.id as string,
-  name: (node.name as string) ?? '',
-  kind: (node.kind as string) ?? 'GREETING',
-  occasion: (node.occasion as string) ?? 'CUSTOM',
-  status: (node.status as string) ?? 'DRAFT',
-  sendOn: (node.sendOn as string | null) ?? null,
-  ownerId: (node.ownerId as string | null) ?? null,
-  audience: asAudience(node.audience),
-  messages: { EN: (node.messageEn as string) ?? '', MS: (node.messageMs as string) ?? '', ZH: (node.messageZh as string) ?? '' },
-  content: (node.content as NewsletterContent | null) ?? null,
-  progress: asProgress(node.progress),
-  media: ((node.media as Array<{ fileId?: string; label?: string; url?: string; extension?: string | null }> | null) ?? [])
-    .filter((f) => f?.fileId && f.url)
-    .map((f) => ({
-      fileId: f.fileId as string,
-      label: f.label || 'file',
-      url: f.url as string,
-      extension: (f.extension ?? '').replace(/^\./, '').toLowerCase() || (f.label?.split('.').pop()?.toLowerCase() ?? ''),
-    })),
-  createdAt: (node.createdAt as string) ?? '',
-});
 
 const loadCampaign = async (client: CoreApiClient, id: string) => {
   const { campaigns } = await client.query({
@@ -187,7 +136,7 @@ const TAG_LABEL = Object.fromEntries(PERSON_TAGS.map((t) => [t.value, t.label.re
 
 // Who a campaign goes to. People without workspace-wide access only ever
 // reach the tenants of contracts in their workspaces.
-const buildAudience = (scope: Scope, audience: Audience, people: PersonRow[], tenancies: TenancyRow[]) => {
+const buildAudience = (scope: Scope, audience: Audience, people: PersonRow[], tenancies: TenancyRow[], replied: Map<string, string> = new Map()) => {
   const mine = tenancies.filter((t) => inScope(scope, t.ownerId));
   const reachable = scope.all ? null : new Set(mine.map((t) => t.tenantId));
   const reasons = new Map<string, string[]>();
@@ -205,6 +154,7 @@ const buildAudience = (scope: Scope, audience: Audience, people: PersonRow[], te
     for (const tag of person.tags) if (audience.tags.includes(tag)) add(person.id, TAG_LABEL[tag] ?? tag);
   }
   for (const id of audience.include) add(id, 'Added');
+  for (const [personId, outcome] of replied) add(personId, `Replied: ${outcome.toLowerCase().replace(/_/g, ' ')}`);
 
   const byId = new Map(people.map((p) => [p.id, p]));
   const excluded = new Set(audience.exclude);
@@ -229,6 +179,60 @@ const buildAudience = (scope: Scope, audience: Audience, people: PersonRow[], te
   return { list, optedOut, noPhone };
 };
 
+// People who answered an earlier campaign a certain way (latest answer wins).
+const loadReplied = async (client: CoreApiClient, scope: Scope, audience: Audience) => {
+  const replied = new Map<string, string>();
+
+  if (!audience.fromReplies) return replied;
+
+  // Only replies to your own campaigns.
+  const source = await loadCampaign(client, audience.fromReplies.campaignId);
+
+  if (!source || !inScope(scope, source.ownerId)) return replied;
+
+  const { contactActivities } = (await client.query({
+    contactActivities: {
+      __args: { filter: { campaignId: { eq: audience.fromReplies.campaignId } }, first: 500, orderBy: [{ createdAt: 'AscNullsLast' }] },
+      edges: { node: { personId: true, kind: true } },
+    },
+  } as never)) as { contactActivities?: { edges?: Array<{ node: { personId?: string | null; kind?: string | null } }> } };
+  const latest = new Map<string, string>();
+
+  for (const { node } of contactActivities?.edges ?? []) if (node.personId && node.kind) latest.set(node.personId, node.kind);
+  for (const [personId, kind] of latest) if (audience.fromReplies.outcomes.includes(kind)) replied.set(personId, kind);
+
+  return replied;
+};
+
+type Row = Omit<Recipient, 'status'> & { optedOut: boolean };
+
+// Everyone a campaign goes to, one row per message.
+const campaignRows = async (
+  client: CoreApiClient,
+  scope: Scope,
+  campaign: { source: string; sourceOptions: SourceOptions; audience: Audience; progress?: Progress },
+) => {
+  if (campaign.source && campaign.source !== 'NONE') {
+    const handled = new Set([...Object.keys(campaign.progress?.sent ?? {}), ...Object.keys(campaign.progress?.skipped ?? {})]);
+    const smart = await buildSmartRecipients(client, scope, campaign.source, campaign.sourceOptions, handled);
+
+    return {
+      rows: smart.map((x): Row => ({ id: x.key, personId: x.personId, name: x.name, firstName: x.firstName, phone: x.phone, language: x.language, reasons: x.reasons, values: x.values, attachment: x.attachment, optedOut: false })),
+      optedOut: 0,
+      noPhone: smart.filter((x) => !x.phone).length,
+    };
+  }
+
+  const [people, tenancies, replied] = await Promise.all([loadPeople(client), loadTenancies(client), loadReplied(client, scope, campaign.audience)]);
+  const result = buildAudience(scope, campaign.audience, people, tenancies, replied);
+
+  return {
+    rows: result.list.map((p): Row => ({ id: p.id, personId: p.id, name: p.name, firstName: p.firstName, phone: p.phone, language: p.language, reasons: p.reasons, values: { name: p.firstName }, optedOut: false })),
+    optedOut: result.optedOut,
+    noPhone: result.noPhone,
+  };
+};
+
 // ---------------------------------------------------------------- handler
 
 const handler = async (event: RoutePayload, context?: { workspaceMemberId?: string | null }): Promise<Response> => {
@@ -239,11 +243,21 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     const scope = await resolveScope(client, context?.workspaceMemberId);
 
     if (!body.action || body.action === 'list') {
-      const [{ campaigns }, { owners }] = await Promise.all([
+      const loadAll = async () =>
+        ((await client.query({
+          campaigns: { __args: { first: 200, orderBy: [{ createdAt: 'DescNullsLast' }] }, edges: { node: CAMPAIGN_FIELDS } },
+        } as never)) as { campaigns?: { edges?: Array<{ node: Record<string, unknown> }> } }).campaigns?.edges?.map(({ node }) => toRow(node)) ?? [];
+
+      await rollCampaigns(client, (await loadAll()).filter((c) => inScope(scope, c.ownerId)));
+
+      const [{ campaigns }, { owners }, audiences] = await Promise.all([
         client.query({
           campaigns: { __args: { first: 200, orderBy: [{ createdAt: 'DescNullsLast' }] }, edges: { node: CAMPAIGN_FIELDS } },
         } as never) as Promise<{ campaigns?: { edges?: Array<{ node: Record<string, unknown> }> } }>,
         client.query({ owners: { __args: { first: 200, orderBy: [{ name: 'AscNullsLast' }] }, edges: { node: { id: true, name: true } } } }),
+        client.query({
+          savedAudiences: { __args: { first: 200, orderBy: [{ name: 'AscNullsLast' }] }, edges: { node: { id: true, name: true, audience: true, ownerId: true } } },
+        } as never) as Promise<{ savedAudiences?: { edges?: Array<{ node: { id: string; name?: string; audience?: unknown; ownerId?: string | null } }> } }>,
       ]);
 
       return json({
@@ -251,18 +265,56 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         campaigns: (campaigns?.edges ?? []).map(({ node }) => toRow(node)).filter((c) => inScope(scope, c.ownerId)),
         owners: (owners?.edges ?? []).map(({ node }) => ({ id: node.id, name: node.name ?? 'Workspace' })).filter((o) => inScope(scope, o.id)),
         canUseTags: scope.all,
+        audiences: (audiences.savedAudiences?.edges ?? [])
+          .filter(({ node }) => inScope(scope, node.ownerId ?? null))
+          .map(({ node }) => ({ id: node.id, name: node.name ?? 'Audience', audience: asAudience(node.audience), ownerId: node.ownerId ?? null })),
       });
     }
 
-    if (body.action === 'count') {
-      const [people, tenancies] = await Promise.all([loadPeople(client), loadTenancies(client)]);
-      const result = buildAudience(scope, asAudience(body.audience), people, tenancies);
+    // ---- saved audiences
+    if (body.action === 'saveAudience') {
+      if (!body.name?.trim()) return fail('Name the audience.');
+      if (!inScope(scope, body.ownerId ?? null)) return json(NOT_ALLOWED, 403);
 
+      const created = (await client.mutation({
+        createSavedAudience: { __args: { data: { name: body.name.trim().slice(0, 120), audience: asAudience(body.audience), ownerId: body.ownerId ?? null } }, id: true },
+      } as never)) as { createSavedAudience?: { id?: string } };
+
+      return json({ success: true, id: created.createSavedAudience?.id, message: 'Audience saved.' });
+    }
+
+    if (body.action === 'deleteAudience') {
+      const { savedAudiences } = (await client.query({
+        savedAudiences: { __args: { filter: { id: { eq: body.id ?? '' } }, first: 1 }, edges: { node: { id: true, ownerId: true } } },
+      } as never)) as { savedAudiences?: { edges?: Array<{ node: { id: string; ownerId?: string | null } }> } };
+      const saved = savedAudiences?.edges?.[0]?.node;
+
+      if (!saved) return fail('Not found.', 404);
+      if (!inScope(scope, saved.ownerId ?? null)) return json(NOT_ALLOWED, 403);
+      await client.mutation({ deleteSavedAudience: { __args: { id: saved.id }, id: true } } as never);
+
+      return json({ success: true });
+    }
+
+    if (body.action === 'count') {
+      const result = await campaignRows(client, scope, {
+        source: CAMPAIGN_SOURCES.some((x) => x.value === body.source) ? (body.source as string) : 'NONE',
+        sourceOptions: asOptions(body.sourceOptions),
+        audience: asAudience(body.audience),
+      });
       const byLanguage: Record<string, number> = {};
 
-      for (const p of result.list) byLanguage[p.language] = (byLanguage[p.language] ?? 0) + 1;
+      for (const p of result.rows) byLanguage[p.language] = (byLanguage[p.language] ?? 0) + 1;
 
-      return json({ success: true, total: result.list.length, noPhone: result.noPhone, optedOut: result.optedOut, sample: result.list.slice(0, 6).map((p) => p.name), byLanguage });
+      return json({
+        success: true,
+        total: result.rows.length,
+        noPhone: result.noPhone,
+        optedOut: result.optedOut,
+        sample: result.rows.slice(0, 6).map((p) => p.name),
+        sampleValues: result.rows[0]?.values ?? null,
+        byLanguage,
+      });
     }
 
     if (body.action === 'people') {
@@ -300,14 +352,28 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         name: input.name.trim().slice(0, 200),
         kind: CAMPAIGN_KINDS.some((k) => k.value === input.kind) ? input.kind : 'GREETING',
         occasion: OCCASIONS.some((o) => o.value === input.occasion) ? input.occasion : 'CUSTOM',
-        status: input.status === 'DRAFT' ? 'DRAFT' : existing?.status === 'SENDING' || existing?.status === 'DONE' ? existing.status : 'SCHEDULED',
-        sendOn: /^\d{4}-\d{2}-\d{2}$/.test(input.sendOn ?? '') ? input.sendOn : todayIso(),
+        status:
+          input.status === 'DRAFT' || input.status === 'TEMPLATE'
+            ? input.status
+            : existing?.status === 'SENDING' || existing?.status === 'DONE'
+              ? existing.status
+              : 'SCHEDULED',
+        // A repeating campaign is due on its day in the current round.
+        sendOn:
+          asRepeat(input.repeat).every !== 'NONE'
+            ? cycleStart(asRepeat(input.repeat), todayIso())
+            : /^\d{4}-\d{2}-\d{2}$/.test(input.sendOn ?? '')
+              ? input.sendOn
+              : todayIso(),
         ownerId,
         audience: asAudience(input.audience),
         messageEn: (messages.EN ?? '').slice(0, 4000),
         messageMs: (messages.MS ?? '').slice(0, 4000),
         messageZh: (messages.ZH ?? '').slice(0, 4000),
         content: input.content ?? null,
+        source: CAMPAIGN_SOURCES.some((x) => x.value === input.source) ? input.source : 'NONE',
+        sourceOptions: (({ year, ...rest }) => (asRepeat(input.repeat).every === 'NONE' && year ? { ...rest, year } : rest))(asOptions(input.sourceOptions)),
+        repeat: asRepeat(input.repeat),
       };
 
       if (existing) {
@@ -316,8 +382,43 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         return json({ success: true, id: existing.id });
       }
 
+      // Media copied from a template must belong to a campaign you can see.
+      const media: Array<{ fileId: string; label: string }> = [];
+
+      if (input.media?.length) {
+        const { campaigns: all } = (await client.query({
+          campaigns: { __args: { first: 300 }, edges: { node: { ownerId: true, media: { fileId: true } } } },
+        } as never)) as { campaigns?: { edges?: Array<{ node: { ownerId?: string | null; media?: Array<{ fileId?: string }> | null } }> } };
+        const allowed = new Set(
+          (all?.edges ?? []).filter(({ node }) => inScope(scope, node.ownerId ?? null)).flatMap(({ node }) => (node.media ?? []).map((m) => m.fileId)),
+        );
+
+        for (const m of input.media) if (m.fileId && allowed.has(m.fileId)) media.push({ fileId: m.fileId, label: m.label });
+      }
+
+      // A repeating campaign starts in the round it's created in.
+      let cycle = repeatCycle(data.repeat, todayIso());
+      const late = data.repeat.every === 'YEARLY' && Date.parse(todayIso()) - Date.parse(cycleStart(data.repeat, todayIso())) > 31 * 86_400_000;
+
+      if (late) {
+        // e.g. year statements set up in October: this year's round is over,
+        // the first one is next January.
+        data.sendOn = cycleStart(data.repeat, `${Number(todayIso().slice(0, 4)) + 1}-01-01`);
+      } else if (todayIso() < cycleStart(data.repeat, todayIso())) {
+        cycle = '';
+      }
       const created = (await client.mutation({
-        createCampaign: { __args: { data: { ...data, progress: EMPTY_PROGRESS } }, id: true },
+        createCampaign: {
+          __args: {
+            data: {
+              ...data,
+              progress: { ...EMPTY_PROGRESS, ...(cycle ? { cycle } : {}) },
+              // Copied from a template / campaign: only files of your own campaigns.
+              ...(media.length ? { media } : {}),
+            },
+          },
+          id: true,
+        },
       } as never)) as { createCampaign?: { id?: string } };
 
       return json({ success: true, id: created.createCampaign?.id });
@@ -338,36 +439,60 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     }
 
     if (body.action === 'recipients') {
-      const [people, tenancies] = await Promise.all([loadPeople(client), loadTenancies(client)]);
-      const result = buildAudience(scope, campaign.audience, people, tenancies);
-      const recipients: Recipient[] = result.list.map((p) => ({
-        id: p.id,
-        name: p.name,
-        firstName: p.firstName,
-        phone: p.phone,
-        language: p.language,
-        reasons: p.reasons,
-        status: campaign.progress.sent[p.id] ? 'sent' : campaign.progress.skipped[p.id] ? 'skipped' : 'pending',
+      const result = await campaignRows(client, scope, campaign);
+      // Rows already sent this round stay listed even if the data moved on
+      // (e.g. a receipt now marked sent).
+      const recipients: Recipient[] = result.rows.map(({ optedOut: _optedOut, ...row }) => ({
+        ...row,
+        status: campaign.progress.sent[row.id] ? 'sent' : campaign.progress.skipped[row.id] ? 'skipped' : 'pending',
       }));
 
       return json({ success: true, campaign, recipients, optedOut: result.optedOut, noPhone: result.noPhone });
     }
 
     if (body.action === 'mark') {
-      if (!body.personId) return fail('Pick a person.');
+      const key = body.key ?? body.personId;
 
-      const progress = asProgress(campaign.progress);
+      if (!key) return fail('Pick a person.');
 
-      delete progress.sent[body.personId];
-      delete progress.skipped[body.personId];
-      if (body.status === 'sent') progress.sent[body.personId] = new Date().toISOString();
-      if (body.status === 'skipped') progress.skipped[body.personId] = new Date().toISOString();
+      const wasSent = Boolean(campaign.progress.sent[key]);
+      const rows = (await campaignRows(client, scope, { ...campaign, progress: { ...campaign.progress, sent: { ...campaign.progress.sent, [key]: 'now' } } })).rows;
 
-      // Done once everyone reachable is sent or skipped.
-      const [people, tenancies] = await Promise.all([loadPeople(client), loadTenancies(client)]);
-      const audience = buildAudience(scope, campaign.audience, people, tenancies).list;
+      // Re-read just before writing and change only this key, so two quick
+      // taps don't overwrite each other.
+      const fresh = await loadCampaign(client, campaign.id);
+      const progress = asProgress(fresh?.progress ?? campaign.progress);
+
+      delete progress.sent[key];
+      delete progress.skipped[key];
+      if (body.status === 'sent') progress.sent[key] = new Date().toISOString();
+      if (body.status === 'skipped') progress.skipped[key] = new Date().toISOString();
+      // Ticks belong to this round, even when sent before its start day.
+      if (campaign.repeat.every !== 'NONE' && !progress.cycle) progress.cycle = repeatCycle(campaign.repeat, todayIso());
+
+      // A receipt sent through the campaign counts as sent to the tenant.
+      // Undo puts it back to issued — only if this campaign sent it.
+      if (campaign.source === 'RECEIPTS' && (body.status === 'sent' || (body.status === 'pending' && wasSent))) {
+        const row = rows.find((x) => x.id === key);
+
+        if (row?.attachment?.kind === 'receipt') {
+          const sent = body.status === 'sent';
+
+          await client.mutation({
+            updateRentPayment: {
+              __args: { id: row.attachment.paymentId, data: { status: sent ? 'SENT' : 'ISSUED', receiptSentAt: sent ? new Date().toISOString() : null } },
+              id: true,
+            },
+          } as never);
+        }
+      }
+
+      // Done once everyone is sent or skipped.
+      const audience = rows;
       const handled = audience.filter((p) => progress.sent[p.id] || progress.skipped[p.id]).length;
-      const status = audience.length > 0 && handled >= audience.length ? 'DONE' : handled > 0 ? 'SENDING' : campaign.status === 'DRAFT' ? 'DRAFT' : 'SCHEDULED';
+      // For receipts the sent ones drop out of the list, so count what's left.
+      const remaining = audience.filter((p) => !progress.sent[p.id] && !progress.skipped[p.id]).length;
+      const status = (audience.length > 0 && handled >= audience.length) || (campaign.source === 'RECEIPTS' && remaining === 0 && handled > 0) ? 'DONE' : handled > 0 || Object.keys(progress.sent).length > 0 ? 'SENDING' : campaign.status === 'DRAFT' ? 'DRAFT' : 'SCHEDULED';
 
       await client.mutation({ updateCampaign: { __args: { id: campaign.id, data: { progress, status } }, id: true } } as never);
 
