@@ -138,11 +138,11 @@ const tile = (active: boolean): CSSProperties => ({
 
 const Step = ({ n, title, hint, children, right }: { n: number; title: string; hint?: string; children: ReactNode; right?: ReactNode }) => (
   <section style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 18, borderBottom: `1px solid ${c.border}` }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
       <span style={{ width: 24, height: 24, borderRadius: 12, background: 'var(--t-color-blue3)', color: 'var(--t-color-blue11)', fontSize: 12.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
         {n}
       </span>
-      <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      <span style={{ flex: '1 1 180px', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <span style={{ fontSize: 15, fontWeight: 650 }}>{title}</span>
         {hint && <span style={{ fontSize: 12, color: c.text3 }}>{hint}</span>}
       </span>
@@ -228,6 +228,7 @@ export const CampaignEditor = ({
   const [found, setFound] = useState<Array<{ id: string; name: string; phone: string | null; optedOut: boolean }>>([]);
   const [names, setNames] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState('');
+  const [previewOpen, setPreviewOpen] = useState(false);
   const countTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const occasionInfo = occasionOf(occasion);
@@ -377,18 +378,43 @@ export const CampaignEditor = ({
   const languageNeeded = (value: Language) => (count?.byLanguage?.[value] ?? 0) > 0;
 
   return (
-    <div style={{ height: '100%', background: c.bg, display: 'flex', flexDirection: 'column', fontFamily: c.font, color: c.text }}>
+    <div style={{ height: '100%', background: c.bg, display: 'flex', flexDirection: 'column', fontFamily: c.font, color: c.text, position: 'relative' }}>
+      {previewOpen && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 5, background: 'rgba(0,0,0,0.55)', display: 'flex', flexDirection: 'column', padding: 14, gap: 10, overflow: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', background: 'rgba(255,255,255,0.15)', borderRadius: 10, padding: 2, gap: 2 }}>
+              {LANGUAGES.map((l) => (
+                <button
+                  key={l.value}
+                  onClick={() => setLang(l.value)}
+                  style={{ ...button(), height: 32, border: 'none', background: lang === l.value ? '#fff' : 'transparent', color: lang === l.value ? '#111' : '#fff' }}
+                >
+                  {l.short}
+                </button>
+              ))}
+            </div>
+            <span style={{ flex: 1 }} />
+            <button onClick={() => setPreviewOpen(false)} style={{ ...button(), height: 36 }}>
+              Close preview
+            </button>
+          </div>
+          <PhonePreview text={previewText} media={media} pending={pending} recipient={count?.sample[0] ?? 'Ahmad Rahman'} />
+        </div>
+      )}
       {/* Header */}
-      <div style={{ padding: '14px 18px', borderBottom: `1px solid ${c.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ padding: '12px clamp(12px, 3cqw, 18px)', borderBottom: `1px solid ${c.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ fontSize: 22 }}>{kind === 'GREETING' ? occasionInfo.icon : kindOf(kind).icon}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 650, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontWeight: 650, fontSize: 15.5, lineHeight: 1.25, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
             {name.trim() || (initial.id ? 'Edit campaign' : `New ${kindOf(kind).label.toLowerCase()}`)}
           </div>
-          <div style={{ fontSize: 12.5, color: c.text3 }}>
-            {kindOf(kind).label} · {sendOn <= today ? 'ready to send today' : `goes out ${day(sendOn)}`} · {count ? `${count.total} ${count.total === 1 ? 'person' : 'people'}` : '…'}
+          <div style={{ fontSize: 12.5, color: c.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {kindOf(kind).label} · {sendOn <= today ? 'today' : shortDay(sendOn)} · {count ? `${count.total} ${count.total === 1 ? 'person' : 'people'}` : '…'}
           </div>
         </div>
+        <button onClick={() => setPreviewOpen(true)} style={{ ...button(), height: 34, padding: '0 10px' }} title="See it as a WhatsApp message">
+          👁 Preview
+        </button>
         <button onClick={onClose} style={{ ...button(), width: 34, height: 34, padding: 0, border: 'none', fontSize: 18, background: 'transparent' }} aria-label="Close">
           ×
         </button>
@@ -396,31 +422,33 @@ export const CampaignEditor = ({
 
       {/* Steps + preview */}
       <div style={{ flex: 1, overflow: 'auto' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(360px, 100%), 1fr))', gap: 24, padding: 18, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(360px, 100%), 1fr))', gap: 24, padding: 'clamp(12px, 3cqw, 18px)', alignItems: 'start' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
             {/* 1. What */}
             <Step n={1} title="What are you sending?">
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
                 {CAMPAIGN_KINDS.map((k) => (
-                  <button key={k.value} onClick={() => setKind(k.value)} style={{ ...tile(kind === k.value), flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                  <button key={k.value} onClick={() => setKind(k.value)} style={{ ...tile(kind === k.value), flexDirection: 'column', alignItems: 'center', gap: 4, padding: '10px 4px', textAlign: 'center' }}>
                     <span style={{ fontSize: 20 }}>{k.icon}</span>
-                    <span style={{ fontSize: 13.5, fontWeight: 600 }}>{k.label}</span>
+                    <span style={{ fontSize: 'clamp(11px, 3.2cqw, 13.5px)', fontWeight: 600, maxWidth: '100%', lineHeight: 1.2, overflowWrap: 'anywhere' }}>{k.label}</span>
                   </button>
                 ))}
               </div>
               {kind === 'GREETING' && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(190px, 100%), 1fr))', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(140px, calc(50% - 4px)), 1fr))', gap: 8 }}>
                   {OCCASIONS.map((o) => {
                     const date = occasionDate(o.value);
                     const away = date ? daysUntil(today, date) : null;
 
                     return (
-                      <button key={o.value} onClick={() => pickOccasion(o.value)} style={tile(occasion === o.value)}>
-                        <span style={{ fontSize: 22, flexShrink: 0 }}>{o.icon}</span>
+                      <button key={o.value} onClick={() => pickOccasion(o.value)} style={{ ...tile(occasion === o.value), gap: 8, padding: occasion === o.value ? '7px 9px' : '8px 10px' }}>
+                        <span style={{ fontSize: 18, flexShrink: 0 }}>{o.icon}</span>
                         <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                          <span style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.value === 'CUSTOM' ? 'Something else' : o.label}</span>
-                          <span style={{ fontSize: 11.5, color: c.text3 }}>
-                            {date ? `${shortDay(date)}${o.approx ? '*' : ''} · ${away !== null && away <= 0 ? 'now' : `in ${away}d`}` : 'any day'}
+                          <span style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.25, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                            {o.value === 'CUSTOM' ? 'Something else' : o.label}
+                          </span>
+                          <span style={{ fontSize: 11.5, color: c.text3, whiteSpace: 'nowrap' }}>
+                            {date ? `${shortDay(date)}${o.approx ? '*' : ''} · ${away !== null && away <= 0 ? 'now' : `${away}d`}` : 'any day'}
                           </span>
                         </span>
                       </button>
@@ -751,15 +779,13 @@ export const CampaignEditor = ({
       </div>
 
       {/* Footer */}
-      <div style={{ display: 'flex', gap: 8, padding: '12px 18px', borderTop: `1px solid ${c.border}`, alignItems: 'center', flexWrap: 'wrap' }}>
-        <span style={{ flex: '1 1 160px', fontSize: 12.5, color: c.text3 }}>
-          {!writtenAny ? 'Write the message to continue.' : count?.total ? `${count.total} ${count.total === 1 ? 'person' : 'people'} · ${sendOn <= today ? 'today' : day(sendOn)}` : 'Pick who gets it.'}
-        </span>
-        <button onClick={() => save('DRAFT')} disabled={busy !== ''} style={{ ...button(), height: 44, padding: '0 18px' }}>
-          {busy === 'DRAFT' ? 'Saving…' : 'Save draft'}
+      <div style={{ display: 'flex', gap: 8, padding: '10px clamp(12px, 3cqw, 18px)', borderTop: `1px solid ${c.border}`, alignItems: 'center' }}>
+        {!writtenAny && <span style={{ flex: '1 1 0', minWidth: 0, fontSize: 12.5, color: 'var(--t-color-amber11)' }}>Write the message first.</span>}
+        <button onClick={() => save('DRAFT')} disabled={busy !== ''} style={{ ...button(), height: 46, padding: '0 14px', flex: '0 1 auto' }}>
+          {busy === 'DRAFT' ? 'Saving…' : 'Draft'}
         </button>
-        <button onClick={() => save('SCHEDULED')} disabled={busy !== '' || !writtenAny} style={{ ...button(true), height: 44, padding: '0 20px', opacity: writtenAny ? 1 : 0.6 }}>
-          {busy === 'SCHEDULED' ? 'Saving…' : sendOn <= today ? 'Save — ready to send' : `Schedule for ${shortDay(sendOn)}`}
+        <button onClick={() => save('SCHEDULED')} disabled={busy !== '' || !writtenAny} style={{ ...button(true), height: 46, padding: '0 16px', flex: '1 1 auto', marginLeft: writtenAny ? 'auto' : 0, maxWidth: 320, opacity: writtenAny ? 1 : 0.6 }}>
+          {busy === 'SCHEDULED' ? 'Saving…' : sendOn <= today ? 'Save · ready to send' : `Schedule · ${shortDay(sendOn)}`}
         </button>
       </div>
     </div>
