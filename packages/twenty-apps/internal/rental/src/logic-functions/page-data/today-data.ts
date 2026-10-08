@@ -2,6 +2,8 @@ import { type CoreApiClient } from 'twenty-client-sdk/core';
 
 import { monthStart, todayIso } from 'src/logic-functions/utils/dates';
 import { queryAll } from 'src/logic-functions/utils/query-all';
+import { loadChases } from 'src/logic-functions/utils/rent-chase';
+import { type ChaseInfo } from 'src/shared/rent-chase';
 import { inScope, type Scope } from 'src/logic-functions/utils/scope';
 import { loadRepeatingBills } from 'src/logic-functions/utils/repeating-bills';
 import { type FollowUp } from 'src/shared/contacts';
@@ -57,6 +59,7 @@ export type TodayData = {
   bills: RepeatingBill[]; // next bills of repeating expenses, not yet added
   campaigns: TodayCampaign[]; // scheduled or being sent, due within 30 days
   followUps: FollowUp[]; // WhatsApp follow-ups not done, due within 7 days (or late)
+  chases: Record<string, ChaseInfo>; // contractId -> latest rent reminder (any channel), last 14 days
 };
 
 export type TodayCampaign = { id: string; name: string; kind: string; occasion: string; sendOn: string; status: string; sent: number; ownerId: string | null };
@@ -82,7 +85,7 @@ type PaymentNode = { rentalId?: string | null; rentPeriod?: string | null; statu
 const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData> => {
   const since = `${Number(today.slice(0, 4)) - Math.ceil(ARREARS_MONTHS / 12)}${today.slice(4, 7)}-01`;
 
-  const [{ rentals }, { rentPayments }, { people }, { documents }, { expenses }, bills, campaignResult, followUpResult] = await Promise.all([
+  const [{ rentals }, { rentPayments }, { people }, { documents }, { expenses }, bills, campaignResult, followUpResult, chases] = await Promise.all([
     // Every contract and payment (paged: a cut-off list would show paid months as overdue).
     queryAll<RentalNode>(
       client,
@@ -161,6 +164,7 @@ const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData>
         },
       },
     } as never) as Promise<{ contactActivities?: { edges?: Array<{ node: Record<string, unknown> }> } }>,
+    loadChases(client),
   ]);
 
   const renewedIds = new Set((rentals?.edges ?? []).map(({ node }) => node.renewalOfId as string | null).filter(Boolean));
@@ -207,6 +211,7 @@ const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData>
   }
 
   return {
+    chases,
     contracts,
     paid,
     partial,
@@ -279,5 +284,6 @@ export const loadTodayData = async (client: CoreApiClient, scope: Scope): Promis
     bills: data.bills.filter((bill) => inScope(scope, bill.ownerId)),
     campaigns: data.campaigns.filter((campaign) => inScope(scope, campaign.ownerId)),
     followUps: data.followUps.filter((f) => scope.all || inScope(scope, f.ownerId)),
+    chases: Object.fromEntries(Object.entries(data.chases).filter(([contractId]) => ids.has(contractId))),
   };
 };

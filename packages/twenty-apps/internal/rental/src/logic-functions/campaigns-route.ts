@@ -7,6 +7,8 @@ import { appClient } from 'src/logic-functions/utils/app-client';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { inScope, NOT_ALLOWED, resolveScope, type Scope } from 'src/logic-functions/utils/scope';
 import { buildSmartRecipients } from 'src/logic-functions/utils/smart-audience';
+import { loadChases, recordChase } from 'src/logic-functions/utils/rent-chase';
+import { chaseNote, isRecentChase } from 'src/shared/rent-chase';
 import { asAudience, asOptions, asProgress, asRepeat, CAMPAIGN_FIELDS, rollCampaigns, toRow } from 'src/logic-functions/utils/campaign-rows';
 import {
   type Audience,
@@ -217,7 +219,7 @@ const campaignRows = async (
     const smart = await buildSmartRecipients(client, scope, campaign.source, campaign.sourceOptions, handled);
 
     return {
-      rows: smart.map((x): Row => ({ id: x.key, personId: x.personId, name: x.name, firstName: x.firstName, phone: x.phone, language: x.language, reasons: x.reasons, values: x.values, attachment: x.attachment, optedOut: false })),
+      rows: smart.map((x): Row => ({ id: x.key, personId: x.personId, name: x.name, firstName: x.firstName, phone: x.phone, language: x.language, reasons: x.reasons, values: x.values, attachment: x.attachment, chase: x.chase, optedOut: false })),
       optedOut: 0,
       noPhone: smart.filter((x) => !x.phone).length,
     };
@@ -440,12 +442,22 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
     if (body.action === 'recipients') {
       const result = await campaignRows(client, scope, campaign);
+      // Rent due: say when a tenant was already reminded another way, so
+      // they aren't chased twice in a few days.
+      const chases = campaign.source === 'RENT_DUE' ? await loadChases(client) : {};
+      const today = todayIso();
       // Rows already sent this round stay listed even if the data moved on
       // (e.g. a receipt now marked sent).
-      const recipients: Recipient[] = result.rows.map(({ optedOut: _optedOut, ...row }) => ({
-        ...row,
-        status: campaign.progress.sent[row.id] ? 'sent' : campaign.progress.skipped[row.id] ? 'skipped' : 'pending',
-      }));
+      const recipients: Recipient[] = result.rows.map(({ optedOut: _optedOut, ...row }) => {
+        const status = campaign.progress.sent[row.id] ? 'sent' : campaign.progress.skipped[row.id] ? 'skipped' : 'pending';
+        const chase = row.chase ? chases[row.chase.contractId] : undefined;
+
+        return {
+          ...row,
+          status,
+          ...(status === 'pending' && chase && isRecentChase(chase, today) ? { reasons: [`⚠ ${chaseNote(chase, today)}`, ...row.reasons] } : {}),
+        };
+      });
 
       return json({ success: true, campaign, recipients, optedOut: result.optedOut, noPhone: result.noPhone });
     }
@@ -469,6 +481,23 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       if (body.status === 'skipped') progress.skipped[key] = new Date().toISOString();
       // Ticks belong to this round, even when sent before its start day.
       if (campaign.repeat.every !== 'NONE' && !progress.cycle) progress.cycle = repeatCycle(campaign.repeat, todayIso());
+
+      // A rent-due message sent: recorded with every other rent reminder, so
+      // automatic reminders and Today don't chase the tenant again soon.
+      if (campaign.source === 'RENT_DUE' && body.status === 'sent') {
+        const row = rows.find((x) => x.id === key);
+
+        if (row?.chase) {
+          // Late months as an overdue reminder; months not due yet as an
+          // early one (so the overdue reminder can still follow if unpaid).
+          const late = row.chase.overdue ?? row.chase.months;
+          const early = row.chase.months.filter((m) => !late.includes(m));
+          const base = { contractId: row.chase.contractId, channel: 'CAMPAIGN' as const, status: 'SENT' as const, title: `Campaign · ${campaign.name} · ${row.name}`, to: row.phone, body: '' };
+
+          if (late.length) await recordChase(client, { ...base, months: late, kind: 'RENT_OVERDUE' });
+          if (early.length) await recordChase(client, { ...base, months: early, kind: 'RENT_UPCOMING' });
+        }
+      }
 
       // A receipt sent through the campaign counts as sent to the tenant.
       // Undo puts it back to issued — only if this campaign sent it.

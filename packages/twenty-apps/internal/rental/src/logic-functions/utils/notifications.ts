@@ -5,6 +5,8 @@ import { todayIso } from 'src/logic-functions/utils/dates';
 import { resolveScope, SYSTEM } from 'src/logic-functions/utils/scope';
 import { sendWhatsappMessage, toE164, whatsappConfig } from 'src/logic-functions/utils/whatsapp';
 import { addDays, type AgendaItem, agendaItems, daysBetween } from 'src/shared/agenda';
+import { chaseKey, loadChases, recordChase } from 'src/logic-functions/utils/rent-chase';
+import { type ChaseChannel, type ChaseInfo, isRecentChase } from 'src/shared/rent-chase';
 
 // The assistant: a WhatsApp summary for you each morning, and rent reminders
 // for tenants (before the due day, on it, and when overdue). Runs every hour;
@@ -202,59 +204,106 @@ export const buildSummary = (data: Data, today: string, to: string | null): Outg
 
 // ---------------------------------------------------------------- tenant reminders
 
-const reminderText = (kind: 'RENT_UPCOMING' | 'RENT_DUE' | 'RENT_OVERDUE', item: AgendaItem, language: 'EN' | 'MS') => {
+type RentKind = 'RENT_UPCOMING' | 'RENT_DUE' | 'RENT_OVERDUE';
+
+// One contract-month that today's settings would remind about.
+type Candidate = { kind: RentKind; item: AgendaItem; key: string };
+
+const monthList = (months: string[], language: 'EN' | 'MS') => {
+  const names = months.map((m) => month(m, language));
+
+  return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} ${language === 'MS' ? 'dan' : 'and'} ${names[names.length - 1]}`;
+};
+
+const reminderText = (kind: RentKind, items: AgendaItem[], language: 'EN' | 'MS') => {
+  const item = items[0];
   const c = item.contract as NonNullable<AgendaItem['contract']>;
   const name = firstName(c.tenantName);
-  const m = month(item.month ?? item.date, language);
-  const amount = rm(item.amount ?? c.rent);
+  const m = monthList(items.map((i) => i.month ?? i.date), language);
+  const total = items.reduce((sum, i) => sum + (i.amount ?? c.rent), 0);
+  const part = items.some((i) => i.received);
+  const amount = `${rm(total)}${items.length > 1 ? (language === 'MS' ? ' kesemuanya' : ' in total') : ''}${part ? (language === 'MS' ? ', baki selepas bayaran separa' : ', the balance after part-payment') : ''}`;
   const due = day(item.date, language);
 
   if (language === 'MS') {
     if (kind === 'RENT_UPCOMING') return `Salam ${name}, peringatan mesra bahawa sewa ${c.propertyName} bagi ${m} (${amount}) perlu dibayar pada ${due}. Terima kasih!`;
     if (kind === 'RENT_DUE') return `Salam ${name}, sewa ${c.propertyName} bagi ${m} (${amount}) perlu dibayar hari ini. Sila maklumkan selepas pembayaran dibuat. Terima kasih!`;
 
-    return `Salam ${name}, rekod kami menunjukkan sewa ${c.propertyName} bagi ${m} (${amount}) yang perlu dibayar pada ${due} belum diterima. Jika sudah dibayar, sila hantar slip pembayaran. Terima kasih!`;
+    return `Salam ${name}, rekod kami menunjukkan sewa ${c.propertyName} bagi ${m} (${amount}) belum diterima. Jika sudah dibayar, sila hantar slip pembayaran. Terima kasih!`;
   }
   if (kind === 'RENT_UPCOMING') return `Hi ${name}, a friendly reminder that the rent for ${c.propertyName} for ${m} (${amount}) is due on ${due}. Thank you!`;
   if (kind === 'RENT_DUE') return `Hi ${name}, the rent for ${c.propertyName} for ${m} (${amount}) is due today. Please let us know once it's paid. Thank you!`;
 
-  return `Hi ${name}, our records show the rent for ${c.propertyName} for ${m} (${amount}), due on ${due}, hasn't been received yet. If you've already paid, please send the payment slip. Thank you!`;
+  return `Hi ${name}, our records show the rent for ${c.propertyName} for ${m} (${amount}) hasn't been received yet. If you've already paid, please send the payment slip. Thank you!`;
 };
 
-export const buildReminders = (data: Data, today: string, settings: NotificationSettings): Outgoing[] => {
-  const out: Outgoing[] = [];
+// Every contract-month today's settings would remind about, before checking
+// what was already sent.
+const candidates = (data: Data, today: string, settings: NotificationSettings): Candidate[] => {
+  const out: Candidate[] = [];
 
   for (const item of agendaItems(data, today)) {
     if ((item.kind !== 'due' && item.kind !== 'overdue') || !item.contract || !item.month) continue;
 
     const due = item.date;
-    const ref = `${item.contract.id}:${item.month.slice(0, 7)}`;
-    let kind: 'RENT_UPCOMING' | 'RENT_DUE' | 'RENT_OVERDUE' | null = null;
+    let kind: RentKind | null = null;
 
     if (settings.remindDaysBefore > 0 && today >= addDays(due, -settings.remindDaysBefore) && today < due) kind = 'RENT_UPCOMING';
     else if (settings.remindOnDueDay && today === due) kind = 'RENT_DUE';
     // Overdue reminder once, and only for rent that fell due in the last 45 days.
     else if (settings.remindDaysAfter > 0 && today >= addDays(due, settings.remindDaysAfter) && daysBetween(due, today) <= 45) kind = 'RENT_OVERDUE';
 
-    if (!kind) continue;
+    if (kind) out.push({ kind, item, key: chaseKey(kind, item.contract.id, item.month) });
+  }
 
-    const c = item.contract;
-    const template =
-      kind === 'RENT_OVERDUE' ? process.env.TWILIO_OVERDUE_TEMPLATE_SID?.trim() : process.env.TWILIO_REMINDER_TEMPLATE_SID?.trim();
+  return out;
+};
+
+// Reminder keys: one month "RENT_DUE:<contract>:2026-10", several
+// "RENT_OVERDUE:<contract>:2026-08,2026-09" — so a reminder sent by hand can be
+// recorded against each month from its key alone.
+const parseKey = (key: string) => {
+  const [kind, contractId, months] = key.split(':');
+
+  return { kind: kind as RentKind, contractId, months: (months ?? '').split(',').filter(Boolean).map((m) => `${m}-01`) };
+};
+
+// Today's reminders: months not reminded yet, tenants not chased in the last
+// few days by any channel, one message per tenant listing every month.
+const groupReminders = (list: Candidate[], done: Set<string>, chases: Record<string, ChaseInfo>, today: string, settings: NotificationSettings): Outgoing[] => {
+  const groups = new Map<string, Candidate[]>();
+
+  for (const candidate of list) {
+    const contractId = (candidate.item.contract as NonNullable<AgendaItem['contract']>).id;
+
+    if (done.has(candidate.key) || isRecentChase(chases[contractId], today)) continue;
+    groups.set(contractId, [...(groups.get(contractId) ?? []), candidate]);
+  }
+
+  const out: Outgoing[] = [];
+
+  for (const [contractId, group] of groups) {
+    // The most pressing kind speaks for the whole message.
+    const kind: RentKind = group.some((g) => g.kind === 'RENT_OVERDUE') ? 'RENT_OVERDUE' : group.some((g) => g.kind === 'RENT_DUE') ? 'RENT_DUE' : 'RENT_UPCOMING';
+    const items = group.map((g) => g.item).sort((a, b) => (a.month ?? '').localeCompare(b.month ?? ''));
+    const c = items[0].contract as NonNullable<AgendaItem['contract']>;
+    const months = items.map((i) => (i.month as string).slice(0, 7));
+    const total = items.reduce((sum, i) => sum + (i.amount ?? c.rent), 0);
+    const template = kind === 'RENT_OVERDUE' ? process.env.TWILIO_OVERDUE_TEMPLATE_SID?.trim() : process.env.TWILIO_REMINDER_TEMPLATE_SID?.trim();
 
     out.push({
       kind,
-      dedupKey: `${kind}:${ref}`,
-      title: `${c.propertyName} · ${month(item.month)} · ${c.tenantName}`,
+      dedupKey: `${kind}:${contractId}:${months.join(',')}`,
+      title: `${c.propertyName} · ${monthList(items.map((i) => i.month as string), 'EN')} · ${c.tenantName}`,
       to: toE164(c.tenantPhone),
-      body: reminderText(kind, item, settings.tenantLanguage),
+      body: reminderText(kind, items, settings.tenantLanguage),
       templateSid: template || undefined,
       templateVariables: {
         '1': firstName(c.tenantName),
         '2': c.propertyName,
-        '3': month(item.month, settings.tenantLanguage),
-        '4': rm(item.amount ?? c.rent),
-        '5': day(due, settings.tenantLanguage),
+        '3': monthList(items.map((i) => i.month as string), settings.tenantLanguage),
+        '4': rm(total),
+        '5': day(items[0].date, settings.tenantLanguage),
       },
     });
   }
@@ -268,17 +317,48 @@ type LogRow = { dedupKey: string; status: string };
 
 const loadLog = async (client: CoreApiClient, keys: string[]): Promise<LogRow[]> => {
   if (keys.length === 0) return [];
-  const { notificationLogs } = await client.query({
-    notificationLogs: {
-      __args: { filter: { dedupKey: { in: keys } }, first: 1000 },
-      edges: { node: { dedupKey: true, status: true } },
-    },
-  });
+  const rows: LogRow[] = [];
 
-  return (notificationLogs?.edges ?? []).map(({ node }) => ({ dedupKey: node.dedupKey ?? '', status: (node.status as string | null) ?? '' }));
+  // In chunks: an "in" list of thousands would be one huge query.
+  for (let start = 0; start < keys.length; start += 200) {
+    const { notificationLogs } = await client.query({
+      notificationLogs: {
+        __args: { filter: { dedupKey: { in: keys.slice(start, start + 200) } }, first: 1000 },
+        edges: { node: { dedupKey: true, status: true } },
+      },
+    });
+
+    rows.push(...(notificationLogs?.edges ?? []).map(({ node }) => ({ dedupKey: node.dedupKey ?? '', status: (node.status as string | null) ?? '' })));
+  }
+
+  return rows;
 };
 
-const writeLog = async (client: CoreApiClient, message: Outgoing, status: 'SENT' | 'FAILED' | 'SKIPPED', error = '') => {
+// Months already reminded (sent or deliberately skipped), by key.
+const doneKeys = async (client: CoreApiClient, list: Candidate[]) =>
+  new Set(
+    (await loadLog(client, list.map((c) => c.key)))
+      .filter((row) => row.status === 'SENT' || row.status === 'SKIPPED')
+      .map((row) => row.dedupKey),
+  );
+
+// Today's reminders, after what every channel already did.
+const todaysReminders = async (client: CoreApiClient, data: Data, settings: NotificationSettings) => {
+  const today = todayIso();
+  const list = candidates(data, today, settings);
+
+  return groupReminders(list, await doneKeys(client, list), await loadChases(client), today, settings);
+};
+
+const writeLog = async (client: CoreApiClient, message: Outgoing, status: 'SENT' | 'FAILED' | 'SKIPPED', error = '', channel: ChaseChannel = 'AUTO') => {
+  // Rent reminders go into the shared chase record, one row per month.
+  if (message.kind === 'RENT_UPCOMING' || message.kind === 'RENT_DUE' || message.kind === 'RENT_OVERDUE') {
+    const { contractId, months } = parseKey(message.dedupKey);
+
+    await recordChase(client, { contractId, months, channel, status, kind: message.kind, title: message.title, to: message.to, body: message.body, error });
+
+    return;
+  }
   await client.mutation({
     createNotificationLog: {
       __args: {
@@ -298,15 +378,24 @@ const writeLog = async (client: CoreApiClient, message: Outgoing, status: 'SENT'
 };
 
 // Sends unless it already went (or was skipped), and stops after 3 failures.
+// Rent reminders only go out automatically with an approved WhatsApp
+// template: WhatsApp drops a plain message to someone who hasn't written in
+// the last 24 hours even though Twilio accepts it, so without a template
+// they stay on your one-tap reminder list instead of being logged as sent.
 const deliver = async (client: CoreApiClient, messages: Outgoing[]) => {
   const log = await loadLog(client, messages.map((m) => m.dedupKey));
-  const result = { sent: 0, failed: 0, skipped: 0, already: 0 };
+  const result = { sent: 0, failed: 0, skipped: 0, already: 0, manual: 0 };
 
   for (const message of messages) {
     const rows = log.filter((row) => row.dedupKey === message.dedupKey);
+    const isRent = message.kind === 'RENT_UPCOMING' || message.kind === 'RENT_DUE' || message.kind === 'RENT_OVERDUE';
 
     if (rows.some((row) => row.status === 'SENT' || row.status === 'SKIPPED') || rows.filter((row) => row.status === 'FAILED').length >= 3) {
       result.already += 1;
+      continue;
+    }
+    if (isRent && !message.templateSid) {
+      result.manual += 1;
       continue;
     }
     if (!message.to) {
@@ -316,7 +405,12 @@ const deliver = async (client: CoreApiClient, messages: Outgoing[]) => {
     }
     try {
       await sendWhatsappMessage({ to: message.to, body: message.body, templateSid: message.templateSid, templateVariables: message.templateVariables });
-      await writeLog(client, message, 'SENT');
+      await writeLog(
+        client,
+        message,
+        'SENT',
+        message.templateSid ? '' : 'Sent without a template: WhatsApp only delivers it if this number wrote to you in the last 24 hours.',
+      );
       result.sent += 1;
     } catch (error) {
       await writeLog(client, message, 'FAILED', error instanceof Error ? error.message : String(error));
@@ -351,13 +445,15 @@ export const runNotifications = async (client: CoreApiClient, force: { summary?:
   const messages: Outgoing[] = [];
 
   if (wantSummary) messages.push(buildSummary(data, today, ownNumber(settings.summaryPhone)));
-  if (wantReminders) messages.push(...buildReminders(data, today, settings));
+  if (wantReminders) messages.push(...(await todaysReminders(client, data, settings)));
 
   const result = await deliver(client, messages);
 
   return {
     configured: true,
-    summary: `${result.sent} sent, ${result.failed} failed, ${result.skipped} without a number, ${result.already} already done.`,
+    summary:
+      `${result.sent} sent, ${result.failed} failed, ${result.skipped} without a number, ${result.already} already done` +
+      (result.manual ? `, ${result.manual} waiting on your reminder list (no approved WhatsApp template yet).` : '.'),
     sent: result.sent,
     failed: result.failed,
     skipped: result.skipped,
@@ -369,7 +465,7 @@ export const previewSummary = async (client: CoreApiClient) => buildSummary(awai
 
 // Reminders that would go out today with the given settings (for the preview).
 export const previewReminders = async (client: CoreApiClient, settings: NotificationSettings) =>
-  buildReminders(await loadData(client), todayIso(), settings).map((m) => ({ title: m.title, kind: m.kind, to: m.to, body: m.body }));
+  (await todaysReminders(client, await loadData(client), settings)).map((m) => ({ title: m.title, kind: m.kind, to: m.to, body: m.body }));
 
 // A test message to a number, logged as TEST.
 export const sendTest = async (client: CoreApiClient, to: string) => {
@@ -396,44 +492,46 @@ export type PendingReminder = {
   link: string | null; // wa.me link with the message typed in
 };
 
-// Reminders due today that you haven't sent or skipped yet (you send them
-// yourself from WhatsApp, one tap each).
+// Reminders due today that nobody has sent or skipped yet, by any channel
+// (you send them yourself from WhatsApp, one tap each).
 export const pendingReminders = async (client: CoreApiClient): Promise<{ enabled: boolean; reminders: PendingReminder[] }> => {
   const settings = await loadNotificationSettings(client);
 
   if (!settings.remindersEnabled) return { enabled: false, reminders: [] };
 
-  const messages = buildReminders(await loadData(client), todayIso(), settings);
-  const done = new Set(
-    (await loadLog(client, messages.map((m) => m.dedupKey)))
-      .filter((row) => row.status === 'SENT' || row.status === 'SKIPPED')
-      .map((row) => row.dedupKey),
-  );
+  const messages = await todaysReminders(client, await loadData(client), settings);
 
   return {
     enabled: true,
-    reminders: messages
-      .filter((m) => !done.has(m.dedupKey))
-      .map((m) => ({
-        dedupKey: m.dedupKey,
-        kind: m.kind,
-        title: m.title,
-        to: m.to,
-        body: m.body,
-        link: m.to ? `https://wa.me/${m.to.replace('+', '')}?text=${encodeURIComponent(m.body)}` : null,
-      })),
+    reminders: messages.map((m) => ({
+      dedupKey: m.dedupKey,
+      kind: m.kind,
+      title: m.title,
+      to: m.to,
+      body: m.body,
+      link: m.to ? `https://wa.me/${m.to.replace('+', '')}?text=${encodeURIComponent(m.body)}` : null,
+    })),
   };
 };
 
-// Records a reminder you sent yourself (or chose to skip), so it isn't
-// suggested again.
+// Records a reminder you sent yourself (or chose to skip), against each of
+// its months, so no channel suggests it again.
 export const recordManual = async (client: CoreApiClient, reminder: Omit<PendingReminder, 'link'>, status: 'SENT' | 'SKIPPED') => {
-  const existing = await loadLog(client, [reminder.dedupKey]);
+  const { kind, contractId, months } = parseKey(reminder.dedupKey);
 
-  if (existing.some((row) => row.status === 'SENT' || row.status === 'SKIPPED')) return;
-  await writeLog(
-    client,
-    { kind: reminder.kind, dedupKey: reminder.dedupKey, title: `${status === 'SENT' ? 'You sent' : 'Skipped'} · ${reminder.title}`, to: reminder.to, body: reminder.body },
+  if (!contractId || !months.length) return;
+  const done = await loadLog(client, months.map((m) => chaseKey(kind, contractId, m)));
+  const open = months.filter((m) => !done.some((row) => row.dedupKey === chaseKey(kind, contractId, m) && (row.status === 'SENT' || row.status === 'SKIPPED')));
+
+  if (!open.length) return;
+  await recordChase(client, {
+    contractId,
+    months: open,
+    channel: 'LIST',
     status,
-  );
+    kind,
+    title: `${status === 'SENT' ? 'You sent' : 'Skipped'} · ${reminder.title}`,
+    to: reminder.to,
+    body: reminder.body,
+  });
 };

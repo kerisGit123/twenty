@@ -29,6 +29,7 @@ export type SmartRecipient = {
   reasons: string[];
   values: Record<string, string>;
   attachment?: SmartAttachment;
+  chase?: { contractId: string; months: string[]; overdue?: string[] }; // rent due: what this message chases
 };
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -206,9 +207,9 @@ export const buildSmartRecipients = async (
       const owed = rows.reduce((sum, r) => sum + (r.amount ?? 0), 0);
       const oldest = rows[0].date;
 
-      list.push(
-        // A new month owed makes it a new message (key changes).
-        recipient(people.get(tenantId), tenantId, `${tenantId}|${contractId}|${[...rows.map((r) => r.month as string)].sort().pop()}`, [`Tenant · ${contract.propertyName}`, `${rows.length} month${rows.length === 1 ? '' : 's'}`], {
+      // A new month owed makes it a new message (key changes).
+      list.push({
+        ...recipient(people.get(tenantId), tenantId, `${tenantId}|${contractId}|${[...rows.map((r) => r.month as string)].sort().pop()}`, [`Tenant · ${contract.propertyName}`, `${rows.length} month${rows.length === 1 ? '' : 's'}`], {
           property: contract.propertyName,
           amount_owed: rm(owed),
           months: monthList(rows.map((r) => r.month as string)),
@@ -217,7 +218,8 @@ export const buildSmartRecipients = async (
           rent: rm(rentForMonth(contract, today)),
           pay_to: payTo,
         }),
-      );
+        chase: { contractId, months: rows.map((r) => r.month as string), overdue: rows.filter((r) => r.kind === 'overdue').map((r) => r.month as string) },
+      });
     }
 
     return list;

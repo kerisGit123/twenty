@@ -287,6 +287,7 @@ export type Recipient = {
   personId: string;
   values: Record<string, string>; // {fields} for this message
   attachment?: { kind: 'receipt'; paymentId: string } | { kind: 'statement'; rentalId: string; year: number };
+  chase?: { contractId: string; months: string[]; overdue?: string[] }; // rent-due rows: the contract, months it reminds about (and which are late)
   name: string;
   firstName: string;
   phone: string | null; // E.164

@@ -47,5 +47,23 @@ export default defineObject({
     },
     { universalIdentifier: '80b93cd7-23cc-4edc-9278-d00966fcdeee', type: FieldType.TEXT, name: 'error', label: 'Problem', icon: 'IconAlertCircle', isNullable: true },
     { universalIdentifier: '5ede784b-6a4d-4948-b613-ded21db1d98f', type: FieldType.TEXT, name: 'dedupKey', label: 'Key', icon: 'IconKey', isNullable: true },
+    // Rent chasing, whichever way it went out (auto, reminder list, campaign,
+    // Today button): one record so no channel contacts a tenant again soon after.
+    { universalIdentifier: '1bf7515f-e46c-4025-b161-d1bdbae73025', type: FieldType.TEXT, name: 'contractId', label: 'Contract', icon: 'IconFileText', isNullable: true },
+    { universalIdentifier: '9371c002-50af-4a7b-94f7-913406e45c97', type: FieldType.TEXT, name: 'rentMonth', label: 'Rent month', icon: 'IconCalendar', isNullable: true },
+    {
+      universalIdentifier: 'ff7a2a2c-6205-4e15-a2d2-08e2ed28a380',
+      type: FieldType.SELECT,
+      name: 'channel',
+      label: 'Sent by',
+      icon: 'IconSend',
+      isNullable: true,
+      options: [
+        { id: 'c5bf5119-1e13-438e-9ed0-a2e669b549cf', value: 'AUTO', label: 'Automatic (Twilio)', position: 0, color: 'blue' },
+        { id: '8823295c-f818-4464-8762-f645c25e5a9d', value: 'LIST', label: 'Reminder list', position: 1, color: 'green' },
+        { id: '267160c9-8e7e-42e6-8e8f-109e06812279', value: 'CAMPAIGN', label: 'Campaign', position: 2, color: 'purple' },
+        { id: '23d4494f-7159-4857-8e02-c8ee72bb870d', value: 'TODAY', label: 'Today page', position: 3, color: 'orange' },
+      ],
+    },
   ],
 });

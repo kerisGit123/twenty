@@ -10,6 +10,7 @@ import { ReminderList } from 'src/front-components/shared/reminder-list';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import type { Contract, TodayData } from 'src/logic-functions/page-data/today-data';
 import { whatsappLink } from 'src/shared/whatsapp-link';
+import { type ChaseInfo, chaseNote, isRecentChase } from 'src/shared/rent-chase';
 import { type AgendaItem, agendaItems } from 'src/shared/agenda';
 import { occasionOf, upcomingOccasions } from 'src/shared/campaigns';
 
@@ -30,6 +31,10 @@ type Item = {
   whatsapp?: string | null;
   open?: () => void;
   openLabel?: string;
+  // Rent rows: what tapping WhatsApp reminds about (recorded so the other
+  // reminder channels hold off), and when the tenant was last reminded.
+  chase?: { contractId: string; months: string[]; overdue: string[]; to: string | null; body: string; title: string };
+  lastChase?: ChaseInfo;
 };
 
 // ---------------------------------------------------------------- helpers
@@ -97,7 +102,7 @@ const openRecord = (objectNameSingular: string, recordId: string) =>
 
 // Several overdue months for one contract become one row: one total and one
 // WhatsApp message listing the months.
-const overdueGroup = (entries: AgendaItem[]): Item => {
+const overdueGroup = (entries: AgendaItem[], chases: Record<string, ChaseInfo>): Item => {
   const c = entries[0].contract as NonNullable<AgendaItem['contract']>;
   const months = entries.map((e) => e.month as string);
   const total = entries.reduce((sum, e) => sum + (e.amount ?? 0), 0);
@@ -114,6 +119,8 @@ const overdueGroup = (entries: AgendaItem[]): Item => {
     whatsapp: whatsappLink(c.tenantPhone, text),
     open: () => openPage('Rent Ledger'),
     openLabel: 'Catch up',
+    chase: { contractId: c.id, months, overdue: months, to: null, body: text, title: `${c.propertyName} · ${c.tenantName}` },
+    lastChase: chases[c.id],
   };
 };
 
@@ -134,16 +141,16 @@ const buildItems = (data: Data, today: string): Item[] => {
 
     if (group && group.length > 1) {
       // One row per contract, placed where its oldest month would be.
-      if (group[0] === entry) items.push(overdueGroup(group));
+      if (group[0] === entry) items.push(overdueGroup(group, data.chases ?? {}));
       continue;
     }
-    items.push(buildItem(entry, today));
+    items.push(buildItem(entry, today, data.chases ?? {}));
   }
 
   return items;
 };
 
-const buildItem = (entry: AgendaItem, today: string): Item => {
+const buildItem = (entry: AgendaItem, today: string, chases: Record<string, ChaseInfo> = {}): Item => {
     const contract = entry.contract;
 
     switch (entry.kind) {
@@ -170,6 +177,15 @@ const buildItem = (entry: AgendaItem, today: string): Item => {
           whatsapp: whatsappLink(c.tenantPhone, text),
           open: () => openPage('Rent Ledger'),
           openLabel: 'Record',
+          chase: {
+            contractId: c.id,
+            months: [month],
+            overdue: entry.kind === 'overdue' ? [month] : [],
+            to: null,
+            body: text,
+            title: `${c.propertyName} · ${c.tenantName}`,
+          },
+          lastChase: chases[c.id],
         };
       }
       case 'rentChange': {
@@ -348,6 +364,16 @@ const Section = ({ title, count, children }: { title: string; count: number; chi
 
 const ItemRow = ({ item, today }: { item: Item; today: string }) => {
   const kind = KIND[item.kind];
+  const [chasedNow, setChasedNow] = useState(false);
+  const lastChase: ChaseInfo | undefined = chasedNow ? { at: new Date().toISOString(), channel: 'TODAY', months: [] } : item.lastChase;
+  const recent = isRecentChase(lastChase, today);
+
+  // Opening WhatsApp from here counts as a reminder for every channel.
+  const remind = () => {
+    if (!item.chase) return;
+    setChasedNow(true);
+    new RestApiClient().post('/s/rent/chase', item.chase).catch(() => undefined);
+  };
 
   return (
     <div
@@ -382,13 +408,25 @@ const ItemRow = ({ item, today }: { item: Item; today: string }) => {
         <span style={{ fontSize: 12, color: c.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {item.detail}{item.kind === 'bills' ? '' : ` · ${relative(today, item.date)}`}
         </span>
+        {lastChase && (
+          <span style={{ fontSize: 12, color: recent ? 'var(--t-color-amber11)' : c.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {chaseNote(lastChase, today)}
+          </span>
+        )}
       </span>
       {item.amount !== undefined && (
         <span style={{ fontWeight: 600, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{rm(item.amount)}</span>
       )}
       {item.whatsapp && (
-        <a href={item.whatsapp} target="_blank" rel="noopener noreferrer" style={whatsappButton}>
-          WhatsApp
+        <a
+          href={item.whatsapp}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={remind}
+          style={recent ? smallButton : whatsappButton}
+          title={recent ? 'Reminded recently — send again only if needed' : undefined}
+        >
+          {recent ? 'Again' : 'WhatsApp'}
         </a>
       )}
       {item.open && (
