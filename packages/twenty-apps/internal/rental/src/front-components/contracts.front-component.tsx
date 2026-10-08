@@ -145,6 +145,7 @@ const Contracts = () => {
   const [filter, setFilter] = useState<Filter>('active');
   const [search, setSearch] = useState('');
   const [renewing, setRenewing] = useState<ContractCard | null>(null);
+  const [movingOut, setMovingOut] = useState<ContractCard | null>(null);
   const [depositFor, setDepositFor] = useState<ContractCard | null>(null);
   const [docsFor, setDocsFor] = useState<{ contract: ContractCard; files?: PickedFile[] } | null>(null);
 
@@ -213,6 +214,29 @@ const Contracts = () => {
             onDone={async () => {
               setRenewing(null);
               await reload();
+            }}
+          />
+        </Sheet>
+      )}
+      {movingOut && (
+        <Sheet width={480} onClose={() => setMovingOut(null)}>
+          <MoveOutPanel
+            key={movingOut.id}
+            contract={movingOut}
+            onClose={() => setMovingOut(null)}
+            onDone={async () => {
+              const id = movingOut.id;
+
+              setMovingOut(null);
+              const result = await post<{ data?: ContractsData }>({ action: 'list' });
+
+              if (result.success && result.data) {
+                setContracts(result.data.contracts);
+                // Next: settle the deposit, if one is held.
+                const ended = result.data.contracts.find((x) => x.id === id);
+
+                if (ended && depositHeld(ended.deposit) > 0) setDepositFor(ended);
+              }
             }}
           />
         </Sheet>
@@ -308,6 +332,7 @@ const Contracts = () => {
                 today={today}
                 all={contracts}
                 onRenew={() => setRenewing(x)}
+                onMoveOut={() => setMovingOut(x)}
                 onDeposit={() => setDepositFor(x)}
                 onDocuments={(files) => setDocsFor({ contract: x, files })}
               />
@@ -330,6 +355,7 @@ const ContractRow = ({
   today,
   all,
   onRenew,
+  onMoveOut,
   onDeposit,
   onDocuments,
 }: {
@@ -337,6 +363,7 @@ const ContractRow = ({
   today: string;
   all: ContractCard[];
   onRenew: () => void;
+  onMoveOut: () => void;
   onDeposit: () => void;
   onDocuments: (files?: PickedFile[]) => void;
 }) => {
@@ -473,6 +500,11 @@ const ContractRow = ({
           </button>
         )}
         {x.status === 'ACTIVE' && !renewal && (
+          <button onClick={onMoveOut} style={button()} title="The tenant left: end the contract and settle the deposit">
+            Moved out
+          </button>
+        )}
+        {x.status === 'ACTIVE' && !renewal && (
           <button onClick={onRenew} style={button(stage !== 'none')}>
             Renew
           </button>
@@ -604,6 +636,73 @@ const RenewPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard; 
         </button>
         <button onClick={renew} disabled={busy || !(rentValue > 0) || end <= start} style={{ ...button(true), flex: 1.6, height: 44 }}>
           {busy ? 'Renewing…' : `Renew to ${day(end)}`}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------- move out
+
+const MoveOutPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard; onClose: () => void; onDone: () => Promise<void> }) => {
+  const today = todayIso();
+  const [date, setDate] = useState(x.endDate && x.endDate < today ? x.endDate : today);
+  const [waive, setWaive] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const held = depositHeld(x.deposit);
+  // The rent period the move-out date falls in (from the contract's start day).
+  const startDay = Number((x.startDate ?? '2000-01-01').slice(8, 10));
+  const periodMonth = Number(date.slice(8, 10)) >= startDay || startDay === 1 ? date.slice(0, 7) : (() => {
+    const d = new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 2, 1));
+
+    return d.toISOString().slice(0, 7);
+  })();
+  const early = Boolean(x.endDate && date < x.endDate);
+
+  const end = async () => {
+    setBusy(true);
+    try {
+      const result = await post<{ depositHeld?: number }>({ action: 'moveOut', rentalId: x.id, movedOutOn: date, waiveLastMonth: waive });
+
+      await enqueueSnackbar({ message: result.message ?? (result.success ? 'Contract ended.' : 'Could not end it.'), variant: result.success ? 'success' : 'error' });
+      if (result.success) await onDone();
+    } catch (error) {
+      await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not end it.', variant: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ height: '100%', background: c.bg, display: 'flex', flexDirection: 'column', fontFamily: c.font, color: c.text }}>
+      <SheetHeader title="Tenant moved out" sub={`${x.propertyName} · ${x.tenantName}`} onClose={onClose} />
+      <div style={{ flex: 1, overflow: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div style={{ fontSize: 13, color: c.text2, background: c.bg2, borderRadius: 10, padding: 12 }}>
+          Contract: {day(x.startDate)} – {day(x.endDate)} · {rm(rentForMonth(x, today))}/month
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <Label>Moved out on</Label>
+          <input type="date" value={date} onChange={(e) => { const v = readValue(e); if (v) setDate(v); }} style={{ ...control, width: 'auto' }} />
+          {early && <span style={{ fontSize: 12.5, color: 'var(--t-color-amber11)' }}>Before the contract’s end ({day(x.endDate)}) — it ends early on this day.</span>}
+          {x.endDate && date > x.endDate && <span style={{ fontSize: 12.5, color: c.text3 }}>After the end date — rent is owed up to this day.</span>}
+        </div>
+        <button onClick={() => setWaive(!waive)} style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13.5 }}>
+          <span style={{ width: 40, height: 22, borderRadius: 11, background: waive ? c.accent : c.border2, position: 'relative', flexShrink: 0 }}>
+            <span style={{ position: 'absolute', top: 2, left: waive ? 20 : 2, width: 18, height: 18, borderRadius: 9, background: '#fff' }} />
+          </span>
+          Don’t charge the last part-month ({monthYear(`${periodMonth}-01`)}) if it’s unpaid
+        </button>
+        <div style={{ fontSize: 12.5, color: c.text3, lineHeight: 1.5 }}>
+          Ends the contract on this day: no rent is owed after it, reminders stop, and the unit shows as vacant. Unpaid months up to
+          this day stay owed.{held > 0 ? ` Next you settle the deposit (${rm(held)}).` : ''}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, padding: '12px 16px', borderTop: `1px solid ${c.border}` }}>
+        <button onClick={onClose} style={{ ...button(), flex: 1, height: 44 }}>
+          Cancel
+        </button>
+        <button onClick={end} disabled={busy} style={{ ...button(true), flex: 1.6, height: 44 }}>
+          {busy ? 'Ending…' : `End contract on ${day(date)}`}
         </button>
       </div>
     </div>

@@ -6,6 +6,7 @@ import { monthStart, todayIso } from 'src/logic-functions/utils/dates';
 import { isRentMonth, rentDueDate } from 'src/shared/rent-month';
 import {
   createDraftRentPayment,
+  endRenewedContracts,
   latestRentPayment,
   loadRental,
   rentPaymentExistsForMonth,
@@ -22,6 +23,11 @@ const handler = async (): Promise<{ created: number; checked: number }> => {
   let created = 0;
   let checked = 0;
   let after: string | undefined;
+
+  // Renewals that have started take over from the contract they renew.
+  const ended = await endRenewedContracts(client, today);
+
+  if (ended) console.log(`[rental] ended ${ended} contract(s) whose renewal has started`);
 
   for (;;) {
     const { rentals } = await client.query({

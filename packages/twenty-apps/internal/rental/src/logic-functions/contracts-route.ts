@@ -5,10 +5,16 @@ import { CONTRACTS_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers
 import { loadContractsData } from 'src/logic-functions/page-data/contracts-data';
 import { appClient } from 'src/logic-functions/utils/app-client';
 import { resolveScope } from 'src/logic-functions/utils/scope';
+import { todayIso } from 'src/logic-functions/utils/dates';
+import { endRenewedContracts, loadRental, rentalRentForMonth, rentMonthOf, rentPaymentsForMonth } from 'src/logic-functions/utils/rental-service';
+import { isRentMonth, settleMonth } from 'src/shared/rent-month';
 import { type Deduction, depositHeld, deductionLine, settleDeposit } from 'src/shared/contracts';
 
 type Body = {
-  action?: 'list' | 'renew' | 'settleDeposit' | 'reopenDeposit' | 'setStamped';
+  action?: 'list' | 'renew' | 'settleDeposit' | 'reopenDeposit' | 'setStamped' | 'moveOut';
+  // moveOut
+  movedOutOn?: string;
+  waiveLastMonth?: boolean;
   stampedOn?: string;
   rentalId?: string;
   // renew
@@ -113,6 +119,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       return json({
         success: true,
         id: createRental?.id,
+        ...(body.startDate <= todayIso() ? { ended: await endRenewedContracts(client) } : {}),
         message: `Renewed from ${new Date(`${body.startDate}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}. Stamp the new agreement within 30 days.`,
       });
     }
@@ -149,6 +156,72 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
           result.status === 'FORFEITED'
             ? 'Deposit fully used for deductions — nothing to refund.'
             : `Deposit settled: refund ${rm(result.refund)}${result.deducted ? ` after ${rm(result.deducted)} in deductions` : ''}.`,
+      });
+    }
+
+    // The tenant moved out: the contract ends on that day, so no rent is
+    // owed after it. The last part-month can be left uncharged (waived).
+    if (body.action === 'moveOut') {
+      if (contract.status !== 'ACTIVE') return json({ success: false, message: 'Only an active contract can be ended.' }, 400);
+      if (contract.renewedById) return json({ success: false, message: 'This contract was renewed — end the renewal instead.' }, 400);
+      if (!isIsoDate(body.movedOutOn)) return json({ success: false, message: 'Pick the move-out date.' }, 400);
+      if (contract.startDate && body.movedOutOn < contract.startDate) return json({ success: false, message: 'The move-out date is before the contract starts.' }, 400);
+
+      await client.mutation({
+        updateRental: { __args: { id: contract.id, data: { status: 'ENDED', endDate: body.movedOutOn } as never }, id: true },
+      });
+
+      let waived = '';
+      const term = { startDate: contract.startDate, endDate: body.movedOutOn };
+      const lastMonth = rentMonthOf(contract.startDate, body.movedOutOn);
+
+      if (body.waiveLastMonth && isRentMonth(term, lastMonth)) {
+        const rental = await loadRental(client, contract.id);
+        const rows = await rentPaymentsForMonth(client, contract.id, lastMonth);
+        const settlement = rental ? settleMonth(rentalRentForMonth(rental, lastMonth), rows) : null;
+
+        if (settlement && settlement.state !== 'paid' && settlement.state !== 'waived') {
+          await client.mutation({
+            createRentPayment: {
+              __args: {
+                data: {
+                  status: 'WAIVED',
+                  paymentType: 'RENT',
+                  rentalId: contract.id,
+                  propertyId: contract.propertyId,
+                  tenantId: contract.tenantId,
+                  ownerId: contract.ownerId,
+                  rentPeriod: lastMonth,
+                  amount: money(settlement.remaining),
+                  notes: `Moved out on ${body.movedOutOn}`,
+                } as never,
+              },
+              id: true,
+            },
+          });
+          for (const draft of rows.filter((r) => r.status === 'DRAFT')) {
+            await client.mutation({ deleteRentPayment: { __args: { id: draft.id }, id: true } });
+          }
+          waived = ` The last part-month (${rm(settlement.remaining)}) isn't charged.`;
+        }
+      }
+
+      // Unsent drafts for months after the move-out aren't owed any more.
+      const { rentPayments: later } = await client.query({
+        rentPayments: {
+          __args: { filter: { rentalId: { eq: contract.id }, status: { eq: 'DRAFT' }, rentPeriod: { gt: lastMonth } } as never, first: 50 },
+          edges: { node: { id: true } },
+        },
+      });
+
+      for (const { node } of later?.edges ?? []) await client.mutation({ deleteRentPayment: { __args: { id: node.id }, id: true } });
+
+      const held = depositHeld(contract.deposit);
+
+      return json({
+        success: true,
+        depositHeld: held,
+        message: `Contract ended on ${body.movedOutOn}.${waived}${held > 0 ? ` Settle the deposit (${rm(held)}) next.` : ''}`,
       });
     }
 

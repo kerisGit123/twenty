@@ -1,7 +1,7 @@
 import { type CoreApiClient } from 'twenty-client-sdk/core';
 
 import { monthStart, nextMonthStart, todayIso } from 'src/logic-functions/utils/dates';
-import { ARREARS_MONTHS, isRentMonth, rentForMonth } from 'src/shared/rent-month';
+import { ARREARS_MONTHS, isRentMonth, periodStart, rentForMonth } from 'src/shared/rent-month';
 
 type Money = { amountMicros?: number | null; currencyCode?: string | null } | null | undefined;
 
@@ -174,6 +174,37 @@ export const latestRentPayment = async (
 
 // Next month to collect: the month after the last paid one, else the start
 // month, else the current month.
+// Contracts whose renewal has started end: the renewal takes over the rent
+// from its start (run daily, and right after renewing).
+export const endRenewedContracts = async (client: CoreApiClient, today = todayIso()) => {
+  const { rentals } = await client.query({
+    rentals: {
+      __args: { filter: { status: { eq: 'ACTIVE' }, renewalOfId: { is: 'NOT_NULL' }, startDate: { lte: today } } as never, first: 200 },
+      edges: { node: { renewalOfId: true } },
+    },
+  });
+  const oldIds = [...new Set((rentals?.edges ?? []).map(({ node }) => node.renewalOfId as string | null).filter(Boolean) as string[])];
+  let ended = 0;
+
+  for (const id of oldIds) {
+    const { rentals: old } = await client.query({ rentals: { __args: { filter: { id: { eq: id } }, first: 1 }, edges: { node: { id: true, status: true } } } });
+
+    if (old?.edges?.[0]?.node?.status !== 'ACTIVE') continue;
+    await client.mutation({ updateRental: { __args: { id, data: { status: 'ENDED' } as never }, id: true } });
+    ended += 1;
+  }
+
+  return ended;
+};
+
+// The month whose rent period a date falls in (a contract from the 15th:
+// 10 Jun is in the May period).
+export const rentMonthOf = (startDate: string | null, date: string) => {
+  const month = monthStart(date);
+
+  return periodStart(startDate, month) > date ? monthStart(new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 2, 1)).toISOString()) : month;
+};
+
 // The month a new rent payment is for: the oldest owed month that has no
 // payment yet (so a gap isn't skipped), else the month after the latest.
 export const nextRentPeriod = async (client: CoreApiClient, rental: RentalRecord) => {
