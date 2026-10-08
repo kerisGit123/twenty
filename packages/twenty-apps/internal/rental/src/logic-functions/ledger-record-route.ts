@@ -5,7 +5,7 @@ import { appClient } from 'src/logic-functions/utils/app-client';
 import { inScope, NOT_ALLOWED, resolveScope } from 'src/logic-functions/utils/scope';
 import { LEDGER_RECORD_ROUTE_ID } from 'src/constants/universal-identifiers';
 import { receiptHandler } from 'src/logic-functions/handlers/send-receipt-handler';
-import { monthStart } from 'src/logic-functions/utils/dates';
+import { monthStart, nextMonthStart } from 'src/logic-functions/utils/dates';
 import {
   createDraftRentPayment,
   loadRental,
@@ -13,7 +13,7 @@ import {
   keepOneDraft,
   rentPaymentsForMonth,
 } from 'src/logic-functions/utils/rental-service';
-import { settleMonth } from 'src/shared/rent-month';
+import { isRentMonth, settleMonth } from 'src/shared/rent-month';
 
 type LedgerRecordBody = {
   rentalId?: string;
@@ -25,9 +25,12 @@ type LedgerRecordBody = {
   receiptDate?: string | null; // YYYY-MM-DD to back-date the receipt; empty = issue date
   // waive: don't charge the month (or what's left of it); unwaive: undo.
   action?: 'preview' | 'issue' | 'send' | 'waive' | 'unwaive';
+  spread?: boolean; // more than this month owes: put the rest towards the next months
 };
 
 const money = (rm: number) => ({ amountMicros: Math.round(rm * 1_000_000), currencyCode: 'MYR' });
+
+const rmText = (value: number) => `RM ${value.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -124,6 +127,38 @@ const handler = async (
       );
     }
 
+    // More than this month owes: the rest goes towards the next unpaid months
+    // (one receipt each), or it's refused so extra money is never lost.
+    const extraPlan: Array<{ month: string; amount: number }> = [];
+    let thisAmount = amount;
+
+    if (!waiving && amount > settlement.remaining + 0.005) {
+      if (!body.spread) {
+        return json({ success: false, message: `That's ${rmText(amount - settlement.remaining)} more than this month owes. Put the extra towards the next months, or lower the amount.` }, 400);
+      }
+      let extra = Math.round((amount - settlement.remaining) * 100) / 100;
+      const term = { startDate: rental.startDate ?? null, endDate: rental.endDate ?? null };
+
+      for (let next = nextMonthStart(month), steps = 0; extra > 0.005 && steps < 36; next = nextMonthStart(next), steps += 1) {
+        if (!isRentMonth(term, next)) {
+          if (term.endDate && next > term.endDate) break;
+          continue;
+        }
+        const nextRows = await rentPaymentsForMonth(client, rental.id, next);
+        const nextSettlement = settleMonth(rentalRentForMonth(rental, next), nextRows);
+
+        if (nextSettlement.state === 'paid' || nextSettlement.state === 'waived' || nextSettlement.remaining <= 0) continue;
+        const take = Math.round(Math.min(extra, nextSettlement.remaining) * 100) / 100;
+
+        extraPlan.push({ month: next, amount: take });
+        extra = Math.round((extra - take) * 100) / 100;
+      }
+      if (extra > 0.005) {
+        return json({ success: false, message: `That's more than everything owed up to the end of the contract (${rmText(extra)} too much). Check the amount.` }, 400);
+      }
+      thisAmount = settlement.remaining;
+    }
+
     let paymentId = drafts[0]?.id ?? (await createDraftRentPayment(client, rental, month, body.method));
 
     if (!paymentId) return json({ success: false, message: 'Could not create the payment.' }, 500);
@@ -136,7 +171,7 @@ const handler = async (
         __args: {
           id: paymentId,
           data: {
-            amount: money(body.amount ?? 0),
+            amount: money(thisAmount),
             paidOn: body.paidOn || null,
             ...(body.method ? { method: body.method } : {}),
             notes: body.notes ?? '',
@@ -149,7 +184,41 @@ const handler = async (
 
     const result = await receiptHandler(action, paymentId, context?.workspaceMemberId ?? undefined);
 
-    return json({ ...result, paymentId }, result.success ? 200 : (result.status ?? 400));
+    if (!result.success || !extraPlan.length) return json({ ...result, paymentId }, result.success ? 200 : (result.status ?? 400));
+
+    // The extra, month by month (issued; send them from the ledger if wanted).
+    const extraReceipts: string[] = [];
+
+    for (const row of extraPlan) {
+      const existing = (await rentPaymentsForMonth(client, rental.id, row.month)).find((p) => p.status === 'DRAFT');
+      const extraId = existing?.id ?? (await createDraftRentPayment(client, rental, row.month, body.method));
+
+      if (!extraId) continue;
+      await client.mutation({
+        updateRentPayment: {
+          __args: {
+            id: extraId,
+            data: {
+              amount: money(row.amount),
+              paidOn: body.paidOn || null,
+              ...(body.method ? { method: body.method } : {}),
+              notes: `Part of ${rmText(amount)} received${body.paidOn ? ` on ${body.paidOn}` : ''}`,
+              receiptDate: /^\d{4}-\d{2}-\d{2}$/.test(body.receiptDate ?? '') ? body.receiptDate : null,
+            } as never,
+          },
+          id: true,
+        },
+      });
+      const issued = await receiptHandler(action === 'preview' ? 'preview' : 'issue', extraId, context?.workspaceMemberId ?? undefined);
+
+      if (issued.success && 'receiptNumber' in issued && issued.receiptNumber) extraReceipts.push(`${issued.receiptNumber} (${row.month.slice(0, 7)})`);
+    }
+
+    return json({
+      ...result,
+      paymentId,
+      message: `${result.message ?? 'Saved.'} The extra went towards the next months: ${extraReceipts.join(', ')}.`,
+    });
   } catch (error) {
     console.error('[rental] ledger record failed:', error);
 

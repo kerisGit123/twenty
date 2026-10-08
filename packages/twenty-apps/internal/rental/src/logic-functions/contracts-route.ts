@@ -4,7 +4,7 @@ import { Response } from 'twenty-sdk/logic-function';
 import { CONTRACTS_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers-v3';
 import { loadContractsData } from 'src/logic-functions/page-data/contracts-data';
 import { appClient } from 'src/logic-functions/utils/app-client';
-import { resolveScope } from 'src/logic-functions/utils/scope';
+import { canManage, inScope, NOT_ALLOWED, resolveScope } from 'src/logic-functions/utils/scope';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import {
   createDraftRentPayment,
@@ -20,7 +20,17 @@ import { type Deduction, depositHeld, deductionLine, type DepositSettlement, pla
 import { receiptHandler } from 'src/logic-functions/handlers/send-receipt-handler';
 
 type Body = {
-  action?: 'list' | 'renew' | 'settleDeposit' | 'reopenDeposit' | 'setStamped' | 'moveOut' | 'depositOptions';
+  action?: 'list' | 'renew' | 'settleDeposit' | 'reopenDeposit' | 'setStamped' | 'moveOut' | 'depositOptions' | 'newOptions' | 'people' | 'create';
+  // new tenancy
+  query?: string;
+  propertyId?: string;
+  newProperty?: { name?: string; ownerId?: string; address?: string };
+  tenantId?: string;
+  newTenant?: { firstName?: string; lastName?: string; phone?: string };
+  deposit?: number;
+  utilityDeposit?: number;
+  dueDay?: number;
+  depositReceivedOn?: string | null;
   rentMonths?: string[]; // settleDeposit: unpaid months to take from the deposit
   // moveOut
   movedOutOn?: string;
@@ -55,6 +65,199 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     const data = await loadContractsData(client, scope);
 
     if (!body.action || body.action === 'list') return json({ success: true, data });
+
+    // ---- new tenancy: what to pick from
+    if (body.action === 'newOptions') {
+      const [{ properties }, { owners }] = await Promise.all([
+        client.query({
+          properties: {
+            __args: { first: 500, orderBy: [{ name: 'AscNullsLast' }] },
+            edges: { node: { id: true, name: true, ownerId: true, monthlyRent: { amountMicros: true }, depositAmount: { amountMicros: true } } },
+          },
+        }),
+        client.query({ owners: { __args: { first: 200, orderBy: [{ name: 'AscNullsLast' }] }, edges: { node: { id: true, name: true } } } }),
+      ]);
+      const letTo = new Map(data.contracts.filter((x) => x.status === 'ACTIVE' && x.propertyId).map((x) => [x.propertyId as string, x]));
+
+      return json({
+        success: true,
+        properties: (properties?.edges ?? [])
+          .filter(({ node }) => inScope(scope, node.ownerId ?? null))
+          .map(({ node }) => {
+            const current = letTo.get(node.id);
+
+            return {
+              id: node.id,
+              name: node.name ?? 'Property',
+              ownerId: node.ownerId ?? null,
+              rent: (node.monthlyRent?.amountMicros ?? 0) / 1_000_000,
+              deposit: (node.depositAmount?.amountMicros ?? 0) / 1_000_000,
+              letTo: current ? { tenantName: current.tenantName, endDate: current.endDate } : null,
+            };
+          }),
+        owners: (owners?.edges ?? []).filter(({ node }) => canManage(scope, node.id)).map(({ node }) => ({ id: node.id, name: node.name ?? 'Workspace' })),
+      });
+    }
+
+    // Find a tenant: admins search everyone; others their workspaces' tenants.
+    if (body.action === 'people') {
+      const term = (body.query ?? '').trim();
+
+      if (term.length < 2) return json({ success: true, people: [] });
+      const like = `%${term.replace(/[%_]/g, '')}%`;
+      const { people } = await client.query({
+        people: {
+          __args: { filter: { or: [{ name: { firstName: { ilike: like } } }, { name: { lastName: { ilike: like } } }] } as never, first: 25 },
+          edges: { node: { id: true, name: { firstName: true, lastName: true }, phones: { primaryPhoneNumber: true, primaryPhoneCallingCode: true } } },
+        },
+      });
+      const mine = new Set(data.contracts.map((x) => x.tenantId).filter(Boolean) as string[]);
+
+      return json({
+        success: true,
+        people: (people?.edges ?? [])
+          .filter(({ node }) => scope.all || mine.has(node.id))
+          .slice(0, 10)
+          .map(({ node }) => ({
+            id: node.id,
+            name: [node.name?.firstName, node.name?.lastName].filter(Boolean).join(' ') || 'Someone',
+            phone: node.phones?.primaryPhoneNumber ? `${node.phones.primaryPhoneCallingCode ?? ''} ${node.phones.primaryPhoneNumber}`.trim() : null,
+          })),
+      });
+    }
+
+    // ---- new tenancy: tenant (new or existing), property (new or existing),
+    // the contract, and deposit receipts if it's already been paid.
+    if (body.action === 'create') {
+      if (!isIsoDate(body.startDate) || !isIsoDate(body.endDate) || body.endDate <= body.startDate) return json({ success: false, message: 'Pick the start and end dates.' }, 400);
+      const rent = Number(body.rent);
+      const depositValue = Number(body.deposit ?? 0);
+      const utility = Number(body.utilityDeposit ?? 0);
+
+      if (!Number.isFinite(rent) || rent <= 0 || rent > 10_000_000) return json({ success: false, message: 'Enter the monthly rent.' }, 400);
+      if (![depositValue, utility].every((v) => Number.isFinite(v) && v >= 0 && v < 10_000_000)) return json({ success: false, message: 'Check the deposit amounts.' }, 400);
+      const dueDay = Math.min(31, Math.max(1, Math.round(Number(body.dueDay) || Number(body.startDate.slice(8, 10)))));
+
+      // Property
+      let propertyId = body.propertyId ?? null;
+      let ownerId: string | null = null;
+      let propertyName = '';
+
+      if (propertyId) {
+        const { properties } = await client.query({ properties: { __args: { filter: { id: { eq: propertyId } }, first: 1 }, edges: { node: { id: true, name: true, ownerId: true } } } });
+        const property = properties?.edges?.[0]?.node;
+
+        if (!property) return json({ success: false, message: 'Property not found.' }, 404);
+        if (!inScope(scope, property.ownerId ?? null)) return json(NOT_ALLOWED, 403);
+        ownerId = property.ownerId ?? null;
+        propertyName = property.name ?? 'Property';
+        // Not let to someone else for those dates.
+        const clash = data.contracts.find(
+          (x) => x.propertyId === propertyId && x.status === 'ACTIVE' && (!x.endDate || x.endDate >= (body.startDate as string)) && (!x.startDate || x.startDate <= (body.endDate as string)),
+        );
+
+        if (clash) return json({ success: false, message: `${propertyName} is let to ${clash.tenantName} until ${clash.endDate ?? 'no end date'}. End or renew that contract first.` }, 409);
+      } else {
+        const name = (body.newProperty?.name ?? '').trim().slice(0, 200);
+
+        if (!name) return json({ success: false, message: 'Pick a property or name the new one.' }, 400);
+        ownerId = body.newProperty?.ownerId ?? null;
+        if (!ownerId || !canManage(scope, ownerId)) return json({ success: false, message: 'Pick a workspace you manage for the new property.' }, 403);
+        const { createProperty } = await client.mutation({
+          createProperty: {
+            __args: { data: { name, ownerId, monthlyRent: money(rent), depositAmount: money(depositValue), ...(body.newProperty?.address ? { notes: body.newProperty.address.slice(0, 500) } : {}) } as never },
+            id: true,
+          },
+        });
+
+        propertyId = createProperty?.id ?? null;
+        propertyName = name;
+      }
+      if (!propertyId) return json({ success: false, message: 'Could not save the property.' }, 500);
+
+      // Tenant
+      let tenantId = body.tenantId ?? null;
+      let tenantName = '';
+
+      if (tenantId) {
+        const { people } = await client.query({ people: { __args: { filter: { id: { eq: tenantId } }, first: 1 }, edges: { node: { id: true, name: { firstName: true, lastName: true } } } } });
+        const person = people?.edges?.[0]?.node;
+
+        if (!person) return json({ success: false, message: 'Tenant not found.' }, 404);
+        tenantName = [person.name?.firstName, person.name?.lastName].filter(Boolean).join(' ');
+      } else {
+        const firstName = (body.newTenant?.firstName ?? '').trim().slice(0, 100);
+        const lastName = (body.newTenant?.lastName ?? '').trim().slice(0, 100);
+        const digits = (body.newTenant?.phone ?? '').replace(/[^\d]/g, '');
+
+        if (!firstName) return json({ success: false, message: 'Pick the tenant or enter their name.' }, 400);
+        // Malaysian numbers: 012-345 6789 -> +60 123456789; 60123456789 -> +60 123456789.
+        const local = digits.startsWith('60') ? digits.slice(2) : digits.startsWith('0') ? digits.slice(1) : digits;
+        const { createPerson } = await client.mutation({
+          createPerson: {
+            __args: { data: { name: { firstName, lastName }, ...(local ? { phones: { primaryPhoneNumber: local, primaryPhoneCallingCode: '+60' } } : {}) } as never },
+            id: true,
+          },
+        });
+
+        tenantId = createPerson?.id ?? null;
+        tenantName = [firstName, lastName].filter(Boolean).join(' ');
+      }
+      if (!tenantId) return json({ success: false, message: 'Could not save the tenant.' }, 500);
+
+      const { createRental } = await client.mutation({
+        createRental: {
+          __args: {
+            data: {
+              name: `${propertyName} · ${tenantName}`.slice(0, 200),
+              status: 'ACTIVE',
+              propertyId,
+              tenantId,
+              ownerId,
+              startDate: body.startDate,
+              endDate: body.endDate,
+              dueDay,
+              monthlyRent: money(rent),
+              depositAmount: money(depositValue),
+              utilityDeposit: money(utility),
+              depositStatus: 'NOT_RECEIVED',
+            } as never,
+          },
+          id: true,
+        },
+      });
+      const rentalId = createRental?.id;
+
+      if (!rentalId) return json({ success: false, message: 'Could not save the contract.' }, 500);
+
+      // Deposits already paid: receipts now.
+      const receipts: string[] = [];
+
+      if (isIsoDate(body.depositReceivedOn)) {
+        for (const [type, amount] of [['DEPOSIT', depositValue], ['UTILITY_DEPOSIT', utility]] as const) {
+          if (!(amount > 0)) continue;
+          const { createRentPayment } = await client.mutation({
+            createRentPayment: {
+              __args: {
+                data: { status: 'DRAFT', paymentType: type, rentalId, propertyId, tenantId, ownerId, amount: money(amount), paidOn: body.depositReceivedOn } as never,
+              },
+              id: true,
+            },
+          });
+
+          if (!createRentPayment?.id) continue;
+          const issued = await receiptHandler('issue', createRentPayment.id, context?.workspaceMemberId ?? undefined);
+
+          if (issued.success && 'receiptNumber' in issued && issued.receiptNumber) receipts.push(String(issued.receiptNumber));
+        }
+      }
+
+      return json({
+        success: true,
+        id: rentalId,
+        message: `Contract made for ${tenantName} at ${propertyName}.${receipts.length ? ` Deposit receipt${receipts.length > 1 ? 's' : ''} ${receipts.join(', ')} issued.` : ''} Stamp the agreement within 30 days.`,
+      });
+    }
 
     const contract = data.contracts.find((c) => c.id === body.rentalId);
 

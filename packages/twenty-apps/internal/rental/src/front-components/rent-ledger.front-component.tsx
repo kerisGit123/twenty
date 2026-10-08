@@ -773,6 +773,8 @@ const PaymentPanel = ({
   const [waiveReason, setWaiveReason] = useState('');
   const [notes, setNotes] = useState('');
   const [sendToTenant, setSendToTenant] = useState(true);
+  // More than this month owes: put the rest towards the next months.
+  const [spread, setSpread] = useState(true);
   // Back-dated payments: the receipt can carry the payment date instead of today.
   const [receiptOnPaidDate, setReceiptOnPaidDate] = useState(month < monthStart(todayIso()));
   const [busy, setBusy] = useState<'' | 'preview' | 'save' | 'correct' | 'waive'>('');
@@ -827,6 +829,10 @@ const PaymentPanel = ({
     }
   };
 
+  const owedNow = isPartial ? settlement.remaining : cell.rent;
+  const extra = Math.round(((Number(amount.replace(/[^\d.]/g, '')) || 0) - owedNow) * 100) / 100;
+  const extraBlocked = extra > 0.005 && !spread;
+
   const submit = async (action: 'preview' | 'issue' | 'send') => {
     setBusy(action === 'preview' ? 'preview' : 'save');
     try {
@@ -839,6 +845,7 @@ const PaymentPanel = ({
         notes,
         receiptDate: receiptOnPaidDate && paidOn < todayIso() ? paidOn : null,
         action,
+        spread: extra > 0.005 && spread,
       });
 
       if (result.paymentId) setPaymentId(result.paymentId);
@@ -1017,6 +1024,20 @@ const PaymentPanel = ({
                   style={{ fontFamily: c.font, fontSize: 30, fontWeight: 700, color: c.text, border: 'none', outline: 'none', background: 'transparent', width: '100%', minWidth: 0, padding: 0 }}
                 />
               </div>
+              {extra > 0.005 && (
+                <div style={{ marginTop: 6, borderRadius: 10, background: 'var(--t-color-amber2)', border: '1px solid var(--t-color-amber6)', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+                  <span>
+                    That’s <b>{rm(extra)}</b> more than {monthLabel(month)} owes.
+                  </span>
+                  <button onClick={() => setSpread(!spread)} style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${spread ? c.accent : c.border2}`, background: spread ? c.accent : 'transparent', color: '#fff', fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {spread ? '✓' : ''}
+                    </span>
+                    Put the extra towards the next months (a receipt for each)
+                  </button>
+                  {!spread && <span style={{ color: 'var(--t-color-amber11)' }}>Lower the amount to {rm(owedNow)}, or tick the box — extra money isn’t recorded otherwise.</span>}
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1153,10 +1174,10 @@ const PaymentPanel = ({
           </>
         ) : (
           <>
-            <button onClick={() => submit('preview')} disabled={busy !== ''} style={{ ...button(), flex: 1, height: 44 }}>
+            <button onClick={() => submit('preview')} disabled={busy !== '' || extraBlocked} style={{ ...button(), flex: 1, height: 44 }}>
               {busy === 'preview' ? 'Preparing…' : receipt ? 'Update preview' : 'Preview'}
             </button>
-            <button onClick={() => submit(sendToTenant ? 'send' : 'issue')} disabled={busy !== ''} style={{ ...button(true), flex: 1.6, height: 44 }}>
+            <button onClick={() => submit(sendToTenant ? 'send' : 'issue')} disabled={busy !== '' || extraBlocked} style={{ ...button(true), flex: 1.6, height: 44 }}>
               {busy === 'save' ? 'Saving…' : sendToTenant ? 'Save & send receipt' : 'Save receipt'}
             </button>
             {isPartial && payment && (
