@@ -106,10 +106,12 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       row = rows.find((x) => x.key === query.key);
       if (!row) return html('<p>This message isn’t due any more — it may have been paid or sent already.</p>', 404);
       person = { name: row.name, firstName: row.firstName, phone: row.phone, language: row.language };
-    } else if (query.person) {
+    } else if (query.person || query.key) {
+      // A one-person send: the send panel passes the person as key.
+      const personId = (query.person ?? query.key) as string;
       const { people } = (await client.query({
         people: {
-          __args: { filter: { id: { eq: query.person } }, first: 1 },
+          __args: { filter: { id: { eq: personId } }, first: 1 },
           edges: { node: { name: { firstName: true, lastName: true }, phones: { primaryPhoneNumber: true, primaryPhoneCallingCode: true }, language: true } },
         },
       } as never)) as { people?: { edges?: Array<{ node: { name?: { firstName?: string; lastName?: string }; phones?: never; language?: string | null } }> } };

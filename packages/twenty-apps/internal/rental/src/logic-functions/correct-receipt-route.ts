@@ -4,6 +4,7 @@ import { appClient } from 'src/logic-functions/utils/app-client';
 import { inScope, NOT_ALLOWED, resolveScope } from 'src/logic-functions/utils/scope';
 import { CORRECT_RECEIPT_ROUTE_ID } from 'src/constants/universal-identifiers';
 import { receiptHandler } from 'src/logic-functions/handlers/send-receipt-handler';
+import { keepOneDraft } from 'src/logic-functions/utils/rental-service';
 import { jsonRoute } from 'src/logic-functions/utils/json-route';
 
 // Issued receipts aren't edited in place: the old one is voided (it keeps
@@ -49,6 +50,12 @@ const correctReceipt = async (paymentId: string, memberId?: string) => {
     };
   }
 
+  // Void first: a second click then stops at "already void" instead of
+  // leaving a second draft copy behind.
+  const voided = await receiptHandler('void', payment.id, memberId);
+
+  if (!voided.success) return voided;
+
   const { createRentPayment } = await client.mutation({
     createRentPayment: {
       __args: {
@@ -74,13 +81,15 @@ const correctReceipt = async (paymentId: string, memberId?: string) => {
     },
   });
 
-  const voided = await receiptHandler('void', payment.id, memberId);
-
-  if (!voided.success) return voided;
+  // Two corrections at the very same moment: keep one draft copy.
+  const draftPaymentId =
+    createRentPayment?.id && payment.paymentType === 'RENT' && payment.rentalId && payment.rentPeriod
+      ? await keepOneDraft(client, payment.rentalId, payment.rentPeriod, createRentPayment.id)
+      : createRentPayment?.id;
 
   return {
     success: true,
-    draftPaymentId: createRentPayment?.id,
+    draftPaymentId,
     message: `${payment.receiptNumber} is void. A draft copy is ready in Payments: fix it, then send the new receipt.`,
   };
 };

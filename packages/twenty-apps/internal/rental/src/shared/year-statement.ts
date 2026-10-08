@@ -3,7 +3,7 @@
 // its issued receipts; the wording comes from the statement template (English
 // or Malay), see src/shared/doc-template.
 
-import { rentForMonth, type RentTerms } from 'src/shared/rent-month';
+import { rentForMonth, type RentTerms, isRentMonth } from 'src/shared/rent-month';
 
 export type StatementSource = {
   year: number;
@@ -71,16 +71,14 @@ export const statementFacts = (source: StatementSource): StatementFacts => {
   const rows = [...byMonth.entries()].sort(([a], [b]) => a - b).map(([index, amount]) => ({ index, amount }));
 
   // Months the contract ran this year (up to this month) with nothing received.
-  const first = rental.startDate && rental.startDate > `${prefix}-01-01` ? Number(rental.startDate.slice(5, 7)) - 1 : 0;
-  const endCap = rental.endDate && rental.endDate.startsWith(prefix) ? Number(rental.endDate.slice(5, 7)) - 1 : 11;
   const todayCap = source.today.startsWith(prefix) ? Number(source.today.slice(5, 7)) - 1 : source.today < prefix ? -1 : 11;
-  const outsideContract =
-    (rental.startDate !== null && rental.startDate.slice(0, 4) > prefix) || (rental.endDate !== null && rental.endDate.slice(0, 4) < prefix);
   const unpaidMonths: number[] = [];
   const partMonths: StatementFacts['partMonths'] = [];
 
-  if (!outsideContract) {
-    for (let index = first; index <= Math.min(endCap, todayCap); index += 1) {
+  {
+    for (let index = 0; index <= todayCap; index += 1) {
+      // Only months the contract owes rent for (see isRentMonth).
+      if (!isRentMonth(rental, `${prefix}-${String(index + 1).padStart(2, '0')}-01`)) continue;
       if (waived.has(index)) continue;
 
       const received = byMonth.get(index) ?? 0;

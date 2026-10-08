@@ -6,6 +6,7 @@ import { type DatabaseEventBatchPayload } from 'twenty-sdk/logic-function';
 
 import { appClient } from 'src/logic-functions/utils/app-client';
 import { receiptHandler } from 'src/logic-functions/handlers/send-receipt-handler';
+import { SYSTEM } from 'src/logic-functions/utils/scope';
 
 // Fields printed on the receipt.
 const RECEIPT_FIELDS = [
@@ -17,9 +18,14 @@ const RECEIPT_FIELDS = [
   'paymentType',
   'tenantId',
   'propertyId',
+  // Not printed, but changing them would break the receipt book: its number,
+  // its contract, and its state (use Void / Correct receipt instead).
+  'receiptNumber',
+  'rentalId',
+  'status',
 ] as const;
 
-type PaymentEventRecord = Partial<Record<(typeof RECEIPT_FIELDS)[number], unknown>> & {
+type PaymentEventRecord = Partial<Record<Exclude<(typeof RECEIPT_FIELDS)[number], 'status'>, unknown>> & {
   id?: string | null;
   status?: string | null;
   receiptFile?: unknown[] | null;
@@ -75,7 +81,7 @@ const handler = async (
       (after.status ?? 'DRAFT') === 'DRAFT' && (after.receiptFile?.length ?? 0) > 0;
 
     if (isDraftWithPreview) {
-      const result = await receiptHandler('regenerate', paymentId);
+      const result = await receiptHandler('regenerate', paymentId, SYSTEM);
 
       if (!result.success) {
         console.warn(`[rental] could not refresh preview for ${paymentId}: ${result.message}`);

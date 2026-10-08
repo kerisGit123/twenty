@@ -11,7 +11,7 @@ import { Sheet } from 'src/front-components/shared/sheet';
 import { StatementPanel } from 'src/front-components/shared/statement-panel';
 import type { LedgerData, Payment, Rental } from 'src/logic-functions/page-data/ledger-data';
 import { whatsappLink } from 'src/shared/whatsapp-link';
-import { isReceipted, rentForMonth, type Settlement, settleMonth } from 'src/shared/rent-month';
+import { isReceipted, rentForMonth, type Settlement, settleMonth, isRentMonth, rentDueDate } from 'src/shared/rent-month';
 import {
   dueDateInMonth,
   monthStart,
@@ -99,14 +99,16 @@ const readValue = (event: SyntheticEvent<HTMLElement>): string => {
 };
 
 // A contract's month: the rent for it, what's been received, and its status.
-const buildCell = (rental: Rental, month: string, payments: Payment[], today: string): Cell => {
+// endCap: an ended contract with no end date stops at its last paid month
+// (otherwise it would owe rent forever).
+const buildCell = (rental: Rental, month: string, payments: Payment[], today: string, endCap?: string): Cell => {
   const rent = rentForMonth(rental, month);
   const settlement = settleMonth(rent, payments);
-  const late = today > addDays(dueDateInMonth(month, rental.dueDay), GRACE_DAYS);
-  const startsAfter = rental.startDate && monthStart(rental.startDate) > month;
-  const endedBefore = rental.endDate && rental.endDate < month;
+  const late = today > addDays(rentDueDate(rental, month), GRACE_DAYS);
+  // Outside the contract: nothing owed (a payment recorded there still shows).
+  const outside = !isRentMonth(rental, month) || Boolean(endCap && month > endCap);
   const status: CellStatus =
-    startsAfter || endedBefore
+    outside && settlement.state === 'open'
       ? 'none'
       : settlement.state !== 'open'
         ? settlement.state
@@ -258,7 +260,22 @@ const RentLedger = () => {
 
     return map;
   }, [payments]);
-  const cellFor = (rental: Rental, month: string) => buildCell(rental, month, paymentsByCell.get(`${rental.id}|${month}`) ?? [], today);
+  // Last month with a payment, per contract (for ended contracts without an end date).
+  const lastPaidMonth = useMemo(() => {
+    const map = new Map<string, string>();
+
+    for (const payment of payments) if (payment.month > (map.get(payment.rentalId) ?? '')) map.set(payment.rentalId, payment.month);
+
+    return map;
+  }, [payments]);
+  const cellFor = (rental: Rental, month: string) =>
+    buildCell(
+      rental,
+      month,
+      paymentsByCell.get(`${rental.id}|${month}`) ?? [],
+      today,
+      rental.status === 'ENDED' && !rental.endDate ? (lastPaidMonth.get(rental.id) ?? '0000-00-00') : undefined,
+    );
 
   const allRows = useMemo(() => {
     const query = search.trim().toLowerCase();

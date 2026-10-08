@@ -93,6 +93,13 @@ export default defineApplication({
       value: '',
       isSecret: false,
     },
+    API_KEYS_FULL_ACCESS: {
+      universalIdentifier: 'b6c1f2a4-3e57-4d8c-9a1e-5f2d7c3b8e91',
+      description:
+        'Set to "true" to let API keys call the app\'s routes with access to every workspace (for scripts). Leave empty: API keys get nothing.',
+      value: '',
+      isSecret: false,
+    },
     PDF_FONT_CACHE_DIR: {
       universalIdentifier: '46f1e25a-2107-4319-af62-eba539396b87',
       description:

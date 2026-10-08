@@ -1,6 +1,7 @@
 import { type CoreApiClient } from 'twenty-client-sdk/core';
 
 import { monthStart, todayIso } from 'src/logic-functions/utils/dates';
+import { queryAll } from 'src/logic-functions/utils/query-all';
 import { inScope, type Scope } from 'src/logic-functions/utils/scope';
 import { loadRepeatingBills } from 'src/logic-functions/utils/repeating-bills';
 import { type FollowUp } from 'src/shared/contacts';
@@ -60,44 +61,58 @@ export type TodayData = {
 
 export type TodayCampaign = { id: string; name: string; kind: string; occasion: string; sendOn: string; status: string; sent: number; ownerId: string | null };
 
+type Money = { amountMicros?: number | null } | null;
+type RentalNode = {
+  id: string;
+  status?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  dueDay?: number | null;
+  stampedOn?: string | null;
+  renewalOfId?: string | null;
+  monthlyRent?: Money;
+  newRent?: Money;
+  newRentFrom?: string | null;
+  property?: { name?: string | null; ownerId?: string | null } | null;
+  tenantId?: string | null;
+  tenant?: { name?: { firstName?: string | null; lastName?: string | null } | null; phones?: TenantPhone | null } | null;
+};
+type PaymentNode = { rentalId?: string | null; rentPeriod?: string | null; status?: string | null; amount?: Money };
+
 const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData> => {
   const since = `${Number(today.slice(0, 4)) - Math.ceil(ARREARS_MONTHS / 12)}${today.slice(4, 7)}-01`;
 
   const [{ rentals }, { rentPayments }, { people }, { documents }, { expenses }, bills, campaignResult, followUpResult] = await Promise.all([
-    client.query({
-      rentals: {
-        __args: { filter: { status: { neq: 'DRAFT' } }, first: 200 },
-        edges: {
-          node: {
-            id: true,
-            status: true,
-            startDate: true,
-            endDate: true,
-            dueDay: true,
-            stampedOn: true,
-            renewalOfId: true,
-            monthlyRent: { amountMicros: true },
-            newRent: { amountMicros: true },
-            newRentFrom: true,
-            property: { name: true, ownerId: true },
-            tenantId: true,
-            tenant: {
-              name: { firstName: true, lastName: true },
-              phones: { primaryPhoneNumber: true, primaryPhoneCallingCode: true },
-            },
-          },
+    // Every contract and payment (paged: a cut-off list would show paid months as overdue).
+    queryAll<RentalNode>(
+      client,
+      'rentals',
+      { filter: { status: { neq: 'DRAFT' } } },
+      {
+        id: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+        dueDay: true,
+        stampedOn: true,
+        renewalOfId: true,
+        monthlyRent: { amountMicros: true },
+        newRent: { amountMicros: true },
+        newRentFrom: true,
+        property: { name: true, ownerId: true },
+        tenantId: true,
+        tenant: {
+          name: { firstName: true, lastName: true },
+          phones: { primaryPhoneNumber: true, primaryPhoneCallingCode: true },
         },
       },
-    }),
-    client.query({
-      rentPayments: {
-        __args: {
-          filter: { paymentType: { eq: 'RENT' }, status: { in: ['ISSUED', 'SENT', 'WAIVED'] }, rentPeriod: { gte: since } },
-          first: 1000,
-        },
-        edges: { node: { rentalId: true, rentPeriod: true, status: true, amount: { amountMicros: true } } },
-      },
-    }),
+    ).then((edges) => ({ rentals: { edges: edges.map((node) => ({ node })) } })),
+    queryAll<PaymentNode>(
+      client,
+      'rentPayments',
+      { filter: { paymentType: { eq: 'RENT' }, status: { in: ['ISSUED', 'SENT', 'WAIVED'] }, rentPeriod: { gte: since } } },
+      { rentalId: true, rentPeriod: true, status: true, amount: { amountMicros: true } },
+    ).then((edges) => ({ rentPayments: { edges: edges.map((node) => ({ node })) } })),
     client.query({
       people: {
         __args: { filter: { birthday: { is: 'NOT_NULL' } }, first: 500 },

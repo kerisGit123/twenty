@@ -1,7 +1,8 @@
 import { CoreApiClient } from 'twenty-client-sdk/core';
 
 import { appClient, appMetadataClient } from 'src/logic-functions/utils/app-client';
-import { inScope, NOT_ALLOWED, resolveScope } from 'src/logic-functions/utils/scope';
+import { queryAll } from 'src/logic-functions/utils/query-all';
+import { inScope, NOT_ALLOWED, resolveScope, SYSTEM } from 'src/logic-functions/utils/scope';
 import { PAYMENT_RECEIPT_FILE_FIELD_ID } from 'src/constants/universal-identifiers';
 import { ringgitInWords } from 'src/logic-functions/utils/amount-in-words';
 import { daysInMonth, toMalaysiaDate, todayIso } from 'src/logic-functions/utils/dates';
@@ -101,28 +102,48 @@ const formatAmount = (amountMicros?: number | null, currencyCode?: string | null
   return `${prefix} ${amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
-// Numbers are never reused: voided receipts keep theirs, so they count too.
-const nextReceiptNumber = async (client: CoreApiClient, year: number) => {
-  const prefix = `RCP-${year}-`;
-  const { rentPayments } = await client.query({
-    rentPayments: {
-      __args: {
-        filter: { receiptNumber: { like: `${prefix}%` } },
-        orderBy: [{ receiptNumber: 'DescNullsLast' }],
-        first: 1,
-      },
-      edges: { node: { receiptNumber: true } },
-    },
-  });
-  const last = rentPayments?.edges?.[0]?.node?.receiptNumber ?? '';
-  const lastSequence = Number(last.slice(prefix.length)) || 0;
+// Numbers are never reused: voided receipts keep theirs, and deleted ones
+// count too. The highest is found by value, not as text (so 10000 > 9999).
+const highestReceiptSequence = async (client: CoreApiClient, prefix: string) => {
+  const live = queryAll<{ receiptNumber?: string | null }>(client, 'rentPayments', { filter: { receiptNumber: { like: `${prefix}%` } } }, { receiptNumber: true });
+  const deleted = queryAll<{ receiptNumber?: string | null }>(
+    client,
+    'rentPayments',
+    { filter: { and: [{ receiptNumber: { like: `${prefix}%` } }, { deletedAt: { is: 'NOT_NULL' } }] } },
+    { receiptNumber: true },
+  ).catch(() => []);
 
-  return `${prefix}${String(lastSequence + 1).padStart(4, '0')}`;
+  return [...(await live), ...(await deleted)].reduce((max, row) => Math.max(max, Number((row.receiptNumber ?? '').slice(prefix.length)) || 0), 0);
+};
+
+// Gives the payment the next receipt number and makes sure no one else got
+// the same one at the same moment (two people issuing at once): if two
+// receipts hold it, the older record keeps it and the other takes the next.
+const claimReceiptNumber = async (client: CoreApiClient, paymentId: string, year: number) => {
+  const prefix = `RCP-${year}-`;
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const number = `${prefix}${String((await highestReceiptSequence(client, prefix)) + 1).padStart(4, '0')}`;
+
+    await client.mutation({ updateRentPayment: { __args: { id: paymentId, data: { receiptNumber: number } }, id: true } });
+
+    const holders = await queryAll<{ id: string; createdAt?: string | null }>(
+      client,
+      'rentPayments',
+      { filter: { receiptNumber: { eq: number } } },
+      { id: true, createdAt: true },
+    );
+    const keeper = [...holders].sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id))[0];
+
+    if (!keeper || keeper.id === paymentId) return number;
+  }
+
+  throw new Error('Could not get a free receipt number — please try again.');
 };
 
 // Name of the workspace member who clicked the button, if known.
 const memberName = async (client: CoreApiClient, workspaceMemberId?: string) => {
-  if (!workspaceMemberId) return '';
+  if (!workspaceMemberId || workspaceMemberId === SYSTEM) return '';
   try {
     const { workspaceMembers } = await client.query({
       workspaceMembers: {
@@ -333,7 +354,7 @@ export const receiptHandler = async (
   const receiptNumber =
     mode === 'preview'
       ? payment.receiptNumber || 'DRAFT'
-      : payment.receiptNumber || (await nextReceiptNumber(client, Number(paidOn.slice(0, 4))));
+      : payment.receiptNumber || (await claimReceiptNumber(client, payment.id, Number(paidOn.slice(0, 4))));
 
   const tenantName = [payment.tenant?.name?.firstName, payment.tenant?.name?.lastName]
     .filter(Boolean)

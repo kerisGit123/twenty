@@ -10,6 +10,7 @@ import {
   createDraftRentPayment,
   loadRental,
   rentalRentForMonth,
+  keepOneDraft,
   rentPaymentsForMonth,
 } from 'src/logic-functions/utils/rental-service';
 import { settleMonth } from 'src/shared/rent-month';
@@ -50,9 +51,14 @@ const handler = async (
   }
   const waiving = action === 'waive' || action === 'unwaive';
 
-  if (!waiving && (!body.amount || body.amount <= 0)) {
+  const amount = Number(body.amount);
+
+  if (!waiving && (typeof body.amount !== 'number' || !Number.isFinite(amount) || amount <= 0)) {
     return json({ success: false, message: 'Enter the amount received.' }, 400);
   }
+  if (amount > 10_000_000) return json({ success: false, message: 'That amount looks too large — check it.' }, 400);
+  if (body.paidOn && !/^\d{4}-\d{2}-\d{2}$/.test(body.paidOn)) return json({ success: false, message: 'Pick a valid paid-on date.' }, 400);
+  if ((body.notes ?? '').length > 1000) return json({ success: false, message: 'Notes are too long (1,000 characters at most).' }, 400);
 
   try {
     const client = appClient();
@@ -118,9 +124,12 @@ const handler = async (
       );
     }
 
-    const paymentId = drafts[0]?.id ?? (await createDraftRentPayment(client, rental, month, body.method));
+    let paymentId = drafts[0]?.id ?? (await createDraftRentPayment(client, rental, month, body.method));
 
     if (!paymentId) return json({ success: false, message: 'Could not create the payment.' }, 500);
+
+    // Two clicks at once can each make a draft: keep the first, drop the other.
+    if (!drafts.length) paymentId = await keepOneDraft(client, rental.id, month, paymentId);
 
     await client.mutation({
       updateRentPayment: {

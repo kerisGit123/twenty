@@ -7,13 +7,20 @@ import { type CoreApiClient } from 'twenty-client-sdk/core';
 export type Scope = { all: boolean; ownerIds: Set<string>; hostIds: Set<string>; memberId: string | null };
 
 const ALL: Scope = { all: true, ownerIds: new Set(), hostIds: new Set(), memberId: null };
+const NONE: Scope = { all: false, ownerIds: new Set(), hostIds: new Set(), memberId: null };
+
+// Background jobs (cron, database triggers) say so explicitly to get full
+// access; a route call with no person behind it never gets it by accident.
+export const SYSTEM = 'system' as const;
 
 export const resolveScope = async (
   client: CoreApiClient,
   workspaceMemberId: string | null | undefined,
 ): Promise<Scope> => {
-  // No person behind the call (cron, install hooks, API keys): full access.
-  if (!workspaceMemberId) return ALL;
+  if (workspaceMemberId === SYSTEM) return ALL;
+  // No person behind a route call: an API key, or someone whose team-member
+  // record is gone. Nothing, unless API keys were allowed (for scripts).
+  if (!workspaceMemberId) return process.env.API_KEYS_FULL_ACCESS?.trim().toLowerCase() === 'true' ? ALL : NONE;
 
   const { memberships } = await client.query({
     memberships: {

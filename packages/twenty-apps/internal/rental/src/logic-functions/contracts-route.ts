@@ -80,6 +80,21 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         },
       });
 
+      // Renewed twice at the same moment (a double click): the first renewal
+      // stands, this one is removed, and the deposit isn't carried twice.
+      const { rentals: renewals } = await client.query({
+        rentals: { __args: { filter: { renewalOfId: { eq: contract.id } }, first: 20 }, edges: { node: { id: true, createdAt: true } } },
+      });
+      const first = (renewals?.edges ?? [])
+        .map(({ node }) => node)
+        .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id))[0];
+
+      if (createRental?.id && first && first.id !== createRental.id) {
+        await client.mutation({ deleteRental: { __args: { id: createRental.id }, id: true } });
+
+        return json({ success: false, message: 'This contract has already been renewed.' }, 409);
+      }
+
       if (held > 0) {
         await client.mutation({
           updateRental: {

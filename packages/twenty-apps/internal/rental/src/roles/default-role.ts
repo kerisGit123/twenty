@@ -1,7 +1,9 @@
 import { defineApplicationRole, SystemPermissionFlag } from 'twenty-sdk/define';
 
-import { DEFAULT_ROLE_UNIVERSAL_IDENTIFIER, PAYMENT_OBJECT_ID } from 'src/constants/universal-identifiers';
-import { DOCUMENT_OBJECT_ID } from 'src/constants/universal-identifiers-v3';
+import { DEFAULT_ROLE_UNIVERSAL_IDENTIFIER, PAYMENT_OBJECT_ID, RENTAL_OBJECT_ID } from 'src/constants/universal-identifiers';
+import { DOCUMENT_OBJECT_ID, MEMBERSHIP_OBJECT_ID } from 'src/constants/universal-identifiers-v3';
+import { DOCUMENT_TEMPLATE_OBJECT_ID } from 'src/objects/document-template.object';
+import { EXPENSE_OBJECT_ID } from 'src/constants/universal-identifiers-v2';
 import { CAMPAIGN_OBJECT_ID, SAVED_AUDIENCE_OBJECT_ID } from 'src/constants/universal-identifiers-v4';
 
 // The role the app's logic functions run as: read records, update payments
@@ -9,7 +11,18 @@ import { CAMPAIGN_OBJECT_ID, SAVED_AUDIENCE_OBJECT_ID } from 'src/constants/univ
 // destroys anything; it can move to deleted (restorable) only documents,
 // campaigns and payments (a waiver being undone, an unused draft) — and only
 // when the person asking has access to that workspace.
-const SOFT_DELETABLE = [DOCUMENT_OBJECT_ID, CAMPAIGN_OBJECT_ID, PAYMENT_OBJECT_ID, SAVED_AUDIENCE_OBJECT_ID];
+// Recoverable deletes the app makes: removing members, templates and a
+// duplicate renewal need them too.
+const SOFT_DELETABLE = [
+  DOCUMENT_OBJECT_ID,
+  CAMPAIGN_OBJECT_ID,
+  PAYMENT_OBJECT_ID,
+  SAVED_AUDIENCE_OBJECT_ID,
+  RENTAL_OBJECT_ID,
+  MEMBERSHIP_OBJECT_ID,
+  DOCUMENT_TEMPLATE_OBJECT_ID,
+  EXPENSE_OBJECT_ID,
+];
 
 export default defineApplicationRole({
   universalIdentifier: DEFAULT_ROLE_UNIVERSAL_IDENTIFIER,

@@ -1,7 +1,7 @@
 import { type CoreApiClient } from 'twenty-client-sdk/core';
 
 import { monthStart, nextMonthStart, todayIso } from 'src/logic-functions/utils/dates';
-import { rentForMonth } from 'src/shared/rent-month';
+import { ARREARS_MONTHS, isRentMonth, rentForMonth } from 'src/shared/rent-month';
 
 type Money = { amountMicros?: number | null; currencyCode?: string | null } | null | undefined;
 
@@ -174,13 +174,55 @@ export const latestRentPayment = async (
 
 // Next month to collect: the month after the last paid one, else the start
 // month, else the current month.
+// The month a new rent payment is for: the oldest owed month that has no
+// payment yet (so a gap isn't skipped), else the month after the latest.
 export const nextRentPeriod = async (client: CoreApiClient, rental: RentalRecord) => {
-  const latest = await latestRentPayment(client, rental.id);
+  const { rentPayments } = await client.query({
+    rentPayments: {
+      __args: { filter: { rentalId: { eq: rental.id }, paymentType: { eq: 'RENT' }, status: { neq: 'VOID' } }, first: 500 },
+      edges: { node: { rentPeriod: true } },
+    },
+  });
+  const covered = new Set((rentPayments?.edges ?? []).map(({ node }) => (node.rentPeriod ? monthStart(node.rentPeriod) : '')).filter(Boolean));
+  const latest = [...covered].sort().pop();
+  const today = todayIso();
+  const term = { startDate: rental.startDate ?? null, endDate: rental.endDate ?? null };
+  const oldest = monthStart(`${Number(today.slice(0, 4)) - Math.floor(ARREARS_MONTHS / 12)}${today.slice(4, 10)}`);
+  let month = rental.startDate && monthStart(rental.startDate) > oldest ? monthStart(rental.startDate) : oldest;
 
-  if (latest?.rentPeriod) return nextMonthStart(latest.rentPeriod);
+  for (; month <= monthStart(today); month = nextMonthStart(month)) {
+    if (isRentMonth(term, month) && !covered.has(month)) return month;
+  }
+
+  if (latest) return nextMonthStart(latest);
   if (rental.startDate) return monthStart(rental.startDate);
 
-  return monthStart(todayIso());
+  return monthStart(today);
+};
+
+// After making a draft for a month: if another request made one at the same
+// moment, the older draft is kept and this one removed (soft delete).
+export const keepOneDraft = async (client: CoreApiClient, rentalId: string, monthIso: string, createdId: string): Promise<string> => {
+  const { rentPayments } = await client.query({
+    rentPayments: {
+      __args: {
+        filter: {
+          rentalId: { eq: rentalId },
+          paymentType: { eq: 'RENT' },
+          status: { eq: 'DRAFT' },
+          and: [{ rentPeriod: { gte: monthStart(monthIso) } }, { rentPeriod: { lt: nextMonthStart(monthIso) } }],
+        },
+        first: 20,
+      },
+      edges: { node: { id: true, createdAt: true } },
+    },
+  });
+  const drafts = (rentPayments?.edges ?? []).map(({ node }) => node).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id));
+  const keeper = drafts[0]?.id ?? createdId;
+
+  if (keeper !== createdId) await client.mutation({ deleteRentPayment: { __args: { id: createdId }, id: true } });
+
+  return keeper;
 };
 
 export type MonthPaymentRow = { id: string; status: string; amount: number; receiptNumber: string | null };
@@ -327,17 +369,21 @@ export const fillPaymentFromRental = async (client: CoreApiClient, paymentId: st
   const isDeposit = payment.paymentType === 'DEPOSIT' || payment.paymentType === 'UTILITY_DEPOSIT';
   const isUtilityDeposit = payment.paymentType === 'UTILITY_DEPOSIT';
 
-  if (!hasAmount(payment.amount)) {
-    const source = isUtilityDeposit
-      ? rental.utilityDeposit
-      : isDeposit
-      ? (hasAmount(rental.depositAmount) ? rental.depositAmount : rental.property?.depositAmount)
-      : (hasAmount(rental.monthlyRent) ? rental.monthlyRent : rental.property?.monthlyRent);
+  const period = !isDeposit ? (payment.rentPeriod ?? (await nextRentPeriod(client, rental))) : null;
 
-    if (hasAmount(source)) data.amount = toMoneyInput(source);
-  }
-  if (!isDeposit && !payment.rentPeriod) {
-    data.rentPeriod = await nextRentPeriod(client, rental);
+  if (!isDeposit && !payment.rentPeriod) data.rentPeriod = period;
+
+  if (!hasAmount(payment.amount)) {
+    if (isDeposit) {
+      const source = isUtilityDeposit ? rental.utilityDeposit : hasAmount(rental.depositAmount) ? rental.depositAmount : rental.property?.depositAmount;
+
+      if (hasAmount(source)) data.amount = toMoneyInput(source);
+    } else if (period) {
+      // The rent for that month, after any rent change.
+      const rent = rentalRentForMonth(rental, period);
+
+      if (rent > 0) data.amount = { amountMicros: Math.round(rent * 1_000_000), currencyCode: 'MYR' };
+    }
   }
 
   await client.mutation({

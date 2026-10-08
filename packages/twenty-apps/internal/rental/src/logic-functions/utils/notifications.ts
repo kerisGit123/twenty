@@ -2,7 +2,7 @@ import { type CoreApiClient } from 'twenty-client-sdk/core';
 
 import { loadTodayData, type TodayData } from 'src/logic-functions/page-data/today-data';
 import { todayIso } from 'src/logic-functions/utils/dates';
-import { resolveScope } from 'src/logic-functions/utils/scope';
+import { resolveScope, SYSTEM } from 'src/logic-functions/utils/scope';
 import { sendWhatsappMessage, toE164, whatsappConfig } from 'src/logic-functions/utils/whatsapp';
 import { addDays, type AgendaItem, agendaItems, daysBetween } from 'src/shared/agenda';
 
@@ -123,7 +123,7 @@ type Data = Omit<TodayData, 'paid'> & { paid: Set<string> };
 
 const loadData = async (client: CoreApiClient): Promise<Data> => {
   // No person behind the assistant: every workspace.
-  const raw = await loadTodayData(client, await resolveScope(client, null));
+  const raw = await loadTodayData(client, await resolveScope(client, SYSTEM));
 
   return { ...raw, paid: new Set(raw.paid) };
 };

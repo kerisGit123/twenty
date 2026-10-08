@@ -2,7 +2,8 @@ import { defineLogicFunction } from 'twenty-sdk/define';
 
 import { appClient } from 'src/logic-functions/utils/app-client';
 import { CREATE_DUE_DRAFTS_CRON_ID } from 'src/constants/universal-identifiers';
-import { dueDateInMonth, monthStart, todayIso } from 'src/logic-functions/utils/dates';
+import { monthStart, todayIso } from 'src/logic-functions/utils/dates';
+import { isRentMonth, rentDueDate } from 'src/shared/rent-month';
 import {
   createDraftRentPayment,
   latestRentPayment,
@@ -40,11 +41,9 @@ const handler = async (): Promise<{ created: number; checked: number }> => {
 
       checked += 1;
 
-      const dueDate = dueDateInMonth(thisMonth, rental.dueDay ?? 1);
-      const startsLater = rental.startDate && monthStart(rental.startDate) > thisMonth;
-      const alreadyEnded = rental.endDate && rental.endDate < thisMonth;
+      const term = { startDate: rental.startDate ?? null, endDate: rental.endDate ?? null, dueDay: rental.dueDay ?? 1 };
 
-      if (today < dueDate || startsLater || alreadyEnded) continue;
+      if (!isRentMonth(term, thisMonth) || today < rentDueDate(term, thisMonth)) continue;
       if (await rentPaymentExistsForMonth(client, rental.id, thisMonth)) continue;
 
       const fullRental = await loadRental(client, rental.id);

@@ -1,6 +1,6 @@
 import { dueDateInMonth, monthStart, nextMonthStart } from 'src/logic-functions/utils/dates';
 import type { Contract, TodayData } from 'src/logic-functions/page-data/today-data';
-import { ARREARS_MONTHS, rentForMonth } from 'src/shared/rent-month';
+import { ARREARS_MONTHS, rentForMonth, isRentMonth, rentDueDate } from 'src/shared/rent-month';
 
 // What needs doing, from the same data as the Today page: unpaid rent (due
 // or overdue), rent changes, contracts ending, agreements to stamp, documents
@@ -54,21 +54,25 @@ export const agendaItems = (data: Omit<TodayData, 'paid'> & { paid: Set<string> 
   for (const contract of data.contracts) {
     const active = contract.status === 'ACTIVE';
 
+    // A tenant who moved out still owing: their unpaid months stay overdue
+    // (only up to the end date, so one is needed).
+    const endedOwing = contract.status === 'ENDED' && Boolean(contract.endDate);
+
     // Rent: unpaid and part-paid months, from up to ARREARS_MONTHS back to
     // the month after next.
-    if (active) {
+    if (active || endedOwing) {
       let month = monthStart(`${Number(today.slice(0, 4)) - Math.floor(ARREARS_MONTHS / 12)}${today.slice(4, 10)}`);
 
       if (contract.startDate && monthStart(contract.startDate) > month) month = monthStart(contract.startDate);
 
       for (; month <= monthStart(horizon); month = nextMonthStart(month)) {
-        if (contract.endDate && contract.endDate < month) break;
+        if (!isRentMonth(contract, month)) break;
         if (data.paid.has(`${contract.id}|${month}`)) continue;
 
-        const due = dueDateInMonth(month, contract.dueDay);
+        const due = rentDueDate(contract, month);
         const overdue = today > addDays(due, GRACE_DAYS);
 
-        if (!overdue && due > horizon) continue;
+        if (!overdue && (due > horizon || endedOwing)) continue;
 
         const rent = rentForMonth(contract, month);
         const received = data.partial[`${contract.id}|${month}`] ?? 0;

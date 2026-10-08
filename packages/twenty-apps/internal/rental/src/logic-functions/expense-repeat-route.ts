@@ -62,13 +62,17 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       return json({ success: false, message: 'The next one was already added.' }, 409);
     }
 
+    // Claim it first, so a second click finds it handled.
+    await client.mutation({ updateExpense: { __args: { id: expense.id, data: { repeatHandled: true } as never }, id: true } });
+
     const amount = Number(body.amount);
+    const nextDate = /^\d{4}-\d{2}-\d{2}$/.test(body.date ?? '') ? (body.date as string) : nextRepeatDate(expense.expenseDate as string, expense.repeatEvery as string);
     const { createExpense } = await client.mutation({
       createExpense: {
         __args: {
           data: {
             name: expense.name,
-            expenseDate: /^\d{4}-\d{2}-\d{2}$/.test(body.date ?? '') ? body.date : nextRepeatDate(expense.expenseDate as string, expense.repeatEvery as string),
+            expenseDate: nextDate,
             amount: {
               amountMicros: Number.isFinite(amount) && amount > 0 ? Math.round(amount * 1_000_000) : (expense.amount?.amountMicros ?? 0),
               currencyCode: expense.amount?.currencyCode || 'MYR',
@@ -85,8 +89,30 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       },
     });
 
-    // The new one carries the series on; this one is done.
-    await client.mutation({ updateExpense: { __args: { id: expense.id, data: { repeatHandled: true } as never }, id: true } });
+    // Two clicks at the very same moment: keep the first new bill only.
+    const { expenses: twins } = await client.query({
+      expenses: {
+        __args: {
+          filter: {
+            name: { eq: expense.name ?? '' },
+            expenseDate: { eq: nextDate },
+            repeatHandled: { eq: false },
+            ...(expense.propertyId ? { propertyId: { eq: expense.propertyId } } : {}),
+          } as never,
+          first: 10,
+        },
+        edges: { node: { id: true, createdAt: true } },
+      },
+    });
+    const first = (twins?.edges ?? [])
+      .map(({ node }) => node)
+      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id))[0];
+
+    if (createExpense?.id && first && first.id !== createExpense.id) {
+      await client.mutation({ deleteExpense: { __args: { id: createExpense.id }, id: true } });
+
+      return json({ success: false, message: 'The next one was already added.' }, 409);
+    }
 
     return json({ success: true, id: createExpense?.id, message: `Added ${expense.name}.` });
   } catch (error) {
