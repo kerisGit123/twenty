@@ -1,7 +1,8 @@
-import { degrees, PDFDocument, type PDFFont, type PDFImage, type PDFPage, type RGB, rgb, StandardFonts } from 'pdf-lib';
+import { degrees, PDFDocument, type PDFImage, type PDFPage, type RGB, rgb } from 'pdf-lib';
 
+import { cleanText, drawText, graphemes, loadPdfFonts, type PdfFonts, type TextFont, wrapText } from 'src/logic-functions/utils/pdf-fonts';
 import { ACCENTS } from 'src/logic-functions/utils/receipt-settings';
-import { type Align, type Block, fill, isShown, type TemplateContext, type TemplateDoc } from 'src/shared/doc-template/types';
+import { type Align, type Block, byLanguage, fill, isShown, type TemplateContext, type TemplateDoc } from 'src/shared/doc-template/types';
 
 // Draws a document template (receipt or year statement) as an A4 PDF. Blocks
 // flow down the page and continue on a new page when they run out of room.
@@ -19,46 +20,31 @@ const hex = (value: string): RGB => {
   return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
 };
 
-// Standard fonts only cover WinAnsi; drop anything else (keeping line breaks,
-// which wrap() splits on) rather than crash.
-const safe = (text: string) => (text ?? '').replace(/[^\n\x20-\x7E\xA0-\xFF]/g, '');
+const wrap = wrapText;
 
-const wrap = (text: string, font: PDFFont, size: number, maxWidth: number) => {
-  const out: string[] = [];
-
-  for (const paragraph of safe(text).split('\n')) {
-    let line = '';
-
-    for (const word of paragraph.split(/\s+/).filter(Boolean)) {
-      const candidate = line ? `${line} ${word}` : word;
-
-      if (font.widthOfTextAtSize(candidate, size) <= maxWidth) line = candidate;
-      else {
-        if (line) out.push(line);
-        line = word;
-      }
-    }
-    out.push(line);
-  }
-
-  // Drop trailing empty lines.
-  while (out.length && !out[out.length - 1]) out.pop();
-
-  return out;
-};
-
-const fit = (text: string, font: PDFFont, size: number, maxWidth: number) => {
+// Shrinks text (down to 7pt) to fit one line, then cuts it.
+const fit = (text: string, font: TextFont, size: number, maxWidth: number) => {
   let fitted = size;
-  const clean = safe(text).replace(/\n/g, ' ');
+  const clean = cleanText(text).replace(/\n/g, ' ');
 
   while (fitted > 7 && font.widthOfTextAtSize(clean, fitted) > maxWidth) fitted -= 0.5;
 
-  let kept = clean;
+  // By visible character, so a cut never splits one in half.
+  const chars = graphemes(clean);
 
-  while (kept.length > 1 && font.widthOfTextAtSize(kept, fitted) > maxWidth) kept = kept.slice(0, -1);
+  while (chars.length > 1 && font.widthOfTextAtSize(chars.join(''), fitted) > maxWidth) chars.pop();
 
-  return { text: kept, size: fitted };
+  return { text: chars.join(''), size: fitted };
 };
+
+// Fits an image in a box, keeping its shape.
+const scaleInto = (image: PDFImage, maxWidth: number, maxHeight: number) => {
+  const scale = Math.min(maxWidth / image.width, maxHeight / image.height);
+
+  return { width: image.width * scale, height: image.height * scale };
+};
+
+const FOOTER_Y = 22;
 
 class Writer {
   page: PDFPage;
@@ -67,9 +53,9 @@ class Writer {
 
   constructor(
     private doc: PDFDocument,
-    readonly fonts: { regular: PDFFont; bold: PDFFont },
+    readonly fonts: PdfFonts,
     readonly accent: { main: RGB; soft: RGB; grid: RGB },
-    readonly signature: PDFImage | null = null,
+    readonly images: { signature: PDFImage | null; logo: PDFImage | null; qr: PDFImage | null } = { signature: null, logo: null, qr: null },
   ) {
     this.page = this.newPage();
   }
@@ -88,12 +74,12 @@ class Writer {
   }
 
   textAt(text: string, x: number, y: number, size: number, bold = false, color: RGB = INK) {
-    this.page.drawText(safe(text), { x, y, size, font: bold ? this.fonts.bold : this.fonts.regular, color });
+    drawText(this.page, text, { x, y, size, font: bold ? this.fonts.bold : this.fonts.regular, color });
   }
 
   aligned(text: string, align: Align, left: number, width: number, y: number, size: number, bold = false, color: RGB = INK) {
     const font = bold ? this.fonts.bold : this.fonts.regular;
-    const w = font.widthOfTextAtSize(safe(text), size);
+    const w = font.widthOfTextAtSize(text, size);
     const x = align === 'center' ? left + (width - w) / 2 : align === 'right' ? left + width - w : left;
 
     this.textAt(text, x, y, size, bold, color);
@@ -134,14 +120,18 @@ const drawBlock = (w: Writer, block: Block, context: TemplateContext) => {
       break;
     }
     case 'letterhead': {
-      const details = block.showDetails ? wrap(context.values['business.details'] ?? context.values['landlord.details'] ?? '', w.fonts.regular, 9, WIDTH * 0.6) : [];
-      const height = 26 + details.length * 12;
+      // Logo on the left, your name and address beside it.
+      const logo = block.showLogo !== false && w.images.logo ? scaleInto(w.images.logo, 110, 48) : null;
+      const indent = logo ? logo.width + 12 : 0;
+      const details = block.showDetails ? wrap(context.values['business.details'] ?? context.values['landlord.details'] ?? '', w.fonts.regular, 9, WIDTH * 0.6 - indent) : [];
+      const height = Math.max(26 + details.length * 12, logo ? logo.height + 4 : 0);
 
       w.ensure(height + 8);
-      const name = fit(context.values['business.name'] ?? context.values['landlord.name'] ?? '', w.fonts.bold, 14, WIDTH * 0.6);
+      if (logo && w.images.logo) w.page.drawImage(w.images.logo, { x: MARGIN, y: w.y - logo.height - 2, width: logo.width, height: logo.height });
+      const name = fit(context.values['business.name'] ?? context.values['landlord.name'] ?? '', w.fonts.bold, 14, WIDTH * 0.6 - indent);
 
-      w.textAt(name.text, MARGIN, w.y - 16, name.size, true);
-      details.forEach((line, index) => w.textAt(line, MARGIN, w.y - 30 - index * 12, 9, false, MUTED));
+      w.textAt(name.text, MARGIN + indent, w.y - 16, name.size, true);
+      details.forEach((line, index) => w.textAt(line, MARGIN + indent, w.y - 30 - index * 12, 9, false, MUTED));
       const right = fit(v(block.rightText), w.fonts.bold, 14, WIDTH * 0.38);
 
       w.aligned(right.text, 'right', MARGIN, WIDTH, w.y - 18, right.size, true, main);
@@ -151,6 +141,8 @@ const drawBlock = (w: Writer, block: Block, context: TemplateContext) => {
     case 'heading': {
       const size = HEADING[block.size];
 
+      // Never alone at the foot of a page: room for it and a few lines after.
+      w.ensure(wrap(v(block.text), w.fonts.bold, size, WIDTH).length * size * 1.34 + 48);
       w.y -= 4;
       const before = w.y;
 
@@ -236,7 +228,7 @@ const drawBlock = (w: Writer, block: Block, context: TemplateContext) => {
       const labelWidth = 110;
       const left = MARGIN + labelWidth + 10;
       const right = MARGIN + WIDTH - 8;
-      const itemWidth = (label: string) => 14 + w.fonts.regular.widthOfTextAtSize(safe(label), 9) + 14;
+      const itemWidth = (label: string) => 14 + w.fonts.regular.widthOfTextAtSize(label, 9) + 14;
       // Tick boxes flow onto a second line when they don't fit.
       const lines: Array<typeof context.methods> = [[]];
       let x = left;
@@ -289,8 +281,9 @@ const drawBlock = (w: Writer, block: Block, context: TemplateContext) => {
       ];
 
       w.y -= 4;
-      for (const row of rows) {
-        w.ensure(rowHeight);
+      // The header and at least two rows stay together.
+      w.ensure(rowHeight * 3);
+      const drawRow = (row: { a: string; b: string; bold: boolean }) => {
         const bottom = w.y - rowHeight;
 
         w.page.drawRectangle({ x: left, y: bottom, width: tableWidth, height: rowHeight, borderColor: INK, borderWidth: 0.75 });
@@ -298,7 +291,15 @@ const drawBlock = (w: Writer, block: Block, context: TemplateContext) => {
         w.aligned(row.a, 'center', left, half, bottom + 4.5, 9.5, row.bold);
         w.aligned(row.b, 'center', left + half, half, bottom + 4.5, 9.5, row.bold);
         w.y -= rowHeight;
-      }
+      };
+
+      rows.forEach((row, index) => {
+        if (index > 0 && w.y - rowHeight < MARGIN) {
+          w.newPage();
+          drawRow(rows[0]);
+        }
+        drawRow(row);
+      });
       w.y -= 10;
       break;
     }
@@ -307,6 +308,29 @@ const drawBlock = (w: Writer, block: Block, context: TemplateContext) => {
       w.paragraph(v(block.title), { size: 10.5, bold: true, left: MARGIN + 28, width: WIDTH - 28 });
       for (const note of context.notes) w.paragraph(note, { size: 10.5, left: MARGIN + 28, width: WIDTH - 28 });
       w.y -= 5;
+      break;
+    }
+    case 'payment': {
+      const details = v(block.text).trim();
+      const qr = block.showQr && w.images.qr ? scaleInto(w.images.qr, 96, 96) : null;
+
+      if (!details && !qr) break;
+      const textWidth = WIDTH - 28 - (qr ? qr.width + 16 : 0);
+      const lines = details ? wrap(details, w.fonts.regular, 10, textWidth) : [];
+      const height = Math.max(34 + lines.length * 13.5, qr ? qr.height + 20 : 0);
+
+      w.ensure(height + 8);
+      const top = w.y;
+
+      w.page.drawRectangle({ x: MARGIN, y: top - height, width: WIDTH, height, color: soft });
+      const title = fit(v(block.title), w.fonts.bold, 10.5, textWidth);
+
+      w.textAt(title.text, MARGIN + 14, top - 20, title.size, true, main);
+      lines.forEach((line, index) => w.textAt(line, MARGIN + 14, top - 37 - index * 13.5, 10));
+      if (qr && w.images.qr) {
+        w.page.drawImage(w.images.qr, { x: MARGIN + WIDTH - 14 - qr.width, y: top - 10 - qr.height, width: qr.width, height: qr.height });
+      }
+      w.y -= height + 8;
       break;
     }
     case 'signature': {
@@ -322,16 +346,11 @@ const drawBlock = (w: Writer, block: Block, context: TemplateContext) => {
 
       for (const column of columns) {
         w.textAt(v(column.label), column.x, w.y - 12, 10);
-        if (column.image && w.signature) {
+        if (column.image && w.images.signature) {
           // Fits the image in the space above the line.
-          const scale = Math.min(34 / w.signature.height, (colWidth * 0.7) / w.signature.width);
+          const size = scaleInto(w.images.signature, colWidth * 0.7, 34);
 
-          w.page.drawImage(w.signature, {
-            x: column.x,
-            y: w.y - 49,
-            width: w.signature.width * scale,
-            height: w.signature.height * scale,
-          });
+          w.page.drawImage(w.images.signature, { x: column.x, y: w.y - 49, ...size });
         }
         for (let dash = 0; dash < colWidth; dash += 5) {
           w.page.drawLine({ start: { x: column.x + dash, y: w.y - 50 }, end: { x: column.x + Math.min(dash + 3, colWidth), y: w.y - 50 }, thickness: 0.7, color: INK });
@@ -354,8 +373,8 @@ const drawBlock = (w: Writer, block: Block, context: TemplateContext) => {
   }
 };
 
-// Downloads and embeds the signature image (PNG or JPG); none if it can't.
-export const embedSignature = async (doc: PDFDocument, url: string | null | undefined): Promise<PDFImage | null> => {
+// Downloads and embeds an uploaded image (PNG or JPG); none if it can't.
+export const embedImage = async (doc: PDFDocument, url: string | null | undefined): Promise<PDFImage | null> => {
   if (!url) return null;
   try {
     const response = await fetch(url);
@@ -367,29 +386,54 @@ export const embedSignature = async (doc: PDFDocument, url: string | null | unde
 
     return isPng ? await doc.embedPng(bytes) : isJpg ? await doc.embedJpg(bytes) : null;
   } catch (error) {
-    console.warn('[rental] could not add the signature image:', error);
+    console.warn('[rental] could not add an image to the PDF:', error);
 
     return null;
   }
 };
 
+export const embedSignature = embedImage;
+
+// Every page: what this is on the left, "Page 1 of 2" on the right when
+// there's more than one.
+const drawFooters = (pages: PDFPage[], fonts: PdfFonts, title: string, language: TemplateDoc['language']) => {
+  pages.forEach((page, index) => {
+    const label = fit(title, fonts.regular, 7.5, WIDTH * 0.7);
+
+    drawText(page, label.text, { x: MARGIN, y: FOOTER_Y, size: label.size, font: fonts.regular, color: MUTED });
+    if (pages.length > 1) {
+      const n = index + 1;
+      const of = byLanguage(language, `Page ${n} of ${pages.length}`, `Halaman ${n} daripada ${pages.length}`, `第 ${n} / ${pages.length} 页`);
+
+      drawText(page, of, { x: MARGIN + WIDTH - fonts.regular.widthOfTextAtSize(of, 7.5), y: FOOTER_Y, size: 7.5, font: fonts.regular, color: MUTED });
+    }
+  });
+};
+
 export const buildTemplatePdf = async (template: TemplateDoc, context: TemplateContext, title: string): Promise<Uint8Array> => {
   const doc = await PDFDocument.create();
-  const fonts = { regular: await doc.embedFont(StandardFonts.Helvetica), bold: await doc.embedFont(StandardFonts.HelveticaBold) };
-  const accent = (template.accent && ACCENTS[template.accent]) || context.accent;
-  const writer = new Writer(
+  // The fonts for whatever scripts this document's text uses.
+  const fonts = await loadPdfFonts(
     doc,
-    fonts,
-    { main: hex(accent.main), soft: hex(accent.soft), grid: hex(accent.grid) },
-    await embedSignature(doc, context.signatureUrl),
+    [title, JSON.stringify(template.blocks), JSON.stringify(context.values), JSON.stringify(context.months), context.notes.join(' '), JSON.stringify(context.methods), context.amount.words].join(' '),
   );
+  const accent = (template.accent && ACCENTS[template.accent]) || context.accent;
+  const usesPayment = template.blocks.some((block) => block.type === 'payment' && block.showQr && isShown(block, context));
+  const [signature, logo, qr] = await Promise.all([
+    embedImage(doc, context.signatureUrl),
+    template.blocks.some((block) => block.type === 'letterhead') ? embedImage(doc, context.logoUrl) : null,
+    usesPayment ? embedImage(doc, context.paymentQrUrl) : null,
+  ]);
+  const writer = new Writer(doc, fonts, { main: hex(accent.main), soft: hex(accent.soft), grid: hex(accent.grid) }, { signature, logo, qr });
 
-  doc.setTitle(safe(title));
+  doc.setTitle(cleanText(title));
   doc.setProducer('Rental');
 
   for (const block of template.blocks) {
     if (isShown(block, context)) drawBlock(writer, block, context);
   }
+
+  drawFooters(writer.pages, fonts, title, template.language);
 
   if (context.watermark) {
     const mark = context.watermark;
@@ -397,7 +441,7 @@ export const buildTemplatePdf = async (template: TemplateDoc, context: TemplateC
     const markWidth = fonts.bold.widthOfTextAtSize(mark, size);
 
     for (const page of writer.pages) {
-      page.drawText(mark, {
+      drawText(page, mark, {
         x: A4.width / 2 - (markWidth / 2) * Math.cos(Math.PI / 6),
         y: A4.height / 2 + 120 - (markWidth / 2) * Math.sin(Math.PI / 6),
         size,

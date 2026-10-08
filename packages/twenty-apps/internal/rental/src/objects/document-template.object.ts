@@ -45,6 +45,7 @@ export default defineObject({
       options: [
         { id: '91509f7e-9ab4-4e37-919d-1d1adf4cf271', value: 'EN', label: 'English', position: 0, color: 'gray' },
         { id: '10902a06-1b86-4a28-ae2d-98c697d23377', value: 'MS', label: 'Bahasa Melayu', position: 1, color: 'green' },
+        { id: '78e25103-833d-4226-8c57-c5ea33423986', value: 'ZH', label: '中文', position: 2, color: 'red' },
       ],
     },
     {

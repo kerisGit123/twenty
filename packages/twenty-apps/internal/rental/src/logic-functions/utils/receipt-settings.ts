@@ -44,11 +44,21 @@ export type ReceiptSettingsRecord = {
   receivedBy?: string | null;
   footerText?: string | null;
   paymentDetails?: string | null; // {pay_to} in rent reminders
-  // Signed link to the uploaded signature image, if any (read-only).
+  // Signed links to the uploaded images, if any (read-only).
   signatureUrl?: string | null;
+  logoUrl?: string | null;
+  paymentQrUrl?: string | null;
 };
 
 const clean = (value?: string | null) => (value ?? '').trim();
+
+// What documents print from Receipt settings besides text: images and how to pay.
+export const letterheadExtras = (settings?: ReceiptSettingsRecord | null) => ({
+  signatureUrl: settings?.signatureUrl ?? null,
+  logoUrl: settings?.logoUrl ?? null,
+  paymentQrUrl: settings?.paymentQrUrl ?? null,
+  paymentDetails: clean(settings?.paymentDetails) || null,
+});
 
 export const resolveStyle = (settings?: ReceiptSettingsRecord | null): ReceiptStyle => ({
   template: (['CLASSIC', 'MODERN', 'COMPACT'] as const).includes(settings?.template as ReceiptTemplate)

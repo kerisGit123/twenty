@@ -15,6 +15,8 @@ import {
   type Block,
   type BlockType,
   newBlockId,
+  byLanguage,
+  TEMPLATE_LANGUAGES,
   type ShowIf,
   type TemplateContext,
   type TemplateDoc,
@@ -111,6 +113,7 @@ const PALETTE: Array<{ type: BlockType; label: string; icon: string; hint: strin
   { type: 'methods', label: 'Paid by', icon: '☑', hint: 'Payment method tick boxes', kinds: ['RECEIPT'] },
   { type: 'months', label: 'Months table', icon: '▤', hint: 'Month-by-month payments', kinds: ['STATEMENT'] },
   { type: 'notes', label: 'Notes', icon: '✎', hint: 'Automatic notes (deposit, dates)', kinds: ['STATEMENT'] },
+  { type: 'payment', label: 'How to pay', icon: '▣', hint: 'Your bank details and DuitNow QR', kinds: ['RECEIPT', 'STATEMENT'] },
   { type: 'signature', label: 'Signature', icon: '✍', hint: 'One or two signature lines', kinds: ['RECEIPT', 'STATEMENT'] },
   { type: 'divider', label: 'Line', icon: '―', hint: 'Full-width rule', kinds: ['RECEIPT', 'STATEMENT'] },
   { type: 'spacer', label: 'Space', icon: '↕', hint: 'Empty room', kinds: ['RECEIPT', 'STATEMENT'] },
@@ -134,30 +137,39 @@ const SHOW_OPTIONS: Record<TemplateKind, Array<{ value: ShowIf; label: string; b
 const ACCENT_CHOICES: Accent[] = ['TEAL', 'NAVY', 'GREEN', 'MAROON', 'BLACK'];
 
 const makeBlock = (type: BlockType, language: TemplateLanguage): Block => {
-  const ms = language === 'MS';
+  const t = (en: string, ms: string, zh: string) => byLanguage(language, en, ms, zh);
   const id = newBlockId();
 
   switch (type) {
     case 'band':
-      return { id, type, text: ms ? 'TAJUK' : 'TITLE', align: 'center' };
+      return { id, type, text: t('TITLE', 'TAJUK', '标题'), align: 'center' };
     case 'letterhead':
-      return { id, type, rightText: '', showDetails: true };
+      return { id, type, rightText: '', showDetails: true, showLogo: true };
     case 'heading':
-      return { id, type, text: ms ? 'Tajuk' : 'Heading', align: 'left', size: 'md', underline: false };
+      return { id, type, text: t('Heading', 'Tajuk', '标题'), align: 'left', size: 'md', underline: false };
     case 'text':
       return { id, type, text: '', align: 'left', size: 'md', bold: false, muted: false, prefix: '' };
     case 'fields':
       return { id, type, layout: 'grid', columns: 1, rows: [{ label: 'Label', value: '' }] };
     case 'amount':
-      return { id, type, label: ms ? 'Jumlah diterima' : 'Amount received' };
+      return { id, type, label: t('Amount received', 'Jumlah diterima', '已收金额') };
     case 'methods':
-      return { id, type, label: ms ? 'Kaedah bayaran' : 'Paid by' };
+      return { id, type, label: t('Paid by', 'Kaedah bayaran', '付款方式') };
     case 'months':
-      return { id, type, monthLabel: ms ? 'BULAN' : 'MONTH', amountLabel: ms ? 'JUMLAH BAYARAN' : 'AMOUNT PAID', totalLabel: 'TOTAL', emptyText: ms ? 'Tiada bayaran direkodkan' : 'No payments recorded' };
+      return {
+        id,
+        type,
+        monthLabel: t('MONTH', 'BULAN', '月份'),
+        amountLabel: t('AMOUNT PAID', 'JUMLAH BAYARAN', '已付金额'),
+        totalLabel: t('TOTAL', 'TOTAL', '总计'),
+        emptyText: t('No payments recorded', 'Tiada bayaran direkodkan', '没有付款记录'),
+      };
     case 'notes':
-      return { id, type, title: ms ? 'Untuk makluman tuan:' : 'For your information:' };
+      return { id, type, title: t('For your information:', 'Untuk makluman tuan:', '附注：') };
+    case 'payment':
+      return { id, type, title: t('How to pay', 'Cara pembayaran', '付款方式'), text: '{{pay.to}}', showQr: true };
     case 'signature':
-      return { id, type, leftLabel: ms ? 'Yang Benar' : 'Yours faithfully', leftName: '', rightLabel: '', rightName: '', showRight: false };
+      return { id, type, leftLabel: t('Yours faithfully', 'Yang Benar', '此致'), leftName: '', rightLabel: '', rightName: '', showRight: false };
     case 'divider':
       return { id, type };
     case 'spacer':
@@ -178,6 +190,8 @@ const blockSummary = (block: Block) => {
       return block.rows.map((r) => r.label).join(' · ').slice(0, 42);
     case 'letterhead':
       return block.rightText || 'Your name and address';
+    case 'payment':
+      return block.showQr ? 'Details + DuitNow QR' : 'Payment details';
     case 'signature':
       return [block.leftLabel, block.showRight ? block.rightLabel : ''].filter(Boolean).join(' · ');
     default:
@@ -307,6 +321,7 @@ const BlockSettings = ({
               <TextInput value={block.rightText} onFocus={() => onFocus('rightText')} onChange={(rightText) => set({ rightText })} placeholder="No. {{receipt.number}}" />
             </Field>
             <Toggle on={block.showDetails} label="Show your address" onChange={(showDetails) => set({ showDetails })} />
+            <Toggle on={block.showLogo !== false} label="Show your logo (upload it in Receipt settings)" onChange={(showLogo) => set({ showLogo })} />
           </>
         );
       case 'heading':
@@ -412,6 +427,18 @@ const BlockSettings = ({
             </Field>
           </div>
         );
+      case 'payment':
+        return (
+          <>
+            <Field label="Title">
+              <TextInput value={block.title} onFocus={() => onFocus('title')} onChange={(title) => set({ title })} />
+            </Field>
+            <Field label="Details" hint="{{pay.to}} is “How tenants pay you” from Receipt settings.">
+              <TextInput value={block.text} onFocus={() => onFocus('text')} onChange={(text) => set({ text })} placeholder="{{pay.to}}" />
+            </Field>
+            <Toggle on={block.showQr} label="Show your DuitNow QR (upload it in Receipt settings)" onChange={(showQr) => set({ showQr })} />
+          </>
+        );
       case 'notes':
         return (
           <Field label="Title" hint="Notes fill themselves in: stamping date, rent start and end, months paid from the deposit, and the contract's Statement note.">
@@ -484,7 +511,7 @@ const BlockSettings = ({
 
 const fromPreset = (kind: TemplateKind, language: TemplateLanguage, blank = false): Draft => ({
   id: null,
-  name: blank ? (language === 'MS' ? 'Templat baharu' : 'New template') : PRESET_NAMES[kind][language],
+  name: blank ? byLanguage(language, 'New template', 'Templat baharu', '新模板') : PRESET_NAMES[kind][language],
   language,
   accent: null,
   blocks: blank ? [] : presetTemplate(kind, language).blocks,
@@ -502,8 +529,8 @@ const fromSaved = (template: SavedTemplate): Draft => ({
 
 const sampleContext = (kind: TemplateKind, letterhead: Letterhead, variant: 'a' | 'b', language: TemplateLanguage): TemplateContext =>
   kind === 'RECEIPT'
-    ? receiptContext(sampleReceipt(letterhead, variant === 'b', true), language, letterhead.signatureUrl)
-    : statementContext(sampleStatement(letterhead, variant === 'b'), language, letterhead.accent, letterhead.signatureUrl);
+    ? receiptContext(sampleReceipt(letterhead, variant === 'b', true), language, letterhead)
+    : statementContext(sampleStatement(letterhead, variant === 'b'), language, letterhead.accent, letterhead);
 
 // Shows {{placeholders}} instead of sample values.
 const rawContext = (context: TemplateContext, kind: TemplateKind): TemplateContext => ({
@@ -828,6 +855,7 @@ const TemplateDesigner = () => {
                   {[
                     { label: 'English sample', hint: 'Ready-made, in English', run: () => open(fromPreset(kind, 'EN')) },
                     { label: 'Malay sample', hint: 'Siap sedia, dalam Bahasa Melayu', run: () => open(fromPreset(kind, 'MS')) },
+                    { label: 'Chinese sample', hint: '现成的中文模板', run: () => open(fromPreset(kind, 'ZH')) },
                     { label: 'Blank page', hint: 'Start from nothing', run: () => open(fromPreset(kind, 'EN', true)) },
                   ].map((item) => (
                     <button
@@ -868,9 +896,26 @@ const TemplateDesigner = () => {
               )}
             </div>
           </div>
+          {(
+            [
+              ['Logo', letterhead.logoUrl],
+              ['DuitNow QR', letterhead.paymentQrUrl],
+            ] as const
+          ).map(([label, url]) => (
+            <div key={label} style={{ flex: '0 1 90px' }}>
+              <div style={sectionTitle}>{label}</div>
+              <div style={{ height: 44, display: 'flex', alignItems: 'center', marginTop: 4 }}>
+                {url ? (
+                  <img src={url} alt={label} style={{ maxHeight: 44, maxWidth: 90, objectFit: 'contain', background: '#fff', borderRadius: 4 }} />
+                ) : (
+                  <span style={{ fontSize: 12, color: c.text3 }}>Not uploaded</span>
+                )}
+              </div>
+            </div>
+          ))}
           {canEdit && (
             <button onClick={openLetterhead} disabled={busy} style={button()}>
-              Edit letterhead &amp; signature
+              Edit letterhead, logo &amp; QR
             </button>
           )}
         </div>
@@ -885,7 +930,7 @@ const TemplateDesigner = () => {
               </button>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ flex: 1, fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{template.name}</span>
-                <Badge>{template.language === 'MS' ? 'BM' : 'EN'}</Badge>
+                <Badge>{TEMPLATE_LANGUAGES.find((l) => l.value === template.language)?.short ?? 'EN'}</Badge>
                 {template.isDefault && <Badge tone="blue">★ Default</Badge>}
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
@@ -907,7 +952,7 @@ const TemplateDesigner = () => {
           ))}
 
           {templates.length === 0 &&
-            (['EN', 'MS'] as TemplateLanguage[]).map((language) => (
+            TEMPLATE_LANGUAGES.map(({ value: language }) => (
               <div key={language} style={{ ...card, padding: 10, borderStyle: 'dashed' }}>
                 <button onClick={() => open(fromPreset(kind, language))} style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
                   {thumb(presetTemplate(kind, language), language)}
@@ -1019,10 +1064,10 @@ const TemplateDesigner = () => {
           ＋ Add block
         </button>
       )}
-      <div style={{ ...chipGroup, width: 150 }}>
+      <div style={{ ...chipGroup, width: 190 }}>
         <Choice
           value={draft.language}
-          options={[{ value: 'EN', label: 'EN' }, { value: 'MS', label: 'BM' }]}
+          options={TEMPLATE_LANGUAGES.map((l) => ({ value: l.value, label: l.short }))}
           onChange={(language) => canEdit && setDraft((current) => ({ ...current, language }))}
         />
       </div>
@@ -1221,7 +1266,7 @@ const TemplateDesigner = () => {
           <textarea
             value={block.text}
             rows={rows}
-            placeholder={draft.language === 'MS' ? 'Tulis di sini…' : 'Type here…'}
+            placeholder={byLanguage(draft.language, 'Type here…', 'Tulis di sini…', '在此输入…')}
             onFocus={() => setFocus({ blockId: block.id, path: 'text' })}
             onChange={(e) => updateBlock({ ...block, text: readValue(e) } as Block)}
             style={style}
@@ -1232,7 +1277,7 @@ const TemplateDesigner = () => {
     );
   };
 
-  const hasTextFields = (block: Block) => ['letterhead', 'fields', 'signature', 'amount', 'methods'].includes(block.type);
+  const hasTextFields = (block: Block) => ['letterhead', 'fields', 'signature', 'amount', 'methods', 'payment'].includes(block.type);
 
   const settingsDrawer = (block: Block) =>
     canEdit ? (

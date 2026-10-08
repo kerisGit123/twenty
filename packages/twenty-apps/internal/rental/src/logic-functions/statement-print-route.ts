@@ -3,6 +3,7 @@ import { Response } from 'twenty-sdk/logic-function';
 
 import { STATEMENT_PRINT_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers-v3';
 import { loadReceiptSettings } from 'src/logic-functions/handlers/send-receipt-handler';
+import { letterheadExtras } from 'src/logic-functions/utils/receipt-settings';
 import { appClient } from 'src/logic-functions/utils/app-client';
 import { pdfPageResponse } from 'src/logic-functions/utils/pdf-page';
 import { resolveScope } from 'src/logic-functions/utils/scope';
@@ -10,6 +11,7 @@ import { loadStatementSource } from 'src/logic-functions/utils/statement-data';
 import { buildTemplatePdf } from 'src/logic-functions/utils/template-pdf';
 import { pickTemplate } from 'src/logic-functions/utils/templates';
 import { statementContext } from 'src/shared/doc-template/context';
+import { byLanguage } from 'src/shared/doc-template/types';
 
 // GET /s/statements/print?rental=<id>&year=2025[&template=<id>]: the tenant
 // year statement as a PDF, drawn with the chosen (else default) template.
@@ -35,17 +37,20 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
     if (!source) return html("<p>You don't have access to this contract.</p>", 403);
 
-    const ctx = statementContext(source, template.language, (settings?.accentColor as string | null) ?? 'BLACK', settings?.signatureUrl);
+    const ctx = statementContext(source, template.language, (settings?.accentColor as string | null) ?? 'BLACK', letterheadExtras(settings));
     const tenant = ctx.values['tenant.name'] || 'tenant';
-    const title = `${template.language === 'MS' ? 'Penyata sewa' : 'Rent statement'} ${year} - ${tenant}`;
+    const title = `${byLanguage(template.language, 'Rent statement', 'Penyata sewa', '租金结单')} ${year} - ${tenant}`;
     const pdf = await buildTemplatePdf(template, ctx, title);
 
-    const share =
-      template.language === 'MS'
-        ? `Salam, dilampirkan penyata pembayaran sewa bagi tahun ${year}. Terima kasih.`
-        : `Hi, attached is your rent statement for ${year}. Thank you.`;
+    const share = byLanguage(
+      template.language,
+      `Hi, attached is your rent statement for ${year}. Thank you.`,
+      `Salam, dilampirkan penyata pembayaran sewa bagi tahun ${year}. Terima kasih.`,
+      `您好，附上${year}年的租金结单。谢谢。`,
+    );
 
-    return pdfPageResponse(pdf, `${title.replace(/[^\w\- ]+/g, '').trim()}.pdf`, title, { text: share });
+    // Keeps Chinese / Tamil names; drops only what file names can't hold.
+    return pdfPageResponse(pdf, `${title.replace(/[\\/:*?"<>|]+/g, '').trim()}.pdf`, title, { text: share });
   } catch (error) {
     console.error('[rental] statement print failed:', error);
 

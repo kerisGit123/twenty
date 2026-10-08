@@ -15,7 +15,7 @@ const SPACER = { sm: '0.7em', md: '1.6em', lg: '2.9em' };
 
 const lines = (text: string) => text.split('\n').map((line, index) => (index === 0 ? line : [<br key={index} />, line]));
 
-const BlockView = ({ block, context }: { block: Block; context: TemplateContext }) => {
+const BlockView = ({ block, context, editing }: { block: Block; context: TemplateContext; editing: boolean }) => {
   const v = (text: string) => fill(text, context.values);
   const { main, soft, grid } = context.accent;
 
@@ -29,6 +29,9 @@ const BlockView = ({ block, context }: { block: Block; context: TemplateContext 
     case 'letterhead':
       return (
         <div style={{ display: 'flex', gap: '1em', alignItems: 'flex-start', padding: '0.4em 0' }}>
+          {block.showLogo !== false && context.logoUrl ? (
+            <img src={context.logoUrl} alt="" style={{ maxHeight: '4.4em', maxWidth: '10em', objectFit: 'contain', flexShrink: 0 }} />
+          ) : null}
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: '1.3em' }}>{context.values['business.name'] ?? context.values['landlord.name']}</div>
             {block.showDetails && (
@@ -148,6 +151,29 @@ const BlockView = ({ block, context }: { block: Block; context: TemplateContext 
           ))}
         </div>
       );
+    case 'payment': {
+      const details = v(block.text).trim();
+      const qr = block.showQr ? context.paymentQrUrl : null;
+
+      // Nothing to show until Receipt settings has how to pay or a QR.
+      if (!details && !qr) {
+        return editing ? (
+          <div style={{ background: soft, padding: '0.8em 1.1em', margin: '0.3em 0 0.6em', color: MUTED, fontSize: '0.85em' }}>
+            <b style={{ color: main }}>{v(block.title)}</b> — add “How tenants pay you” and your DuitNow QR in Receipt settings; it shows here.
+          </div>
+        ) : null;
+      }
+
+      return (
+        <div style={{ background: soft, padding: '0.8em 1.1em', margin: '0.3em 0 0.6em', display: 'flex', gap: '1em', alignItems: 'flex-start' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ color: main, fontWeight: 700, marginBottom: '0.3em' }}>{v(block.title)}</div>
+            <div>{lines(details)}</div>
+          </div>
+          {qr ? <img src={qr} alt="DuitNow QR" style={{ width: '8.5em', height: '8.5em', objectFit: 'contain', flexShrink: 0, background: '#fff' }} /> : null}
+        </div>
+      );
+    }
     case 'signature': {
       const side = block.signatureOn ?? 'left';
       const column = (label: string, name: string, withImage: boolean) => (
@@ -214,7 +240,8 @@ export const TemplatePreview = ({
         position: 'relative',
         background: '#fff',
         color: INK,
-        fontFamily: 'Helvetica, Arial, sans-serif',
+        // As the PDF: Noto Sans (and its Chinese / Tamil faces) where installed.
+        fontFamily: "'Noto Sans', 'Noto Sans SC', 'Noto Sans Tamil', Helvetica, Arial, sans-serif",
         fontSize: 11 * scale,
         lineHeight: 1.42,
         padding: '2.2em 2.6em',
@@ -249,7 +276,7 @@ export const TemplatePreview = ({
                 borderRadius: 2,
               }}
             >
-              {inPlace ?? <BlockView block={block} context={ctx} />}
+              {inPlace ?? <BlockView block={block} context={ctx} editing={Boolean(onSelect)} />}
             </div>
             {selected && renderEditor ? renderEditor(block) : null}
           </div>

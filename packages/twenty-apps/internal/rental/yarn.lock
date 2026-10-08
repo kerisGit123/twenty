@@ -712,6 +712,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@pdf-lib/fontkit@npm:^1.1.1":
+  version: 1.1.1
+  resolution: "@pdf-lib/fontkit@npm:1.1.1"
+  dependencies:
+    pako: "npm:^1.0.6"
+  checksum: 10c0/cf8d07a3d895b6d62476d8e21213a896f4475f4444689aa864f7b18969df55950cccac3196c58fddc67a82df6703791bbf4074ac552a1cd4d77134877a88be4e
+  languageName: node
+  linkType: hard
+
 "@pdf-lib/standard-fonts@npm:^1.0.0":
   version: 1.0.0
   resolution: "@pdf-lib/standard-fonts@npm:1.0.0"
@@ -768,6 +777,13 @@ __metadata:
   dependencies:
     csstype: "npm:^3.2.2"
   checksum: 10c0/fbcabf303f935ca9f36ed2dcf81751cf84744098c5a683c8a62a0fa7edd31714b48d5c46b12fd0014f7f2dfe4d9ec6de428a850748eec719a70294e51029551b
+  languageName: node
+  linkType: hard
+
+"@types/regenerator-runtime@npm:^0":
+  version: 0.13.8
+  resolution: "@types/regenerator-runtime@npm:0.13.8"
+  checksum: 10c0/10c094584c097aec51a29f598425306febab764f054db14d5dd892961bf97c96272d620af5bd6e4c5f7d20c4e5b9ce98b6069b0f009cfc57f54614b33760b86e
   languageName: node
   linkType: hard
 
@@ -1641,15 +1657,25 @@ __metadata:
   languageName: node
   linkType: hard
 
+"regenerator-runtime@npm:^0.13.11":
+  version: 0.13.11
+  resolution: "regenerator-runtime@npm:0.13.11"
+  checksum: 10c0/12b069dc774001fbb0014f6a28f11c09ebfe3c0d984d88c9bced77fdb6fedbacbca434d24da9ae9371bfbf23f754869307fb51a4c98a8b8b18e5ef748677ca24
+  languageName: node
+  linkType: hard
+
 "rental@workspace:.":
   version: 0.0.0-use.local
   resolution: "rental@workspace:."
   dependencies:
+    "@pdf-lib/fontkit": "npm:^1.1.1"
     "@types/node": "npm:^24.7.2"
     "@types/react": "npm:^19.0.0"
+    "@types/regenerator-runtime": "npm:^0"
     pdf-lib: "npm:^1.17.1"
     react: "npm:^19.0.0"
     react-dom: "npm:^19.0.0"
+    regenerator-runtime: "npm:^0.13.11"
     twenty-client-sdk: "npm:2.43.0"
     twenty-sdk: "patch:twenty-sdk@npm%3A2.43.0#~/.yarn/patches/twenty-sdk-npm-2.43.0-49f948753e.patch"
     typescript: "npm:^5.9.3"

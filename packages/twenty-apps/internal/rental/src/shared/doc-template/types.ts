@@ -5,7 +5,16 @@
 
 export type TemplateKind = 'RECEIPT' | 'STATEMENT';
 
-export type TemplateLanguage = 'EN' | 'MS';
+export type TemplateLanguage = 'EN' | 'MS' | 'ZH';
+
+export const TEMPLATE_LANGUAGES: Array<{ value: TemplateLanguage; label: string; short: string }> = [
+  { value: 'EN', label: 'English', short: 'EN' },
+  { value: 'MS', label: 'Bahasa Melayu', short: 'BM' },
+  { value: 'ZH', label: '中文', short: '中文' },
+];
+
+// Picks the text for a language.
+export const byLanguage = (language: TemplateLanguage, en: string, ms: string, zh: string) => (language === 'MS' ? ms : language === 'ZH' ? zh : en);
 
 export type Align = 'left' | 'center' | 'right';
 
@@ -18,7 +27,8 @@ type Base = { id: string; showIf?: ShowIf };
 export type Block = Base &
   (
     | { type: 'band'; text: string; align: Align } // coloured title bar
-    | { type: 'letterhead'; rightText: string; showDetails: boolean } // your name + address, text on the right
+    // Your logo (if uploaded; showLogo false hides it) + name + address, text on the right
+    | { type: 'letterhead'; rightText: string; showDetails: boolean; showLogo?: boolean }
     | { type: 'heading'; text: string; align: Align; size: 'sm' | 'md' | 'lg'; underline: boolean }
     | { type: 'text'; text: string; align: Align; size: 'sm' | 'md'; bold: boolean; muted: boolean; prefix: string }
     | { type: 'fields'; layout: 'grid' | 'lines'; columns: 1 | 2; rows: Array<{ label: string; value: string }> }
@@ -26,6 +36,7 @@ export type Block = Base &
     | { type: 'methods'; label: string } // payment method tick boxes
     | { type: 'months'; monthLabel: string; amountLabel: string; totalLabel: string; emptyText: string }
     | { type: 'notes'; title: string } // the statement's automatic notes
+    | { type: 'payment'; title: string; text: string; showQr: boolean } // how to pay: your details + DuitNow QR
     | {
         type: 'signature';
         leftLabel: string;
@@ -63,7 +74,12 @@ export type TemplateContext = {
   watermark: 'DRAFT' | 'VOID' | null;
   accent: { main: string; soft: string; grid: string };
   signatureUrl?: string | null; // your uploaded signature image
+  logoUrl?: string | null; // your uploaded logo
+  paymentQrUrl?: string | null; // your DuitNow QR image
 };
+
+// The letterhead images a context is drawn with.
+export type ContextImages = { signatureUrl?: string | null; logoUrl?: string | null; paymentQrUrl?: string | null };
 
 // Replaces {{name}} with its value; unknown names are left visible so a typo
 // shows up in the preview.

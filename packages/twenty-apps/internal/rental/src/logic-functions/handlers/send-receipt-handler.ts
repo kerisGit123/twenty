@@ -12,6 +12,7 @@ import {
   type ReceiptSettingsRecord,
   resolveStyle,
   resolveTitle,
+  letterheadExtras,
 } from 'src/logic-functions/utils/receipt-settings';
 import {
   publicFileUrl,
@@ -160,6 +161,8 @@ export const loadReceiptSettings = async (
             footerText: true,
             paymentDetails: true,
             signature: { url: true },
+            logo: { url: true },
+            paymentQr: { url: true },
           },
         },
       },
@@ -168,9 +171,18 @@ export const loadReceiptSettings = async (
 
     if (!node) return null;
 
-    const { signature, ...rest } = node as typeof node & { signature?: Array<{ url?: string | null }> | null };
+    const { signature, logo, paymentQr, ...rest } = node as typeof node & {
+      signature?: Array<{ url?: string | null }> | null;
+      logo?: Array<{ url?: string | null }> | null;
+      paymentQr?: Array<{ url?: string | null }> | null;
+    };
 
-    return { ...(rest as ReceiptSettingsRecord), signatureUrl: signature?.[0]?.url ?? null };
+    return {
+      ...(rest as ReceiptSettingsRecord),
+      signatureUrl: signature?.[0]?.url ?? null,
+      logoUrl: logo?.[0]?.url ?? null,
+      paymentQrUrl: paymentQr?.[0]?.url ?? null,
+    };
   } catch (error) {
     console.warn('[rental] could not read receipt settings:', error);
 
@@ -411,7 +423,7 @@ export const receiptHandler = async (
         ? { ...snapshot, watermark: currentStatus === 'VOID' ? ('VOID' as const) : null }
         : receiptData;
 
-    return { success: true, message: 'ok', receiptNumber, receipt: { ...shown, signatureUrl: settings?.signatureUrl ?? null } };
+    return { success: true, message: 'ok', receiptNumber, receipt: { ...shown, ...letterheadExtras(settings) } };
   }
 
   const printed = mode === 'void' && snapshot ? { ...snapshot, watermark: 'VOID' as const } : receiptData;
@@ -419,7 +431,7 @@ export const receiptHandler = async (
     printed.template && printed.facts
       ? await buildTemplatePdf(
           printed.template,
-          receiptContext({ ...printed.facts, watermark: printed.watermark ?? null }, printed.template.language, settings?.signatureUrl),
+          receiptContext({ ...printed.facts, watermark: printed.watermark ?? null }, printed.template.language, letterheadExtras(settings)),
           `${printed.title} ${printed.receiptNumber}`,
         )
       : await buildReceiptPdf(printed);

@@ -93,5 +93,12 @@ export default defineApplication({
       value: '',
       isSecret: false,
     },
+    PDF_FONT_CACHE_DIR: {
+      universalIdentifier: '46f1e25a-2107-4319-af62-eba539396b87',
+      description:
+        'Folder where PDF fonts (Noto Sans, Chinese, Tamil) are kept after the first download. Leave empty to use the temp folder.',
+      value: '',
+      isSecret: false,
+    },
   },
 });

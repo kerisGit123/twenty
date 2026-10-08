@@ -4,6 +4,7 @@ import { Response } from 'twenty-sdk/logic-function';
 import { TEMPLATES_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers-v3';
 import { loadReceiptSettings } from 'src/logic-functions/handlers/send-receipt-handler';
 import { appClient } from 'src/logic-functions/utils/app-client';
+import { letterheadExtras } from 'src/logic-functions/utils/receipt-settings';
 import { resolveScope } from 'src/logic-functions/utils/scope';
 import { loadTemplates } from 'src/logic-functions/utils/templates';
 import { type Block, type TemplateKind, type TemplateLanguage } from 'src/shared/doc-template/types';
@@ -12,7 +13,7 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
 const KINDS: TemplateKind[] = ['RECEIPT', 'STATEMENT'];
-const LANGUAGES: TemplateLanguage[] = ['EN', 'MS'];
+const LANGUAGES: TemplateLanguage[] = ['EN', 'MS', 'ZH'];
 
 // POST { action } for the template editor:
 //   list { kind? }                                -> saved templates + your letterhead (for the preview)
@@ -51,7 +52,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
           footer: settings?.footerText ?? '',
           rentTitle: settings?.rentTitle ?? '',
           depositTitle: settings?.depositTitle ?? '',
-          signatureUrl: settings?.signatureUrl ?? null,
+          ...letterheadExtras(settings),
         },
       });
     }

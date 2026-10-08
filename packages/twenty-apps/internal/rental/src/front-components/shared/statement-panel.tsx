@@ -4,9 +4,9 @@ import { enqueueSnackbar } from 'twenty-sdk/front-component';
 
 import { TemplatePreview } from 'src/front-components/shared/template-preview';
 import type { SavedTemplate } from 'src/logic-functions/utils/templates';
-import { statementContext } from 'src/shared/doc-template/context';
+import { statementContext, type LetterheadExtras } from 'src/shared/doc-template/context';
 import { presetTemplate } from 'src/shared/doc-template/presets';
-import { type TemplateDoc } from 'src/shared/doc-template/types';
+import { type TemplateDoc, byLanguage } from 'src/shared/doc-template/types';
 import { type TenantPhone, whatsappLink } from 'src/shared/whatsapp-link';
 import { type StatementSource } from 'src/shared/year-statement';
 
@@ -64,9 +64,8 @@ type StatementResponse = {
   source?: StatementSource;
   templates?: SavedTemplate[];
   accent?: string;
-  signatureUrl?: string | null;
   message?: string;
-};
+} & LetterheadExtras;
 
 export const StatementPanel = ({
   rentalId,
@@ -88,7 +87,7 @@ export const StatementPanel = ({
   const [templates, setTemplates] = useState<SavedTemplate[]>([]);
   const [templateId, setTemplateId] = useState('');
   const [accent, setAccent] = useState('BLACK');
-  const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
+  const [extras, setExtras] = useState<LetterheadExtras>({});
   const [tenantDetails, setTenantDetails] = useState('');
   const [note, setNote] = useState('');
   const [saved, setSaved] = useState({ tenantDetails: '', note: '' });
@@ -111,7 +110,7 @@ export const StatementPanel = ({
         setSource(result.source);
         setTemplates(result.templates ?? []);
         setAccent(result.accent ?? 'BLACK');
-        setSignatureUrl(result.signatureUrl ?? null);
+        setExtras({ signatureUrl: result.signatureUrl, logoUrl: result.logoUrl, paymentQrUrl: result.paymentQrUrl, paymentDetails: result.paymentDetails });
         setTemplateId((current) => current || (result.templates ?? []).find((t) => t.isDefault)?.id || '');
         setTenantDetails(result.source.rental.tenantDetails);
         setNote(result.source.rental.statementNote);
@@ -130,9 +129,9 @@ export const StatementPanel = ({
   const context = useMemo(
     () =>
       source
-        ? statementContext({ ...source, rental: { ...source.rental, tenantDetails, statementNote: note } }, template.language, accent, signatureUrl)
+        ? statementContext({ ...source, rental: { ...source.rental, tenantDetails, statementNote: note } }, template.language, accent, extras)
         : null,
-    [source, tenantDetails, note, template.language, accent, signatureUrl],
+    [source, tenantDetails, note, template.language, accent, extras],
   );
   const dirty = tenantDetails !== saved.tenantDetails || note !== saved.note;
 
@@ -162,20 +161,21 @@ export const StatementPanel = ({
   });
 
   // A short summary in the template's language.
-  const ms = template.language === 'MS';
+  const t = (en: string, ms: string, zh: string) => byLanguage(template.language, en, ms, zh);
   const owed = context?.flags.includes('arrears');
+  const firstName = tenantName.split(' ')[0];
+  const payTo = context?.values['pay.to'];
   const whatsappText = context
     ? [
-        `${ms ? 'Salam' : 'Hi'} ${tenantName.split(' ')[0] || (ms ? 'tuan' : 'there')},`,
-        ms ? `Rekod pembayaran sewa ${propertyName} bagi tahun ${year}:` : `Rent received for ${propertyName} in ${year}:`,
+        t(`Hi ${firstName || 'there'},`, `Salam ${firstName || 'tuan'},`, `${tenantName || ''}您好，`),
+        t(`Rent received for ${propertyName} in ${year}:`, `Rekod pembayaran sewa ${propertyName} bagi tahun ${year}:`, `${propertyName} ${year}年的租金记录：`),
         ...context.months.map((row) => `- ${row.month.charAt(0)}${row.month.slice(1).toLowerCase()}: ${row.amount}`),
-        `${ms ? 'Jumlah' : 'Total'}: ${context.total}`,
+        `${t('Total', 'Jumlah', '总计')}: ${context.total}`,
         owed
-          ? `${ms ? 'Tunggakan' : 'Still owed'}: ${context.values['arrears.months']} ${year}.`
-          : ms
-            ? `Tiada tunggakan sewa bagi tahun ${year}.`
-            : `No rent outstanding for ${year}.`,
-        ms ? 'Surat penuh akan dihantar berasingan. Terima kasih.' : 'The full letter will follow separately. Thank you.',
+          ? t(`Still owed: ${context.values['arrears.months']} ${year}.`, `Tunggakan: ${context.values['arrears.months']} ${year}.`, `尚欠：${year}年${context.values['arrears.months']}。`)
+          : t(`No rent outstanding for ${year}.`, `Tiada tunggakan sewa bagi tahun ${year}.`, `${year}年并无拖欠租金。`),
+        ...(owed && payTo ? [`${t('Pay to', 'Bayar ke', '付款至')}: ${payTo}`] : []),
+        t('The full letter will follow separately. Thank you.', 'Surat penuh akan dihantar berasingan. Terima kasih.', '正式信函将另行发送。谢谢。'),
       ].join('\n')
     : '';
   const whatsapp = context ? whatsappLink(tenantPhone, whatsappText) : null;
@@ -239,7 +239,7 @@ export const StatementPanel = ({
           <textarea
             value={note}
             onChange={(e) => setNote(readValue(e))}
-            placeholder={ms ? `Bagi bulan Oktober ${year}, sewa telah dipotong daripada deposit.` : `October ${year} rent was taken from the deposit.`}
+            placeholder={t(`October ${year} rent was taken from the deposit.`, `Bagi bulan Oktober ${year}, sewa telah dipotong daripada deposit.`, `${year}年十月的租金已从按金中扣除。`)}
             rows={2}
             style={{ ...control, resize: 'vertical' }}
           />

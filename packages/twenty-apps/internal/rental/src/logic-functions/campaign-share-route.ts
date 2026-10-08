@@ -3,6 +3,7 @@ import { Response } from 'twenty-sdk/logic-function';
 
 import { CAMPAIGN_SHARE_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers-v4';
 import { loadReceiptSettings } from 'src/logic-functions/handlers/send-receipt-handler';
+import { letterheadExtras } from 'src/logic-functions/utils/receipt-settings';
 import { appClient } from 'src/logic-functions/utils/app-client';
 import { inScope, resolveScope } from 'src/logic-functions/utils/scope';
 import { buildSmartRecipients, type SmartRecipient } from 'src/logic-functions/utils/smart-audience';
@@ -11,6 +12,7 @@ import { buildTemplatePdf } from 'src/logic-functions/utils/template-pdf';
 import { pickTemplate } from 'src/logic-functions/utils/templates';
 import { DEFAULT_SOURCE_OPTIONS, isVideo, type Language, messageFor, type SourceOptions } from 'src/shared/campaigns';
 import { statementContext } from 'src/shared/doc-template/context';
+import { byLanguage } from 'src/shared/doc-template/types';
 import { toE164 } from 'src/shared/whatsapp-link';
 
 // GET /s/campaigns/share?id=<campaign>[&person=<person> | &key=<row>][&lang=EN|MS|ZH]
@@ -179,11 +181,30 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       const [statement, template, settings] = await Promise.all([loadStatementSource(client, scope, rentalId, year), pickTemplate(client, 'STATEMENT'), loadReceiptSettings(client)]);
 
       if (statement) {
-        const ctx = statementContext(statement, template.language, (settings?.accentColor as string | null) ?? 'BLACK', settings?.signatureUrl);
-        const title = `${template.language === 'MS' ? 'Penyata sewa' : 'Rent statement'} ${year} - ${ctx.values['tenant.name'] || 'tenant'}`;
+        const ctx = statementContext(statement, template.language, (settings?.accentColor as string | null) ?? 'BLACK', letterheadExtras(settings));
+        const title = `${byLanguage(template.language, 'Rent statement', 'Penyata sewa', '租金结单')} ${year} - ${ctx.values['tenant.name'] || 'tenant'}`;
         const pdf = await buildTemplatePdf(template, ctx, title);
 
-        files.unshift({ name: `${title.replace(/[^\w\- ]+/g, '').trim()}.pdf`, type: 'application/pdf', data: Buffer.from(pdf).toString('base64'), video: false });
+        files.unshift({ name: `${title.replace(/[\\/:*?"<>|]+/g, '').trim()}.pdf`, type: 'application/pdf', data: Buffer.from(pdf).toString('base64'), video: false });
+      }
+    }
+    // Rent reminders carry your DuitNow QR, so the tenant can scan and pay.
+    if (campaign.source === 'RENT_DUE' && row) {
+      const settings = await loadReceiptSettings(client);
+
+      // An extra: the page still opens if the QR can't be fetched.
+      try {
+        if (settings?.paymentQrUrl) {
+          const parsed = new URL(settings.paymentQrUrl);
+          const response = await fetch(`${process.env.TWENTY_API_URL}${parsed.pathname}${parsed.search}`);
+          const type = response.headers.get('content-type') ?? '';
+
+          if (response.ok && type.startsWith('image/')) {
+            files.push({ name: `DuitNow QR.${type.includes('png') ? 'png' : 'jpg'}`, type, data: Buffer.from(await response.arrayBuffer()).toString('base64'), video: false });
+          }
+        }
+      } catch (error) {
+        console.warn('[rental] could not add the DuitNow QR:', error);
       }
     }
     const onlyPdf = files.length > 0 && files.every((f) => f.type === 'application/pdf');

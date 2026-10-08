@@ -1,4 +1,4 @@
-import { PDFDocument, type PDFFont, type PDFPage, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, type PDFPage, rgb } from 'pdf-lib';
 import { defineLogicFunction, type RoutePayload } from 'twenty-sdk/define';
 import { Response } from 'twenty-sdk/logic-function';
 
@@ -8,6 +8,7 @@ import { loadContractsData } from 'src/logic-functions/page-data/contracts-data'
 import { appClient } from 'src/logic-functions/utils/app-client';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { pdfPageResponse } from 'src/logic-functions/utils/pdf-page';
+import { cleanText, drawText, loadPdfFonts, type TextFont } from 'src/logic-functions/utils/pdf-fonts';
 import { resolveScope } from 'src/logic-functions/utils/scope';
 import { embedSignature } from 'src/logic-functions/utils/template-pdf';
 import { parseDeductions } from 'src/shared/contracts';
@@ -63,7 +64,7 @@ const WORDS = {
   },
 };
 
-const safe = (text: string) => (text ?? '').replace(/[^\x20-\x7E -ÿ\n]/g, '').trim();
+const safe = (text: string) => cleanText(text).trim();
 const rm = (value: number) => `RM ${value.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const html = (body: string, status = 200) =>
   new Response(`<!doctype html><meta charset="utf-8"><body style="font-family:sans-serif;padding:24px">${body}</body>`, {
@@ -100,14 +101,14 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     // ---- draw
     const doc = await PDFDocument.create();
     const page: PDFPage = doc.addPage([595.28, 841.89]);
-    const regular = await doc.embedFont(StandardFonts.Helvetica);
-    const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+    // Names and addresses in any script.
+    const { regular, bold } = await loadPdfFonts(doc, JSON.stringify(contract) + JSON.stringify(settings ?? {}));
     const left = 56;
     const right = 595.28 - 56;
     let y = 790;
-    const text = (value: string, x: number, size = 10.5, font: PDFFont = regular, color = INK) => page.drawText(safe(value), { x, y, size, font, color });
-    const textRight = (value: string, size = 10.5, font: PDFFont = regular, color = INK) =>
-      page.drawText(safe(value), { x: right - font.widthOfTextAtSize(safe(value), size), y, size, font, color });
+    const text = (value: string, x: number, size = 10.5, font: TextFont = regular, color = INK) => drawText(page, safe(value), { x, y, size, font, color });
+    const textRight = (value: string, size = 10.5, font: TextFont = regular, color = INK) =>
+      drawText(page, safe(value), { x: right - font.widthOfTextAtSize(safe(value), size), y, size, font, color });
     const rule = (thick = 0.6, color = LINE) => page.drawLine({ start: { x: left, y }, end: { x: right, y }, thickness: thick, color });
 
     const landlord = settings?.businessName?.trim() || '';

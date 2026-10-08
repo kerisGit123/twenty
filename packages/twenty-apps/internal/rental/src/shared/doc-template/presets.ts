@@ -1,7 +1,7 @@
-import { type Block, type TemplateDoc, type TemplateKind, type TemplateLanguage } from 'src/shared/doc-template/types';
+import { type Block, byLanguage, type TemplateDoc, type TemplateKind, type TemplateLanguage } from 'src/shared/doc-template/types';
 
-// Sample templates, in English (the default) and Malay. A new template
-// starts as a copy of one of these.
+// Sample templates, in English (the default), Malay and Chinese. A new
+// template starts as a copy of one of these.
 
 const text = (id: string, value: string, extra: Partial<Extract<Block, { type: 'text' }>> = {}): Block => ({
   id,
@@ -16,27 +16,29 @@ const text = (id: string, value: string, extra: Partial<Extract<Block, { type: '
 });
 
 const receipt = (language: TemplateLanguage): TemplateDoc => {
-  const ms = language === 'MS';
+  const t = (en: string, ms: string, zh: string) => byLanguage(language, en, ms, zh);
+  // Malay and Chinese name the receipt themselves; English uses Receipt settings.
+  const fixedTitles = language !== 'EN';
 
   return {
     kind: 'RECEIPT',
     language,
     blocks: [
-      ms
-        ? { id: 'r-band-rent', type: 'band', text: 'RESIT SEWA', align: 'center', showIf: 'rent' }
+      fixedTitles
+        ? { id: 'r-band-rent', type: 'band', text: t('', 'RESIT SEWA', '租金收据'), align: 'center', showIf: 'rent' }
         : { id: 'r-band', type: 'band', text: '{{receipt.title}}', align: 'center' },
-      ...(ms ? [{ id: 'r-band-dep', type: 'band', text: 'RESIT DEPOSIT', align: 'center', showIf: 'deposit' } as Block] : []),
-      { id: 'r-head', type: 'letterhead', rightText: 'No. {{receipt.number}}', showDetails: true },
+      ...(fixedTitles ? [{ id: 'r-band-dep', type: 'band', text: t('', 'RESIT DEPOSIT', '按金收据'), align: 'center', showIf: 'deposit' } as Block] : []),
+      { id: 'r-head', type: 'letterhead', rightText: t('No. {{receipt.number}}', 'No. {{receipt.number}}', '编号 {{receipt.number}}'), showDetails: true },
       {
         id: 'r-main',
         type: 'fields',
         layout: 'grid',
         columns: 2,
         rows: [
-          { label: ms ? 'Diterima daripada' : 'Received from', value: '{{tenant.name}}' },
-          { label: ms ? 'Tarikh' : 'Date', value: '{{receipt.date}}' },
-          { label: ms ? 'Jumlah' : 'Amount', value: '{{amount}}' },
-          { label: ms ? 'Dibayar pada' : 'Paid on', value: '{{paid.on}}' },
+          { label: t('Received from', 'Diterima daripada', '收款自'), value: '{{tenant.name}}' },
+          { label: t('Date', 'Tarikh', '日期'), value: '{{receipt.date}}' },
+          { label: t('Amount', 'Jumlah', '金额'), value: '{{amount}}' },
+          { label: t('Paid on', 'Dibayar pada', '付款日期'), value: '{{paid.on}}' },
         ],
       },
       {
@@ -45,8 +47,8 @@ const receipt = (language: TemplateLanguage): TemplateDoc => {
         layout: 'grid',
         columns: 1,
         rows: [
-          { label: ms ? 'Sebanyak' : 'The sum of', value: '{{amount.words}}' },
-          { label: ms ? 'Sewa di' : 'For rent at', value: '{{property}}' },
+          { label: t('The sum of', 'Sebanyak', '金额（大写）'), value: '{{amount.words}}' },
+          { label: t('For rent at', 'Sewa di', '租赁地址'), value: '{{property}}' },
         ],
       },
       {
@@ -56,8 +58,8 @@ const receipt = (language: TemplateLanguage): TemplateDoc => {
         columns: 2,
         showIf: 'rent',
         rows: [
-          { label: ms ? 'Tempoh dari' : 'Period from', value: '{{period.from}}' },
-          { label: ms ? 'Hingga' : 'To', value: '{{period.to}}' },
+          { label: t('Period from', 'Tempoh dari', '租期由'), value: '{{period.from}}' },
+          { label: t('To', 'Hingga', '至'), value: '{{period.to}}' },
         ],
       },
       {
@@ -66,15 +68,15 @@ const receipt = (language: TemplateLanguage): TemplateDoc => {
         layout: 'grid',
         columns: 1,
         showIf: 'deposit',
-        rows: [{ label: ms ? 'Bayaran untuk' : 'Being payment of', value: '{{purpose}}' }],
+        rows: [{ label: t('Being payment of', 'Bayaran untuk', '款项用途'), value: '{{purpose}}' }],
       },
-      { id: 'r-methods', type: 'methods', label: ms ? 'Kaedah bayaran' : 'Paid by' },
-      text('r-notes', `${ms ? 'Catatan' : 'Notes'}: {{notes}}`, { size: 'sm', showIf: 'hasNotes' }),
+      { id: 'r-methods', type: 'methods', label: t('Paid by', 'Kaedah bayaran', '付款方式') },
+      text('r-notes', t('Notes: {{notes}}', 'Catatan: {{notes}}', '备注：{{notes}}'), { size: 'sm', showIf: 'hasNotes' }),
       { id: 'r-space', type: 'spacer', size: 'md' },
       {
         id: 'r-sign',
         type: 'signature',
-        leftLabel: ms ? 'Diterima oleh' : 'Received by',
+        leftLabel: t('Received by', 'Diterima oleh', '收款人'),
         leftName: '{{received.by}}',
         rightLabel: '',
         rightName: '',
@@ -86,72 +88,79 @@ const receipt = (language: TemplateLanguage): TemplateDoc => {
 };
 
 const statement = (language: TemplateLanguage): TemplateDoc => {
-  const ms = language === 'MS';
+  const t = (en: string, ms: string, zh: string) => byLanguage(language, en, ms, zh);
 
   return {
     kind: 'STATEMENT',
     language,
     blocks: [
-      text('s-from', '{{landlord.name}}', { bold: true }),
-      text('s-from-addr', '{{landlord.details}}'),
+      { id: 's-head', type: 'letterhead', rightText: '', showDetails: true },
       { id: 's-rule', type: 'divider' },
       text('s-to', '{{tenant.name}}', { bold: true }),
       text('s-to-addr', '{{tenant.address}}'),
       { id: 's-space1', type: 'spacer', size: 'sm' },
       text('s-date', '{{date}}', { align: 'right' }),
-      text('s-dear', ms ? 'Tuan,' : 'Dear Sir/Madam,'),
+      text('s-dear', t('Dear Sir/Madam,', 'Tuan,', '敬启者：')),
       {
         id: 's-subject',
         type: 'heading',
-        text: ms ? 'PEMAKLUMAN PENERIMAAN PEMBAYARAN SEWA BULANAN UNTUK TAHUN {{year}}' : 'NOTICE OF MONTHLY RENT PAYMENTS RECEIVED FOR {{year}}',
+        text: t('NOTICE OF MONTHLY RENT PAYMENTS RECEIVED FOR {{year}}', 'PEMAKLUMAN PENERIMAAN PEMBAYARAN SEWA BULANAN UNTUK TAHUN {{year}}', '{{year}}年度月租收款通知'),
         align: 'left',
         size: 'sm',
         underline: true,
       },
-      text('s-ref', ms ? 'Dengan segala hormatnya merujuk perkara diatas.' : 'With reference to the above matter.'),
+      text('s-ref', t('With reference to the above matter.', 'Dengan segala hormatnya merujuk perkara diatas.', '兹就上述事项致函。')),
       text(
         's-p2',
-        ms
-          ? 'Dimaklumkan bahawa, rekod pembayaran sewa {{premises}} {{tenant.name}} sepanjang tempoh {{year}} adalah seperti berikut:'
-          : 'Please be informed that the rent payments received from the {{premises}} {{tenant.name}} during {{year}} are as follows:',
+        t(
+          'Please be informed that the rent payments received from the {{premises}} {{tenant.name}} during {{year}} are as follows:',
+          'Dimaklumkan bahawa, rekod pembayaran sewa {{premises}} {{tenant.name}} sepanjang tempoh {{year}} adalah seperti berikut:',
+          '兹通知，{{premises}}租户{{tenant.name}}于{{year}}年的租金付款记录如下：',
+        ),
         { prefix: '2.' },
       ),
       {
         id: 's-months',
         type: 'months',
-        monthLabel: ms ? 'BULAN' : 'MONTH',
-        amountLabel: ms ? 'JUMLAH BAYARAN' : 'AMOUNT PAID',
-        totalLabel: 'TOTAL',
-        emptyText: ms ? 'Tiada bayaran direkodkan' : 'No payments recorded',
+        monthLabel: t('MONTH', 'BULAN', '月份'),
+        amountLabel: t('AMOUNT PAID', 'JUMLAH BAYARAN', '已付金额'),
+        totalLabel: t('TOTAL', 'TOTAL', '总计'),
+        emptyText: t('No payments recorded', 'Tiada bayaran direkodkan', '没有付款记录'),
       },
       text(
         's-p3-settled',
-        ms
-          ? 'Pihak saya sedia maklum dan ini bermakna {{premises}} {{tenant.name}} sudah menyelesaikan sewa bulanan Tahun {{year}} iaitu sebanyak {{total}}.'
-          : 'This confirms that the {{premises}} {{tenant.name}} has settled the monthly rent for {{year}}, a total of {{total}}.',
+        t(
+          'This confirms that the {{premises}} {{tenant.name}} has settled the monthly rent for {{year}}, a total of {{total}}.',
+          'Pihak saya sedia maklum dan ini bermakna {{premises}} {{tenant.name}} sudah menyelesaikan sewa bulanan Tahun {{year}} iaitu sebanyak {{total}}.',
+          '据此确认，{{premises}}租户{{tenant.name}}已付清{{year}}年的月租，共计{{total}}。',
+        ),
         { prefix: '3.', showIf: 'settled' },
       ),
       text(
         's-p3-arrears',
-        ms
-          ? 'Pihak saya sedia maklum bahawa {{premises}} {{tenant.name}} telah membayar sewa bulanan Tahun {{year}} sebanyak {{total}}. Masih terdapat tunggakan sewa bagi bulan {{arrears.months}} {{year}}.'
-          : 'The {{premises}} {{tenant.name}} has paid {{total}} in monthly rent for {{year}}. Rent is still owed for {{arrears.months}} {{year}}.',
+        t(
+          'The {{premises}} {{tenant.name}} has paid {{total}} in monthly rent for {{year}}. Rent is still owed for {{arrears.months}} {{year}}.',
+          'Pihak saya sedia maklum bahawa {{premises}} {{tenant.name}} telah membayar sewa bulanan Tahun {{year}} sebanyak {{total}}. Masih terdapat tunggakan sewa bagi bulan {{arrears.months}} {{year}}.',
+          '{{premises}}租户{{tenant.name}}已支付{{year}}年月租共{{total}}，但{{arrears.months}}的租金仍未缴付。',
+        ),
         { prefix: '3.', showIf: 'arrears' },
       ),
-      { id: 's-notes', type: 'notes', title: ms ? 'Untuk makluman tuan:' : 'For your information:', showIf: 'hasNotes' },
+      { id: 's-notes', type: 'notes', title: t('For your information:', 'Untuk makluman tuan:', '附注：'), showIf: 'hasNotes' },
+      // Rent owed: how to pay it, with your DuitNow QR.
+      { id: 's-pay', type: 'payment', title: t('How to pay', 'Cara pembayaran', '付款方式'), text: '{{pay.to}}', showQr: true, showIf: 'arrears' },
       text(
         's-close-settled',
-        ms ? 'Jadi, tiada tunggakan sewa bagi tahun {{year}}. Sekian, terima kasih.' : 'There is therefore no rent outstanding for {{year}}. Thank you.',
+        t('There is therefore no rent outstanding for {{year}}. Thank you.', 'Jadi, tiada tunggakan sewa bagi tahun {{year}}. Sekian, terima kasih.', '因此，{{year}}年并无拖欠租金。谢谢。'),
         { showIf: 'settled' },
       ),
-      text('s-close-arrears', ms ? 'Sekian, terima kasih.' : 'Thank you.', { showIf: 'arrears' }),
+      text('s-close-arrears', t('Thank you.', 'Sekian, terima kasih.', '谢谢。'), { showIf: 'arrears' }),
       { id: 's-space2', type: 'spacer', size: 'md' },
       {
         id: 's-sign',
         type: 'signature',
-        leftLabel: ms ? 'Yang Benar' : 'Yours faithfully',
+        leftLabel: t('Yours faithfully', 'Yang Benar', '此致'),
         leftName: '( {{landlord.name}} )',
-        rightLabel: ms ? 'Yang Benar' : 'Acknowledged by',
+        rightLabel: t('Acknowledged by', 'Yang Benar', '确认人'),
         rightName: '( {{tenant.name}} )',
         showRight: true,
       },
@@ -160,8 +169,8 @@ const statement = (language: TemplateLanguage): TemplateDoc => {
 };
 
 export const PRESET_NAMES: Record<TemplateKind, Record<TemplateLanguage, string>> = {
-  RECEIPT: { EN: 'Receipt (English)', MS: 'Resit (Bahasa Melayu)' },
-  STATEMENT: { EN: 'Year statement (English)', MS: 'Penyata tahunan (Bahasa Melayu)' },
+  RECEIPT: { EN: 'Receipt (English)', MS: 'Resit (Bahasa Melayu)', ZH: '收据（中文）' },
+  STATEMENT: { EN: 'Year statement (English)', MS: 'Penyata tahunan (Bahasa Melayu)', ZH: '年度租金结单（中文）' },
 };
 
 export const presetTemplate = (kind: TemplateKind, language: TemplateLanguage): TemplateDoc =>

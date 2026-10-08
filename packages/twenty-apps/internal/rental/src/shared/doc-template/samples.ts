@@ -1,4 +1,4 @@
-import { type ReceiptFacts } from 'src/shared/doc-template/context';
+import { type ReceiptFacts, type LetterheadExtras } from 'src/shared/doc-template/context';
 import { type StatementSource } from 'src/shared/year-statement';
 
 // Made-up data for previewing templates in the editor.
@@ -11,8 +11,7 @@ export type Letterhead = {
   footer: string;
   rentTitle: string;
   depositTitle: string;
-  signatureUrl?: string | null;
-};
+} & LetterheadExtras;
 
 export const sampleReceipt = (letterhead: Letterhead, deposit: boolean, withNotes: boolean): ReceiptFacts => ({
   businessName: letterhead.name || 'Your Name',

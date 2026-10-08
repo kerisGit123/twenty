@@ -122,5 +122,27 @@ export default defineObject({
       isNullable: true,
       universalSettings: { maxNumberOfValues: 1 },
     },
+    {
+      // Printed at the top left of receipts and statements.
+      universalIdentifier: '66ab4c36-9786-4ef2-8db1-9cde70b7d7fa',
+      type: FieldType.FILES,
+      name: 'logo',
+      label: 'Logo',
+      description: 'A PNG or JPG logo for the top of receipts and statements.',
+      icon: 'IconPhoto',
+      isNullable: true,
+      universalSettings: { maxNumberOfValues: 1 },
+    },
+    {
+      // Your bank's DuitNow QR: on statements with rent owed and on rent reminders.
+      universalIdentifier: '072ea46c-b06f-4977-b280-709c71743c95',
+      type: FieldType.FILES,
+      name: 'paymentQr',
+      label: 'DuitNow QR',
+      description: 'The DuitNow QR image from your banking app (PNG or JPG), so tenants can scan and pay.',
+      icon: 'IconQrcode',
+      isNullable: true,
+      universalSettings: { maxNumberOfValues: 1 },
+    },
   ],
 });

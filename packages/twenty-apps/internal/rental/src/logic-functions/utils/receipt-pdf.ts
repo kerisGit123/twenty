@@ -1,12 +1,6 @@
-import {
-  degrees,
-  PDFDocument,
-  type PDFFont,
-  type PDFPage,
-  type RGB,
-  rgb,
-  StandardFonts,
-} from 'pdf-lib';
+import { degrees, PDFDocument, type PDFPage, type RGB, rgb } from 'pdf-lib';
+
+import { cleanText, drawText, graphemes, loadPdfFonts, type PdfFonts, type TextFont, wrapText } from 'src/logic-functions/utils/pdf-fonts';
 
 import {
   ACCENTS,
@@ -73,13 +67,12 @@ const hex = (value: string): RGB => {
   return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
 };
 
-// Standard PDF fonts only cover WinAnsi; drop anything else (emoji, CJK)
-// rather than crashing the whole receipt.
-const safe = (text: string) =>
-  (text ?? '').replace(/[^\x20-\x7E -ÿ]/g, '').trim();
+// Fonts cover Latin, Chinese and Tamil; anything unprintable (emoji) goes.
+const safe = (text: string) => cleanText(text).trim();
 
 // Shrinks the font until the text fits the width (min 7pt), then truncates.
-const fitText = (text: string, font: PDFFont, size: number, maxWidth: number) => {
+const fitText = (raw: string, font: TextFont, size: number, maxWidth: number) => {
+  const text = raw.replace(/\s*\n\s*/g, ' ');
   let fittedSize = size;
 
   while (fittedSize > 7 && font.widthOfTextAtSize(text, fittedSize) > maxWidth) {
@@ -90,41 +83,25 @@ const fitText = (text: string, font: PDFFont, size: number, maxWidth: number) =>
     return { text, size: fittedSize };
   }
 
-  let kept = text;
+  const kept = graphemes(text);
 
-  while (kept.length > 1 && font.widthOfTextAtSize(`${kept}...`, fittedSize) > maxWidth) {
-    kept = kept.slice(0, -1);
+  while (kept.length > 1 && font.widthOfTextAtSize(`${kept.join('')}...`, fittedSize) > maxWidth) {
+    kept.pop();
   }
 
-  return { text: `${kept.trimEnd()}...`, size: fittedSize };
+  return { text: `${kept.join('').trimEnd()}...`, size: fittedSize };
 };
 
-// Word-wraps to the given width.
-const wrap = (text: string, font: PDFFont, size: number, maxWidth: number) => {
-  const lines: string[] = [];
-  let line = '';
+// Word-wraps to the given width (one paragraph).
+const wrap = (text: string, font: TextFont, size: number, maxWidth: number) =>
+  wrapText(safe(text).replace(/\s*\n\s*/g, ' '), font, size, maxWidth).filter(Boolean);
 
-  for (const word of safe(text).split(/\s+/).filter(Boolean)) {
-    const candidate = line ? `${line} ${word}` : word;
-
-    if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
-      line = candidate;
-    } else {
-      if (line) lines.push(line);
-      line = word;
-    }
-  }
-  if (line) lines.push(line);
-
-  return lines;
-};
-
-type Fonts = { regular: PDFFont; bold: PDFFont };
+type Fonts = PdfFonts;
 
 type Palette = { main: RGB; soft: RGB; grid: RGB };
 
-const drawRight = (page: PDFPage, text: string, right: number, y: number, font: PDFFont, size: number, color: RGB) => {
-  page.drawText(text, { x: right - font.widthOfTextAtSize(text, size), y, size, font, color });
+const drawRight = (page: PDFPage, text: string, right: number, y: number, font: TextFont, size: number, color: RGB) => {
+  drawText(page, text, { x: right - font.widthOfTextAtSize(text, size), y, size, font, color });
 };
 
 const drawWatermark = (page: PDFPage, fonts: Fonts, mark: 'DRAFT' | 'VOID' | null | undefined, size: { width: number; height: number }, centreY: number, markSize: number) => {
@@ -132,7 +109,7 @@ const drawWatermark = (page: PDFPage, fonts: Fonts, mark: 'DRAFT' | 'VOID' | nul
 
   const markWidth = fonts.bold.widthOfTextAtSize(mark, markSize);
 
-  page.drawText(mark, {
+  drawText(page, mark, {
     x: size.width / 2 - (markWidth / 2) * Math.cos(Math.PI / 6),
     y: centreY - (markWidth / 2) * Math.sin(Math.PI / 6),
     size: markSize,
@@ -157,7 +134,7 @@ const drawCell = (
     labelWidth: number;
     label: string;
     value: string;
-    valueFont?: PDFFont;
+    valueFont?: TextFont;
     valueSize?: number;
   },
 ) => {
@@ -170,12 +147,12 @@ const drawCell = (
 
   const textY = bottom + height / 2 - 3.5;
 
-  page.drawText(label, { x: x + 8, y: textY, size: 9.5, font: fonts.bold, color: INK });
+  drawText(page, label, { x: x + 8, y: textY, size: 9.5, font: fonts.bold, color: INK });
 
   const valueFont = params.valueFont ?? fonts.regular;
   const fitted = fitText(safe(value) || ' ', valueFont, params.valueSize ?? 10.5, width - labelWidth - 16);
 
-  page.drawText(fitted.text, { x: x + labelWidth + 8, y: textY, size: fitted.size, font: valueFont, color: INK });
+  drawText(page, fitted.text, { x: x + labelWidth + 8, y: textY, size: fitted.size, font: valueFont, color: INK });
 };
 
 const drawClassic = (page: PDFPage, fonts: Fonts, palette: Palette, data: ReceiptData, style: ReceiptStyle) => {
@@ -191,7 +168,7 @@ const drawClassic = (page: PDFPage, fonts: Fonts, palette: Palette, data: Receip
   page.drawRectangle({ x: left, y: y - titleHeight, width, height: titleHeight, color: palette.main });
   const title = fitText(safe(data.title), fonts.bold, 20, width - 20);
 
-  page.drawText(title.text, {
+  drawText(page, title.text, {
     x: left + (width - fonts.bold.widthOfTextAtSize(title.text, title.size)) / 2,
     y: y - titleHeight / 2 - 7,
     size: title.size,
@@ -206,15 +183,15 @@ const drawClassic = (page: PDFPage, fonts: Fonts, palette: Palette, data: Receip
   page.drawRectangle({ x: left, y: y - headerHeight, width, height: headerHeight, borderColor: palette.grid, borderWidth: 0.75 });
   const issuer = fitText(safe(data.issuerName) || 'Receipt', fonts.bold, 14, half);
 
-  page.drawText(issuer.text, { x: left + 10, y: y - 26, size: issuer.size, font: fonts.bold, color: INK });
+  drawText(page, issuer.text, { x: left + 10, y: y - 26, size: issuer.size, font: fonts.bold, color: INK });
   detailLines.forEach((line, index) => {
-    page.drawText(line, { x: left + 10, y: y - 40 - index * 11, size: 8.5, font: fonts.regular, color: MUTED });
+    drawText(page, line, { x: left + 10, y: y - 40 - index * 11, size: 8.5, font: fonts.regular, color: MUTED });
   });
   const numberText = safe(data.receiptNumber);
   const numberWidth = fonts.bold.widthOfTextAtSize(numberText, 18);
 
-  page.drawText('No.', { x: left + width - 10 - numberWidth - 6 - fonts.bold.widthOfTextAtSize('No.', 11), y: y - 27, size: 11, font: fonts.bold, color: MUTED });
-  page.drawText(numberText, { x: left + width - 10 - numberWidth, y: y - 28, size: 18, font: fonts.bold, color: RED });
+  drawText(page, 'No.', { x: left + width - 10 - numberWidth - 6 - fonts.bold.widthOfTextAtSize('No.', 11), y: y - 27, size: 11, font: fonts.bold, color: MUTED });
+  drawText(page, numberText, { x: left + width - 10 - numberWidth, y: y - 28, size: 18, font: fonts.bold, color: RED });
   y -= headerHeight;
 
   const labelWidth = 104;
@@ -247,7 +224,7 @@ const drawClassic = (page: PDFPage, fonts: Fonts, palette: Palette, data: Receip
   page.drawLine({ start: { x: left + labelWidth, y: y - rowHeight }, end: { x: left + labelWidth, y }, thickness: 0.75, color: palette.grid });
   const rowMid = y - rowHeight / 2;
 
-  page.drawText('Paid by', { x: left + 8, y: rowMid - 3.5, size: 9.5, font: fonts.bold, color: INK });
+  drawText(page, 'Paid by', { x: left + 8, y: rowMid - 3.5, size: 9.5, font: fonts.bold, color: INK });
   let boxX = left + labelWidth + 12;
 
   for (const method of METHOD_LABELS) {
@@ -258,7 +235,7 @@ const drawClassic = (page: PDFPage, fonts: Fonts, palette: Palette, data: Receip
       page.drawLine({ start: { x: boxX + 2, y: rowMid }, end: { x: boxX + 4.2, y: rowMid - 2.8 }, thickness: 1.4, color: WHITE });
       page.drawLine({ start: { x: boxX + 4.2, y: rowMid - 2.8 }, end: { x: boxX + 8.2, y: rowMid + 3 }, thickness: 1.4, color: WHITE });
     }
-    page.drawText(method.label, { x: boxX + 15, y: rowMid - 3.5, size: 9.5, font: isSelected ? fonts.bold : fonts.regular, color: INK });
+    drawText(page, method.label, { x: boxX + 15, y: rowMid - 3.5, size: 9.5, font: isSelected ? fonts.bold : fonts.regular, color: INK });
     boxX += 15 + fonts.regular.widthOfTextAtSize(method.label, 9.5) + 14;
   }
   y -= rowHeight;
@@ -267,15 +244,15 @@ const drawClassic = (page: PDFPage, fonts: Fonts, palette: Palette, data: Receip
 
   if (notes) {
     y -= 18;
-    page.drawText('Notes:', { x: left, y, size: 9, font: fonts.bold, color: MUTED });
+    drawText(page, 'Notes:', { x: left, y, size: 9, font: fonts.bold, color: MUTED });
     const fitted = fitText(notes, fonts.regular, 9, width - 40);
 
-    page.drawText(fitted.text, { x: left + 38, y, size: fitted.size, font: fonts.regular, color: INK });
+    drawText(page, fitted.text, { x: left + 38, y, size: fitted.size, font: fonts.regular, color: INK });
   }
 
   y -= 22;
   for (const line of wrap(style.footerText, fonts.regular, 8, width)) {
-    page.drawText(line, { x: left, y, size: 8, font: fonts.regular, color: MUTED });
+    drawText(page, line, { x: left, y, size: 8, font: fonts.regular, color: MUTED });
     y -= 11;
   }
 
@@ -296,11 +273,11 @@ const drawModern = (page: PDFPage, fonts: Fonts, palette: Palette, data: Receipt
   // Business (left) and title + number (right)
   const issuer = fitText(safe(data.issuerName) || 'Receipt', fonts.bold, 18, width * 0.55);
 
-  page.drawText(issuer.text, { x: left, y: y - 14, size: issuer.size, font: fonts.bold, color: INK });
+  drawText(page, issuer.text, { x: left, y: y - 14, size: issuer.size, font: fonts.bold, color: INK });
   const details = style.businessDetails ? wrap(style.businessDetails, fonts.regular, 9, width * 0.55).slice(0, 3) : [];
 
   details.forEach((line, index) => {
-    page.drawText(line, { x: left, y: y - 30 - index * 12, size: 9, font: fonts.regular, color: MUTED });
+    drawText(page, line, { x: left, y: y - 30 - index * 12, size: 9, font: fonts.regular, color: MUTED });
   });
   drawRight(page, safe(data.title), right, y - 10, fonts.bold, 11, palette.main);
   drawRight(page, safe(data.receiptNumber), right, y - 30, fonts.bold, 15, INK);
@@ -311,12 +288,12 @@ const drawModern = (page: PDFPage, fonts: Fonts, palette: Palette, data: Receipt
 
   // Received from
   y -= 28;
-  page.drawText('RECEIVED FROM', { x: left, y, size: 8, font: fonts.bold, color: MUTED });
+  drawText(page, 'RECEIVED FROM', { x: left, y, size: 8, font: fonts.bold, color: MUTED });
   y -= 18;
-  page.drawText(fitText(safe(data.receivedFrom) || '-', fonts.bold, 14, width).text, { x: left, y, size: 14, font: fonts.bold, color: INK });
+  drawText(page, fitText(safe(data.receivedFrom) || '-', fonts.bold, 14, width).text, { x: left, y, size: 14, font: fonts.bold, color: INK });
   if (data.forRentAt) {
     y -= 15;
-    page.drawText(fitText(safe(data.forRentAt), fonts.regular, 10, width).text, { x: left, y, size: 10, font: fonts.regular, color: MUTED });
+    drawText(page, fitText(safe(data.forRentAt), fonts.regular, 10, width).text, { x: left, y, size: 10, font: fonts.regular, color: MUTED });
   }
 
   // Amount box
@@ -324,9 +301,9 @@ const drawModern = (page: PDFPage, fonts: Fonts, palette: Palette, data: Receipt
   const boxHeight = 74;
 
   page.drawRectangle({ x: left, y: y - boxHeight, width, height: boxHeight, color: palette.soft });
-  page.drawText('AMOUNT RECEIVED', { x: left + 16, y: y - 20, size: 8, font: fonts.bold, color: palette.main });
-  page.drawText(safe(data.amountText), { x: left + 16, y: y - 46, size: 24, font: fonts.bold, color: INK });
-  page.drawText(fitText(safe(data.amountInWords), fonts.regular, 9, width - 32).text, { x: left + 16, y: y - 62, size: 9, font: fonts.regular, color: MUTED });
+  drawText(page, 'AMOUNT RECEIVED', { x: left + 16, y: y - 20, size: 8, font: fonts.bold, color: palette.main });
+  drawText(page, safe(data.amountText), { x: left + 16, y: y - 46, size: 24, font: fonts.bold, color: INK });
+  drawText(page, fitText(safe(data.amountInWords), fonts.regular, 9, width - 32).text, { x: left + 16, y: y - 62, size: 9, font: fonts.regular, color: MUTED });
   y -= boxHeight + 22;
 
   const rows: Array<[string, string]> = [
@@ -339,7 +316,7 @@ const drawModern = (page: PDFPage, fonts: Fonts, palette: Palette, data: Receipt
   ];
 
   for (const [label, value] of rows) {
-    page.drawText(label, { x: left, y, size: 10, font: fonts.regular, color: MUTED });
+    drawText(page, label, { x: left, y, size: 10, font: fonts.regular, color: MUTED });
     drawRight(page, fitText(safe(value) || '-', fonts.regular, 10, width * 0.6).text, right, y, fonts.regular, 10, INK);
     y -= 10;
     page.drawLine({ start: { x: left, y }, end: { x: right, y }, thickness: 0.5, color: palette.grid });
@@ -350,10 +327,10 @@ const drawModern = (page: PDFPage, fonts: Fonts, palette: Palette, data: Receipt
 
   if (notes) {
     y -= 4;
-    page.drawText('NOTES', { x: left, y, size: 8, font: fonts.bold, color: MUTED });
+    drawText(page, 'NOTES', { x: left, y, size: 8, font: fonts.bold, color: MUTED });
     for (const line of wrap(notes, fonts.regular, 10, width)) {
       y -= 14;
-      page.drawText(line, { x: left, y, size: 10, font: fonts.regular, color: INK });
+      drawText(page, line, { x: left, y, size: 10, font: fonts.regular, color: INK });
     }
     y -= 10;
   }
@@ -366,7 +343,7 @@ const drawModern = (page: PDFPage, fonts: Fonts, palette: Palette, data: Receipt
   let footerY = MARGIN;
 
   for (const line of wrap(style.footerText, fonts.regular, 8, width).reverse()) {
-    page.drawText(line, { x: left, y: footerY, size: 8, font: fonts.regular, color: MUTED });
+    drawText(page, line, { x: left, y: footerY, size: 8, font: fonts.regular, color: MUTED });
     footerY += 11;
   }
 
@@ -386,15 +363,15 @@ const drawCompact = (page: PDFPage, fonts: Fonts, palette: Palette, data: Receip
   const bandHeight = 30;
 
   page.drawRectangle({ x: left, y: y - bandHeight, width, height: bandHeight, color: palette.main });
-  page.drawText(fitText(safe(data.title), fonts.bold, 13, width / 2).text, { x: left + 10, y: y - 19, size: 13, font: fonts.bold, color: WHITE });
+  drawText(page, fitText(safe(data.title), fonts.bold, 13, width / 2).text, { x: left + 10, y: y - 19, size: 13, font: fonts.bold, color: WHITE });
   drawRight(page, `No. ${safe(data.receiptNumber)}`, right - 10, y - 19, fonts.bold, 12, WHITE);
   y -= bandHeight + 18;
 
-  page.drawText(fitText(safe(data.issuerName) || 'Receipt', fonts.bold, 12, width * 0.6).text, { x: left, y, size: 12, font: fonts.bold, color: INK });
+  drawText(page, fitText(safe(data.issuerName) || 'Receipt', fonts.bold, 12, width * 0.6).text, { x: left, y, size: 12, font: fonts.bold, color: INK });
   drawRight(page, safe(data.date), right, y, fonts.regular, 9, MUTED);
   if (style.businessDetails) {
     y -= 12;
-    page.drawText(fitText(safe(style.businessDetails), fonts.regular, 8, width).text, { x: left, y, size: 8, font: fonts.regular, color: MUTED });
+    drawText(page, fitText(safe(style.businessDetails), fonts.regular, 8, width).text, { x: left, y, size: 8, font: fonts.regular, color: MUTED });
   }
   y -= 22;
 
@@ -415,19 +392,19 @@ const drawCompact = (page: PDFPage, fonts: Fonts, palette: Palette, data: Receip
     const rowY = y - Math.floor(index / 2) * 34;
     const x = left + column * (colWidth + 20);
 
-    page.drawText(label.toUpperCase(), { x, y: rowY, size: 7, font: fonts.bold, color: MUTED });
+    drawText(page, label.toUpperCase(), { x, y: rowY, size: 7, font: fonts.bold, color: MUTED });
     const isAmount = label === 'Amount';
     const fitted = fitText(safe(value) || '-', isAmount ? fonts.bold : fonts.regular, isAmount ? 13 : 10, colWidth);
 
-    page.drawText(fitted.text, { x, y: rowY - 14, size: fitted.size, font: isAmount ? fonts.bold : fonts.regular, color: INK });
+    drawText(page, fitted.text, { x, y: rowY - 14, size: fitted.size, font: isAmount ? fonts.bold : fonts.regular, color: INK });
   });
   y -= Math.ceil(pairs.length / 2) * 34 + 4;
 
-  page.drawText(fitText(safe(data.amountInWords), fonts.regular, 8.5, width).text, { x: left, y, size: 8.5, font: fonts.regular, color: MUTED });
+  drawText(page, fitText(safe(data.amountInWords), fonts.regular, 8.5, width).text, { x: left, y, size: 8.5, font: fonts.regular, color: MUTED });
 
   page.drawLine({ start: { x: right - 140, y: MARGIN + 22 }, end: { x: right, y: MARGIN + 22 }, thickness: 0.75, color: MUTED });
   drawRight(page, 'Signature', right, MARGIN + 11, fonts.regular, 7.5, MUTED);
-  page.drawText(fitText(safe(style.footerText), fonts.regular, 7.5, width - 160).text, { x: left, y: MARGIN + 11, size: 7.5, font: fonts.regular, color: MUTED });
+  drawText(page, fitText(safe(style.footerText), fonts.regular, 7.5, width - 160).text, { x: left, y: MARGIN + 11, size: 7.5, font: fonts.regular, color: MUTED });
 
   drawWatermark(page, fonts, data.watermark, size, size.height / 2 + 30, 80);
 };
@@ -441,10 +418,7 @@ export const buildReceiptPdf = async (data: ReceiptData): Promise<Uint8Array> =>
   const doc = await PDFDocument.create();
   const pageSize = style.template === 'COMPACT' ? A5_LANDSCAPE : A4;
   const page = doc.addPage([pageSize.width, pageSize.height]);
-  const fonts: Fonts = {
-    regular: await doc.embedFont(StandardFonts.Helvetica),
-    bold: await doc.embedFont(StandardFonts.HelveticaBold),
-  };
+  const fonts: Fonts = await loadPdfFonts(doc, JSON.stringify(data));
 
   doc.setTitle(`${safe(data.title)} ${safe(data.receiptNumber)}`);
   doc.setProducer('Rental');

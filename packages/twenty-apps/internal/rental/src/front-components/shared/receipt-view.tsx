@@ -33,6 +33,9 @@ export type ReceiptViewData = {
   facts?: ReceiptFacts;
   template?: TemplateDoc;
   signatureUrl?: string | null;
+  logoUrl?: string | null;
+  paymentQrUrl?: string | null;
+  paymentDetails?: string | null;
 };
 
 const INK = '#222429';
@@ -242,7 +245,7 @@ export const ReceiptView = ({ data, scale = 1 }: { data: ReceiptViewData; scale?
       <div style={{ fontSize: 11 * scale, width: `${100 * Math.max(scale, 1)}%` }}>
         <TemplatePreview
           template={data.template}
-          context={receiptContext({ ...data.facts, watermark: data.watermark ?? null }, data.template.language, data.signatureUrl)}
+          context={receiptContext({ ...data.facts, watermark: data.watermark ?? null }, data.template.language, data)}
         />
       </div>
     );

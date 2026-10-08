@@ -3,6 +3,7 @@ import { Response } from 'twenty-sdk/logic-function';
 
 import { STATEMENT_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers-v3';
 import { appClient } from 'src/logic-functions/utils/app-client';
+import { letterheadExtras } from 'src/logic-functions/utils/receipt-settings';
 import { resolveScope } from 'src/logic-functions/utils/scope';
 import { loadReceiptSettings } from 'src/logic-functions/handlers/send-receipt-handler';
 import { loadStatementSource } from 'src/logic-functions/utils/statement-data';
@@ -55,7 +56,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       source,
       templates,
       accent: (settings?.accentColor as string | null) ?? 'BLACK',
-      signatureUrl: settings?.signatureUrl ?? null,
+      ...letterheadExtras(settings),
     });
   } catch (error) {
     console.error('[rental] statement failed:', error);
