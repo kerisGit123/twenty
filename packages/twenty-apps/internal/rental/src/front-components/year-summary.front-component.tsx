@@ -207,6 +207,8 @@ const YearSummary = () => {
         )}
         {summary.deposits > 0 &&
           kpi('Deposits received', rm(summary.deposits), <span style={{ fontSize: 12, color: c.text3 }}>Held for tenants — not income</span>)}
+        {summary.kept > 0 &&
+          kpi('Deposit kept', rm(summary.kept), <span style={{ fontSize: 12, color: c.text3 }}>For deductions at move-out — counted as rental income</span>)}
       </div>
 
       {isEmpty ? (

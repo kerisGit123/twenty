@@ -6,12 +6,22 @@ import { loadContractsData } from 'src/logic-functions/page-data/contracts-data'
 import { appClient } from 'src/logic-functions/utils/app-client';
 import { resolveScope } from 'src/logic-functions/utils/scope';
 import { todayIso } from 'src/logic-functions/utils/dates';
-import { endRenewedContracts, loadRental, rentalRentForMonth, rentMonthOf, rentPaymentsForMonth } from 'src/logic-functions/utils/rental-service';
+import {
+  createDraftRentPayment,
+  endRenewedContracts,
+  loadRental,
+  rentalRentForMonth,
+  rentMonthOf,
+  rentPaymentsForMonth,
+  unpaidRentMonths,
+} from 'src/logic-functions/utils/rental-service';
 import { isRentMonth, settleMonth } from 'src/shared/rent-month';
-import { type Deduction, depositHeld, deductionLine, settleDeposit } from 'src/shared/contracts';
+import { type Deduction, depositHeld, deductionLine, type DepositSettlement, planSettlement } from 'src/shared/contracts';
+import { receiptHandler } from 'src/logic-functions/handlers/send-receipt-handler';
 
 type Body = {
-  action?: 'list' | 'renew' | 'settleDeposit' | 'reopenDeposit' | 'setStamped' | 'moveOut';
+  action?: 'list' | 'renew' | 'settleDeposit' | 'reopenDeposit' | 'setStamped' | 'moveOut' | 'depositOptions';
+  rentMonths?: string[]; // settleDeposit: unpaid months to take from the deposit
   // moveOut
   movedOutOn?: string;
   waiveLastMonth?: boolean;
@@ -124,38 +134,75 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       });
     }
 
+    // The contract's unpaid months, to take from the deposit at move-out.
+    if (body.action === 'depositOptions') {
+      return json({ success: true, unpaid: await unpaidRentMonths(client, contract.id) });
+    }
+
+    // Move-out: unpaid rent is taken from the deposit (one "From deposit"
+    // receipt per month, so those months are paid), then other deductions
+    // are kept (rental income); the rest is refunded. What the deposit
+    // doesn't cover, the tenant still owes.
     if (body.action === 'settleDeposit') {
       const held = depositHeld(contract.deposit);
 
       if (held <= 0) return json({ success: false, message: 'No deposit is held for this contract.' }, 400);
 
       const deductions = (body.deductions ?? [])
-        .map((d) => ({ label: String(d.label ?? '').trim().replace(/\n/g, ' ') || 'Deduction', amount: Number(d.amount) }))
-        .filter((d) => Number.isFinite(d.amount) && d.amount > 0);
-      const result = settleDeposit(held, deductions);
-      const refundedOn = isIsoDate(body.refundedOn) ? body.refundedOn : null;
+        .map((d) => ({ label: String(d.label ?? '').trim().replace(/\n/g, ' ').slice(0, 120) || 'Deduction', amount: Math.round(Number(d.amount) * 100) / 100 }))
+        .filter((d) => Number.isFinite(d.amount) && d.amount > 0 && d.amount < 10_000_000);
+      // Amounts come from the ledger, not the page.
+      const chosen = new Set((body.rentMonths ?? []).filter((m) => typeof m === 'string').map((m) => `${m.slice(0, 7)}-01`));
+      const unpaid = (await unpaidRentMonths(client, contract.id)).filter((row) => chosen.has(row.month));
+      const plan = planSettlement(held, unpaid, deductions);
+      const settledOn = isIsoDate(body.refundedOn) ? body.refundedOn : todayIso();
+      const rental = plan.rent.length ? await loadRental(client, contract.id) : null;
+      const rentRows: DepositSettlement['rent'] = [];
+
+      for (const row of plan.rent) {
+        const existing = (await rentPaymentsForMonth(client, contract.id, row.month)).find((p) => p.status === 'DRAFT');
+        const paymentId = existing?.id ?? (rental ? await createDraftRentPayment(client, rental, row.month, 'FROM_DEPOSIT') : undefined);
+
+        if (!paymentId) continue;
+        await client.mutation({
+          updateRentPayment: {
+            __args: { id: paymentId, data: { amount: money(row.amount), paidOn: settledOn, method: 'FROM_DEPOSIT', notes: 'Taken from the deposit at move-out' } as never },
+            id: true,
+          },
+        });
+        const issued = await receiptHandler('issue', paymentId, context?.workspaceMemberId ?? undefined);
+
+        if (!issued.success) return json({ success: false, message: `Could not record the rent taken from the deposit: ${issued.message}` }, 500);
+        rentRows.push({ ...row, paymentId });
+      }
+
+      const settlement: DepositSettlement = { settledOn, rent: rentRows, deductions, kept: plan.kept, owed: plan.owed, refund: plan.refund };
 
       await client.mutation({
         updateRental: {
           __args: {
             id: contract.id,
             data: {
-              depositStatus: result.status,
-              depositRefunded: money(result.refund),
-              depositRefundedOn: refundedOn,
+              depositStatus: plan.status,
+              depositRefunded: money(plan.refund),
+              depositRefundedOn: settledOn,
               depositNotes: deductions.map(deductionLine).join('\n'),
+              depositSettlement: settlement,
             } as never,
           },
           id: true,
         },
       });
 
+      const parts = [
+        plan.rentTaken ? `${rm(plan.rentTaken)} unpaid rent taken (receipts made)` : '',
+        plan.kept ? `${rm(plan.kept)} kept for deductions` : '',
+        plan.refund ? `refund ${rm(plan.refund)}` : 'nothing to refund',
+      ].filter(Boolean);
+
       return json({
         success: true,
-        message:
-          result.status === 'FORFEITED'
-            ? 'Deposit fully used for deductions — nothing to refund.'
-            : `Deposit settled: refund ${rm(result.refund)}${result.deducted ? ` after ${rm(result.deducted)} in deductions` : ''}.`,
+        message: `Deposit settled: ${parts.join(', ')}.${plan.owed > 0 ? ` The tenant still owes ${rm(plan.owed)}.` : ''}`,
       });
     }
 
@@ -233,11 +280,18 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     }
 
     if (body.action === 'reopenDeposit') {
+      if (contract.deposit.status === 'CARRIED') {
+        return json({ success: false, message: 'This deposit was carried to the renewal — it’s held there now.' }, 400);
+      }
+      // Undo: the rent receipts made from the deposit are voided.
+      for (const row of contract.deposit.settlement?.rent ?? []) {
+        if (row.paymentId) await receiptHandler('void', row.paymentId, context?.workspaceMemberId ?? undefined);
+      }
       await client.mutation({
         updateRental: {
           __args: {
             id: contract.id,
-            data: { depositStatus: 'HELD', depositRefunded: money(0), depositRefundedOn: null } as never,
+            data: { depositStatus: 'HELD', depositRefunded: money(0), depositRefundedOn: null, depositNotes: '', depositSettlement: null } as never,
           },
           id: true,
         },

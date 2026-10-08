@@ -87,7 +87,8 @@ const round = (value: number) => Math.round(value * 100) / 100;
 export const buildTaxPack = (data: YearData, ownerId: string): TaxPack => {
   const year = String(data.year);
   const mine = (row: { ownerId: string | null }) => !ownerId || row.ownerId === ownerId;
-  const rent = data.payments.filter((p) => mine(p) && p.type === 'RENT' && p.date.startsWith(year));
+  // Rental income: rent, and deposit kept for deductions at move-out.
+  const rent = data.payments.filter((p) => mine(p) && (p.type === 'RENT' || p.type === 'DEPOSIT_KEPT') && p.date.startsWith(year));
   const expenses = data.expenses.filter((e) => mine(e) && e.date.startsWith(year));
   const ids = new Set([...rent.map((p) => p.propertyId), ...expenses.filter((e) => e.propertyId).map((e) => e.propertyId)].filter(Boolean) as string[]);
 

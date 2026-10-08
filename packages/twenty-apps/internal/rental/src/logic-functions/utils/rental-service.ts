@@ -1,7 +1,7 @@
 import { type CoreApiClient } from 'twenty-client-sdk/core';
 
 import { monthStart, nextMonthStart, todayIso } from 'src/logic-functions/utils/dates';
-import { ARREARS_MONTHS, isRentMonth, periodStart, rentForMonth } from 'src/shared/rent-month';
+import { ARREARS_MONTHS, isRentMonth, periodStart, rentForMonth, settleMonth } from 'src/shared/rent-month';
 
 type Money = { amountMicros?: number | null; currencyCode?: string | null } | null | undefined;
 
@@ -203,6 +203,43 @@ export const rentMonthOf = (startDate: string | null, date: string) => {
   const month = monthStart(date);
 
   return periodStart(startDate, month) > date ? monthStart(new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 2, 1)).toISOString()) : month;
+};
+
+// A contract's months still owed (up to its end or this month), with what's
+// left of each: for settling them from the deposit.
+export const unpaidRentMonths = async (client: CoreApiClient, rentalId: string): Promise<Array<{ month: string; amount: number }>> => {
+  const rental = await loadRental(client, rentalId);
+
+  if (!rental) return [];
+
+  const { rentPayments } = await client.query({
+    rentPayments: {
+      __args: { filter: { rentalId: { eq: rentalId }, paymentType: { eq: 'RENT' }, status: { neq: 'VOID' } }, first: 500 },
+      edges: { node: { rentPeriod: true, status: true, amount: { amountMicros: true } } },
+    },
+  });
+  const byMonth = new Map<string, Array<{ status: string; amount: number }>>();
+
+  for (const { node } of rentPayments?.edges ?? []) {
+    if (!node.rentPeriod) continue;
+    const key = monthStart(node.rentPeriod);
+
+    byMonth.set(key, [...(byMonth.get(key) ?? []), { status: (node.status as string) ?? '', amount: (node.amount?.amountMicros ?? 0) / 1_000_000 }]);
+  }
+
+  const term = { startDate: rental.startDate ?? null, endDate: rental.endDate ?? null };
+  const today = todayIso();
+  const last = term.endDate && term.endDate < today ? monthStart(term.endDate) : monthStart(today);
+  const out: Array<{ month: string; amount: number }> = [];
+
+  for (let month = monthStart(term.startDate ?? today); month <= last && out.length < 120; month = nextMonthStart(month)) {
+    if (!isRentMonth(term, month)) continue;
+    const settlement = settleMonth(rentalRentForMonth(rental, month), byMonth.get(month) ?? []);
+
+    if (settlement.state !== 'paid' && settlement.state !== 'waived' && settlement.remaining > 0) out.push({ month, amount: settlement.remaining });
+  }
+
+  return out;
 };
 
 // The month a new rent payment is for: the oldest owed month that has no

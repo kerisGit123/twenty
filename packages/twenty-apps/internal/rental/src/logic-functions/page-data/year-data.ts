@@ -1,5 +1,6 @@
 import { type CoreApiClient } from 'twenty-client-sdk/core';
 
+import { queryAll } from 'src/logic-functions/utils/query-all';
 import { inScope, type Scope } from 'src/logic-functions/utils/scope';
 
 // Year summary data: a year's (and the year before's) receipts and expenses,
@@ -9,7 +10,7 @@ import { inScope, type Scope } from 'src/logic-functions/utils/scope';
 export type YearPayment = {
   ownerId: string | null;
   propertyId: string | null;
-  type: string; // RENT | DEPOSIT | UTILITY_DEPOSIT
+  type: string; // RENT | DEPOSIT | UTILITY_DEPOSIT | DEPOSIT_KEPT (deposit kept for deductions at move-out: income)
   amount: number; // RM
   date: string; // paidOn, YYYY-MM-DD
 };
@@ -123,12 +124,32 @@ const loadExpenses = async (client: CoreApiClient, from: string, to: string): Pr
   return rows;
 };
 
+// Deposit kept for deductions at move-out: rental income on the day it was
+// settled (LHDN treats a deposit that isn't returned as income).
+const loadKeptDeposits = async (client: CoreApiClient, from: string, to: string): Promise<YearPayment[]> => {
+  const rows = await queryAll<{ ownerId?: string | null; propertyId?: string | null; property?: { ownerId?: string | null } | null; depositSettlement?: unknown }>(
+    client,
+    'rentals',
+    { filter: { and: [{ depositRefundedOn: { gte: from } }, { depositRefundedOn: { lt: to } }] } },
+    { ownerId: true, propertyId: true, property: { ownerId: true }, depositSettlement: true },
+  );
+
+  return rows.flatMap((row) => {
+    const settlement = row.depositSettlement as { kept?: number; settledOn?: string } | null;
+
+    return settlement?.kept && settlement.kept > 0 && settlement.settledOn
+      ? [{ ownerId: row.ownerId ?? row.property?.ownerId ?? null, propertyId: row.propertyId ?? null, type: 'DEPOSIT_KEPT', amount: settlement.kept, date: settlement.settledOn }]
+      : [];
+  });
+};
+
 // From 1 January of the year before, so the page can compare with last year.
 export const loadYearData = async (client: CoreApiClient, scope: Scope, year: number): Promise<YearData> => {
   const from = `${year - 1}-01-01`;
   const to = `${year + 1}-01-01`;
-  const [payments, expenses, { properties }] = await Promise.all([
+  const [payments, kept, expenses, { properties }] = await Promise.all([
     loadPayments(client, from, to),
+    loadKeptDeposits(client, from, to),
     loadExpenses(client, from, to),
     client.query({
       properties: {
@@ -140,7 +161,7 @@ export const loadYearData = async (client: CoreApiClient, scope: Scope, year: nu
 
   return {
     year,
-    payments: payments.filter((payment) => inScope(scope, payment.ownerId)),
+    payments: [...payments, ...kept].filter((payment) => inScope(scope, payment.ownerId)),
     expenses: expenses.filter((expense) => inScope(scope, expense.ownerId)),
     properties: (properties?.edges ?? [])
       .map(({ node }) => ({

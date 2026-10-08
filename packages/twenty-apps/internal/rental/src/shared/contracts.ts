@@ -15,6 +15,17 @@ export type DepositInfo = {
   refundedOn: string | null;
   status: string; // NOT_RECEIVED | HELD | PARTLY_REFUNDED | REFUNDED | FORFEITED | CARRIED
   notes: string;
+  settlement: DepositSettlement | null; // set when settled at move-out
+};
+
+// A deposit settled at move-out.
+export type DepositSettlement = {
+  settledOn: string; // YYYY-MM-DD
+  rent: Array<{ month: string; amount: number; paymentId?: string }>; // unpaid rent taken from the deposit (receipts made)
+  deductions: Deduction[]; // other deductions
+  kept: number; // of those, what the deposit covered: kept by you — rental income
+  owed: number; // deductions the deposit didn't cover: the tenant still owes this
+  refund: number;
 };
 
 export type ContractCard = {
@@ -57,6 +68,33 @@ export const depositHeld = (deposit: DepositInfo): number =>
     : Math.max(0, Math.round((deposit.carriedIn + deposit.received + deposit.utilityReceived - deposit.usedForRent) * 100) / 100);
 
 export type Deduction = { label: string; amount: number };
+
+const r2 = (value: number) => Math.round(value * 100) / 100;
+
+// Settling at move-out: unpaid rent comes out of the deposit first (oldest
+// month first), then the other deductions; the rest is refunded. Whatever
+// the deposit can't cover, the tenant still owes.
+export const planSettlement = (held: number, unpaidRent: Array<{ month: string; amount: number }>, deductions: Deduction[]) => {
+  let left = r2(held);
+  const rent: Array<{ month: string; amount: number }> = [];
+
+  for (const row of [...unpaidRent].sort((a, b) => a.month.localeCompare(b.month))) {
+    const take = r2(Math.min(left, Math.max(0, row.amount)));
+
+    if (take > 0) rent.push({ month: row.month, amount: take });
+    left = r2(left - take);
+  }
+
+  const rentWanted = r2(unpaidRent.reduce((sum, row) => sum + Math.max(0, row.amount), 0));
+  const rentTaken = r2(rent.reduce((sum, row) => sum + row.amount, 0));
+  const other = r2(deductions.reduce((sum, d) => sum + Math.max(0, d.amount), 0));
+  const kept = r2(Math.min(left, other));
+  const refund = r2(left - kept);
+  const owed = r2(rentWanted - rentTaken + other - kept);
+  const status = refund <= 0 ? 'FORFEITED' : rentTaken + kept > 0 ? 'PARTLY_REFUNDED' : 'REFUNDED';
+
+  return { rent, rentTaken, kept, refund, owed, status };
+};
 
 // Move-out: what's refunded and the resulting deposit status.
 export const settleDeposit = (held: number, deductions: Deduction[]) => {

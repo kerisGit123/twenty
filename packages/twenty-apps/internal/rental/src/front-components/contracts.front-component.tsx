@@ -18,7 +18,7 @@ import {
   endingStage,
   isDepositSettled,
   parseDeductions,
-  settleDeposit,
+  planSettlement,
   termEnd,
 } from 'src/shared/contracts';
 import { CONTRACT_CHECKLIST, docType } from 'src/shared/documents';
@@ -402,7 +402,9 @@ const ContractRow = ({
       ? 'Deposit carried to the renewal'
       : x.deposit.status === 'REFUNDED' || x.deposit.status === 'PARTLY_REFUNDED'
         ? `Deposit refunded ${rm(x.deposit.refunded)}${x.deposit.refundedOn ? ` · ${day(x.deposit.refundedOn)}` : ''}`
-        : x.deposit.status === 'FORFEITED'
+        : x.deposit.settlement && x.deposit.settlement.owed > 0
+          ? `Deposit used up — tenant still owes ${rm(x.deposit.settlement.owed)}`
+          : x.deposit.status === 'FORFEITED'
           ? 'Deposit used for deductions'
           : held > 0
             ? `Deposit held ${rm(held)}`
@@ -711,7 +713,7 @@ const MoveOutPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard
 
 // ---------------------------------------------------------------- deposit
 
-const QUICK_DEDUCTIONS = ['Cleaning', 'Repairs', 'Unpaid utilities', 'Unpaid rent', 'Key / access card', 'Repainting'];
+const QUICK_DEDUCTIONS = ['Cleaning', 'Repairs', 'Unpaid utilities', 'Key / access card', 'Repainting'];
 
 const DepositPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard; onClose: () => void; onDone: () => Promise<void> }) => {
   const d = x.deposit;
@@ -720,8 +722,23 @@ const DepositPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard
   const [rows, setRows] = useState<Array<{ label: string; amount: string }>>([]);
   const [refundedOn, setRefundedOn] = useState(todayIso());
   const [busy, setBusy] = useState(false);
+  // Unpaid months of this contract (from the ledger), ticked = taken from the deposit.
+  const [unpaid, setUnpaid] = useState<Array<{ month: string; amount: number }> | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const deductions: Deduction[] = rows.map((r) => ({ label: r.label, amount: Number(r.amount.replace(/[^\d.]/g, '')) || 0 }));
-  const result = settleDeposit(held, deductions);
+  const plan = planSettlement(held, (unpaid ?? []).filter((u) => picked.has(u.month)), deductions);
+  const result = { refund: plan.refund, deducted: plan.rentTaken + plan.kept };
+
+  useEffect(() => {
+    if (settled || held <= 0) return;
+    post<{ unpaid?: Array<{ month: string; amount: number }> }>({ action: 'depositOptions', rentalId: x.id }).then((r) => {
+      const list = r.unpaid ?? [];
+
+      setUnpaid(list);
+      setPicked(new Set(list.map((u) => u.month)));
+    });
+  }, [x.id, settled, held]);
+  const settlement = d.settlement;
   const recorded = parseDeductions(d.notes);
   const statementUrl = (lang: 'EN' | 'MS') => new RestApiClient().resolveUrl('/s/contracts/deposit-statement', { query: { rental: x.id, lang } });
 
@@ -735,7 +752,7 @@ const DepositPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard
   const run = async (action: 'settleDeposit' | 'reopenDeposit') => {
     setBusy(true);
     try {
-      const response = await post<Record<string, never>>({ action, rentalId: x.id, deductions, refundedOn });
+      const response = await post<Record<string, never>>({ action, rentalId: x.id, deductions, refundedOn, rentMonths: [...picked] });
 
       await enqueueSnackbar({ message: response.message ?? (response.success ? 'Saved.' : 'Could not save.'), variant: response.success ? 'success' : 'error' });
       if (response.success) await onDone();
@@ -766,12 +783,19 @@ const DepositPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard
             <Label>{d.status === 'CARRIED' ? 'Carried to the renewal' : 'Settled at move-out'}</Label>
             {d.status !== 'CARRIED' && (
               <div style={{ ...card, padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {recorded.length === 0 && line('Deductions', 'none', { muted: true })}
+                {(settlement?.rent ?? []).map((r) => (
+                  <div key={r.month}>{line(`Unpaid rent · ${monthYear(r.month)} (receipt made)`, `− ${rm(r.amount)}`)}</div>
+                ))}
+                {recorded.length === 0 && !(settlement?.rent ?? []).length && line('Deductions', 'none', { muted: true })}
                 {recorded.map((r, i) => (
                   <div key={i}>{line(r.label, `− ${rm(r.amount)}`)}</div>
                 ))}
+                {settlement && settlement.kept > 0 && line('Kept by you (counted as rental income)', rm(settlement.kept), { muted: true })}
                 <div style={{ borderTop: `1px solid ${c.border}`, paddingTop: 8 }}>{line('Refunded', rm(d.refunded), { strong: true })}</div>
                 {d.refundedOn && line('On', day(d.refundedOn), { muted: true })}
+                {settlement && settlement.owed > 0 && (
+                  <div style={{ fontSize: 13, color: 'var(--t-color-red11)', fontWeight: 600 }}>The tenant still owes {rm(settlement.owed)} beyond the deposit.</div>
+                )}
               </div>
             )}
             {d.status === 'CARRIED' && <div style={{ fontSize: 13, color: c.text2 }}>{d.notes}</div>}
@@ -787,13 +811,46 @@ const DepositPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard
             )}
             {d.status !== 'CARRIED' && (
               <button onClick={() => run('reopenDeposit')} disabled={busy} style={{ all: 'unset', cursor: 'pointer', fontSize: 13, color: c.text3, textDecoration: 'underline', alignSelf: 'flex-start' }}>
-                Undo — mark the deposit as held again
+                Undo — mark the deposit as held again{(settlement?.rent ?? []).length ? ' (voids the rent receipts made from it)' : ''}
               </button>
             )}
           </div>
         ) : held > 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <Label>Move-out: deductions</Label>
+            <Label>Unpaid rent</Label>
+            {unpaid === null ? (
+              <span style={{ fontSize: 13, color: c.text3 }}>Checking the ledger…</span>
+            ) : unpaid.length === 0 ? (
+              <span style={{ fontSize: 13, color: c.text3 }}>✅ No rent owed on this contract.</span>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {unpaid.map((u) => {
+                  const on = picked.has(u.month);
+
+                  return (
+                    <button
+                      key={u.month}
+                      onClick={() => {
+                        const next = new Set(picked);
+
+                        if (on) next.delete(u.month);
+                        else next.add(u.month);
+                        setPicked(next);
+                      }}
+                      style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13.5, padding: '4px 0' }}
+                    >
+                      <span style={{ width: 18, height: 18, borderRadius: 4, border: `1.5px solid ${on ? c.accent : c.border2}`, background: on ? c.accent : 'transparent', color: '#fff', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {on ? '✓' : ''}
+                      </span>
+                      <span style={{ flex: 1 }}>{monthYear(u.month)}</span>
+                      <span style={{ fontVariantNumeric: 'tabular-nums' }}>{rm(u.amount)}</span>
+                    </button>
+                  );
+                })}
+                <span style={{ fontSize: 12, color: c.text3 }}>Ticked months are paid from the deposit — a “From deposit” receipt is made for each.</span>
+              </div>
+            )}
+            <Label>Other deductions</Label>
             {rows.map((r, i) => (
               <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 <input
@@ -827,8 +884,10 @@ const DepositPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard
             </div>
             <div style={{ ...card, padding: 14, display: 'flex', flexDirection: 'column', gap: 6, background: c.bg2 }}>
               {line('Held', rm(held))}
-              {result.deducted > 0 && line('Deductions', `− ${rm(result.deducted)}`)}
+              {plan.rentTaken > 0 && line('Unpaid rent taken', `− ${rm(plan.rentTaken)}`)}
+              {plan.kept > 0 && line('Other deductions', `− ${rm(plan.kept)}`)}
               {line(result.refund > 0 ? 'Refund to tenant' : 'Nothing to refund', rm(result.refund), { strong: true })}
+              {plan.owed > 0 && <span style={{ fontSize: 12.5, color: 'var(--t-color-red11)', fontWeight: 600 }}>The deposit doesn’t cover it all: the tenant will still owe {rm(plan.owed)}.</span>}
             </div>
             <span style={{ fontSize: 12, color: c.text3 }}>Keep the bills or photos for each deduction — the tenant can ask for them.</span>
           </div>

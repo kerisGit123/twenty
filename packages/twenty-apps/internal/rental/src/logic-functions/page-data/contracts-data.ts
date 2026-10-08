@@ -1,7 +1,7 @@
 import { type CoreApiClient } from 'twenty-client-sdk/core';
 
 import { inScope, type Scope } from 'src/logic-functions/utils/scope';
-import { type ContractCard, type ContractsData } from 'src/shared/contracts';
+import { type ContractCard, type ContractsData, type DepositSettlement } from 'src/shared/contracts';
 import { CONTRACT_CHECKLIST } from 'src/shared/documents';
 
 const CARRIES_OVER = CONTRACT_CHECKLIST.filter((c) => c.carriesOver).map((c) => c.type);
@@ -37,6 +37,7 @@ const loadRentals = async (client: CoreApiClient) => {
             depositRefunded: { amountMicros: true },
             depositRefundedOn: true,
             depositNotes: true,
+            depositSettlement: true,
             stampedOn: true,
             renewalOfId: true,
             tenantDetails: true,
@@ -181,6 +182,7 @@ export const loadContractsData = async (client: CoreApiClient, scope: Scope): Pr
           refundedOn: node.depositRefundedOn ?? null,
           status: (node.depositStatus as string) ?? 'NOT_RECEIVED',
           notes: (node.depositNotes as string | null) ?? '',
+          settlement: (node.depositSettlement as DepositSettlement | null) ?? null,
         },
       };
     });

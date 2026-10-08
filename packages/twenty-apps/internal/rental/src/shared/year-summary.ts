@@ -18,6 +18,7 @@ export type YearSummary = {
   current: YearTotals;
   previous: YearTotals;
   deposits: number; // deposits received this year (held, not income)
+  kept: number; // deposit kept for deductions at move-out this year (income, included in rent)
   months: Array<YearTotals & { month: string }>; // Jan..Dec
   groups: GroupLine[];
   properties: PropertyLine[];
@@ -41,8 +42,10 @@ export const summariseYear = (data: YearData, ownerId: string): YearSummary => {
   const inYear = (date: string, y: string) => date.startsWith(y);
   const sum = (rows: Array<{ amount: number }>) => rows.reduce((total, row) => total + row.amount, 0);
 
-  const rentThis = payments.filter((p) => p.type === 'RENT' && inYear(p.date, year));
-  const rentLast = payments.filter((p) => p.type === 'RENT' && inYear(p.date, last));
+  // Income: rent, and deposit kept at move-out.
+  const isIncome = (p: { type: string }) => p.type === 'RENT' || p.type === 'DEPOSIT_KEPT';
+  const rentThis = payments.filter((p) => isIncome(p) && inYear(p.date, year));
+  const rentLast = payments.filter((p) => isIncome(p) && inYear(p.date, last));
   const expThis = expenses.filter((e) => inYear(e.date, year));
   const expLast = expenses.filter((e) => inYear(e.date, last));
 
@@ -92,7 +95,8 @@ export const summariseYear = (data: YearData, ownerId: string): YearSummary => {
     year: data.year,
     current: totals(sum(rentThis), sum(expThis)),
     previous: totals(sum(rentLast), sum(expLast)),
-    deposits: sum(payments.filter((p) => p.type !== 'RENT' && inYear(p.date, year))),
+    deposits: sum(payments.filter((p) => (p.type === 'DEPOSIT' || p.type === 'UTILITY_DEPOSIT') && inYear(p.date, year))),
+    kept: sum(rentThis.filter((p) => p.type === 'DEPOSIT_KEPT')),
     months,
     groups,
     properties: propertyLines.sort((a, b) => b.net - a.net),

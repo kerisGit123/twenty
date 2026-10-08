@@ -178,6 +178,17 @@ export default defineObject({
       isNullable: true,
     },
     {
+      // What settling the deposit did: unpaid rent taken from it (with the
+      // receipts made), other deductions kept (income), what the tenant still owes.
+      universalIdentifier: 'ab024566-96b2-49a2-80c7-1a7e51e9e6f9',
+      type: FieldType.RAW_JSON,
+      name: 'depositSettlement',
+      label: 'Deposit settlement',
+      description: 'Set when the deposit is settled at move-out (Contracts page).',
+      icon: 'IconScale',
+      isNullable: true,
+    },
+    {
       // Deposit brought over from the contract this one renews.
       universalIdentifier: RENTAL_DEPOSIT_CARRIED_IN_FIELD_ID,
       type: FieldType.CURRENCY,
