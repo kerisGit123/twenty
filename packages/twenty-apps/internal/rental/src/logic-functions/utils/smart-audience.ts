@@ -109,15 +109,23 @@ const loadPeople = async (client: CoreApiClient, ids: string[] | null): Promise<
   return map;
 };
 
-const loadPayTo = async (client: CoreApiClient) => {
+// How tenants pay, per workspace: a workspace with its own Receipt settings
+// uses its own details (never another business's), others the default's.
+const loadPayTo = async (client: CoreApiClient): Promise<(ownerId: string | null) => string> => {
   try {
     const { receiptSettings } = (await client.query({
-      receiptSettings: { __args: { first: 1, orderBy: [{ createdAt: 'AscNullsLast' }] }, edges: { node: { paymentDetails: true } } },
-    } as never)) as { receiptSettings?: { edges?: Array<{ node: { paymentDetails?: string | null } }> } };
+      receiptSettings: { __args: { first: 200, orderBy: [{ createdAt: 'AscNullsLast' }] }, edges: { node: { ownerId: true, paymentDetails: true } } },
+    } as never)) as { receiptSettings?: { edges?: Array<{ node: { ownerId?: string | null; paymentDetails?: string | null } }> } };
+    const rows = (receiptSettings?.edges ?? []).map(({ node }) => node);
+    const fallback = rows.find((row) => !row.ownerId)?.paymentDetails?.trim() ?? '';
 
-    return receiptSettings?.edges?.[0]?.node?.paymentDetails?.trim() ?? '';
+    return (ownerId) => {
+      const own = ownerId ? rows.find((row) => row.ownerId === ownerId) : undefined;
+
+      return own ? (own.paymentDetails?.trim() ?? '') : fallback;
+    };
   } catch {
-    return '';
+    return () => '';
   }
 };
 
@@ -216,7 +224,7 @@ export const buildSmartRecipients = async (
           due_date: day(oldest),
           days_late: String(Math.max(0, daysBetween(oldest, today))),
           rent: rm(rentForMonth(contract, today)),
-          pay_to: payTo,
+          pay_to: payTo(contract.ownerId ?? null),
         }),
         chase: { contractId, months: rows.map((r) => r.month as string), overdue: rows.filter((r) => r.kind === 'overdue').map((r) => r.month as string) },
       });

@@ -10,6 +10,7 @@ export type StatementSource = {
   today: string; // YYYY-MM-DD
   landlordName: string;
   landlordDetails: string; // address lines
+  ownerId?: string | null; // the contract's workspace (its letterhead and template)
   rental: {
     propertyType: string | null;
     startDate: string | null;

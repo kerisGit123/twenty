@@ -119,8 +119,8 @@ const highestReceiptSequence = async (client: CoreApiClient, prefix: string) => 
 // Gives the payment the next receipt number and makes sure no one else got
 // the same one at the same moment (two people issuing at once): if two
 // receipts hold it, the older record keeps it and the other takes the next.
-const claimReceiptNumber = async (client: CoreApiClient, paymentId: string, year: number) => {
-  const prefix = `RCP-${year}-`;
+const claimReceiptNumber = async (client: CoreApiClient, paymentId: string, year: number, letters = 'RCP') => {
+  const prefix = `${letters}-${year}-`;
 
   for (let attempt = 0; attempt < 6; attempt += 1) {
     const number = `${prefix}${String((await highestReceiptSequence(client, prefix)) + 1).padStart(4, '0')}`;
@@ -161,17 +161,28 @@ const memberName = async (client: CoreApiClient, workspaceMemberId?: string) => 
   }
 };
 
-// The workspace's Receipt settings record, if one has been saved.
-export const loadReceiptSettings = async (
-  client: CoreApiClient,
-): Promise<ReceiptSettingsRecord | null> => {
+// Receipt settings: one default record (no workspace) used by every
+// workspace without its own, plus optional records per workspace.
+// A workspace with its own record prints its own identity — name (else the
+// workspace's name), address, how to pay, logo, QR, signature, "received by"
+// and receipt prefix — never another business's. Looks (template, colour,
+// titles, footer) still come from the default unless it sets its own.
+type SettingsRow = ReceiptSettingsRecord & { ownerId: string | null; ownerName: string | null; createdAt: string };
+
+const IDENTITY = ['businessName', 'businessDetails', 'paymentDetails', 'receivedBy', 'receiptPrefix', 'signatureUrl', 'logoUrl', 'paymentQrUrl'] as const;
+const LOOKS = ['template', 'accentColor', 'rentTitle', 'depositTitle', 'footerText'] as const;
+
+export const loadAllReceiptSettings = async (client: CoreApiClient): Promise<SettingsRow[]> => {
   try {
     const { receiptSettings } = await client.query({
       receiptSettings: {
-        __args: { first: 1, orderBy: [{ createdAt: 'AscNullsLast' }] },
+        __args: { first: 200, orderBy: [{ createdAt: 'AscNullsLast' }] },
         edges: {
           node: {
             id: true,
+            createdAt: true,
+            ownerId: true,
+            owner: { name: true },
             template: true,
             accentColor: true,
             businessName: true,
@@ -181,34 +192,74 @@ export const loadReceiptSettings = async (
             receivedBy: true,
             footerText: true,
             paymentDetails: true,
+            receiptPrefix: true,
             signature: { url: true },
             logo: { url: true },
             paymentQr: { url: true },
           },
         },
       },
+    } as never);
+
+    return ((receiptSettings as { edges?: Array<{ node: Record<string, unknown> }> } | undefined)?.edges ?? []).map(({ node }) => {
+      const { signature, logo, paymentQr, owner, ownerId, createdAt, ...rest } = node as Record<string, unknown> & {
+        signature?: Array<{ url?: string | null }> | null;
+        logo?: Array<{ url?: string | null }> | null;
+        paymentQr?: Array<{ url?: string | null }> | null;
+        owner?: { name?: string | null } | null;
+      };
+
+      return {
+        ...(rest as ReceiptSettingsRecord),
+        ownerId: (ownerId as string | null) ?? null,
+        ownerName: owner?.name ?? null,
+        createdAt: (createdAt as string) ?? '',
+        signatureUrl: signature?.[0]?.url ?? null,
+        logoUrl: logo?.[0]?.url ?? null,
+        paymentQrUrl: paymentQr?.[0]?.url ?? null,
+      };
     });
-    const node = receiptSettings?.edges?.[0]?.node;
-
-    if (!node) return null;
-
-    const { signature, logo, paymentQr, ...rest } = node as typeof node & {
-      signature?: Array<{ url?: string | null }> | null;
-      logo?: Array<{ url?: string | null }> | null;
-      paymentQr?: Array<{ url?: string | null }> | null;
-    };
-
-    return {
-      ...(rest as ReceiptSettingsRecord),
-      signatureUrl: signature?.[0]?.url ?? null,
-      logoUrl: logo?.[0]?.url ?? null,
-      paymentQrUrl: paymentQr?.[0]?.url ?? null,
-    };
   } catch (error) {
     console.warn('[rental] could not read receipt settings:', error);
 
-    return null;
+    return [];
   }
+};
+
+const filled = (value: unknown) => (typeof value === 'string' ? value.trim() !== '' : value !== null && value !== undefined);
+
+// The settings a workspace's documents are printed with (see above).
+export const resolveReceiptSettings = (rows: SettingsRow[], ownerId?: string | null): (ReceiptSettingsRecord & { ownerId?: string | null }) | null => {
+  const fallback = rows.find((row) => !row.ownerId) ?? null;
+  const own = ownerId ? rows.find((row) => row.ownerId === ownerId) : undefined;
+
+  if (!own) return fallback;
+
+  const merged: Record<string, unknown> = { id: own.id, ownerId: own.ownerId };
+
+  for (const key of LOOKS) merged[key] = filled(own[key]) ? own[key] : (fallback?.[key] ?? null);
+  for (const key of IDENTITY) merged[key] = filled(own[key]) ? own[key] : null;
+  if (!filled(merged.businessName)) merged.businessName = own.ownerName;
+
+  return merged as ReceiptSettingsRecord & { ownerId?: string | null };
+};
+
+// The settings for one workspace's documents (none: the default record).
+export const loadReceiptSettings = async (client: CoreApiClient, ownerId?: string | null): Promise<(ReceiptSettingsRecord & { ownerId?: string | null }) | null> =>
+  resolveReceiptSettings(await loadAllReceiptSettings(client), ownerId);
+
+// The record itself (for editing): the workspace's own, or the default.
+export const loadReceiptSettingsRecord = async (client: CoreApiClient, ownerId: string | null): Promise<SettingsRow | null> => {
+  const rows = await loadAllReceiptSettings(client);
+
+  return (ownerId ? rows.find((row) => row.ownerId === ownerId) : rows.find((row) => !row.ownerId)) ?? null;
+};
+
+// Receipt numbers start with this: the workspace's prefix, else RCP.
+export const receiptPrefixOf = (settings?: ReceiptSettingsRecord | null) => {
+  const prefix = (settings?.receiptPrefix ?? '').trim().toUpperCase();
+
+  return /^[A-Z0-9]{1,8}$/.test(prefix) ? prefix : 'RCP';
 };
 
 const workspaceName = async () => {
@@ -350,11 +401,13 @@ export const receiptHandler = async (
     return { success: false, status: 400, message: 'Enter the amount first.' };
   }
 
+  // The workspace's own settings (name, logo, receipt prefix...), else the default.
+  const settings = await loadReceiptSettings(client, payment.ownerId);
   const paidOn = payment.paidOn ?? todayIso();
   const receiptNumber =
     mode === 'preview'
       ? payment.receiptNumber || 'DRAFT'
-      : payment.receiptNumber || (await claimReceiptNumber(client, payment.id, Number(paidOn.slice(0, 4))));
+      : payment.receiptNumber || (await claimReceiptNumber(client, payment.id, Number(paidOn.slice(0, 4)), receiptPrefixOf(settings)));
 
   const tenantName = [payment.tenant?.name?.firstName, payment.tenant?.name?.lastName]
     .filter(Boolean)
@@ -366,7 +419,6 @@ export const receiptHandler = async (
     ? `${depositLabel}${propertyName ? ` - ${propertyName}` : ''}`
     : `Rent${payment.rentPeriod ? ` for ${formatMonth(payment.rentPeriod)}` : ''}${propertyName ? ` - ${propertyName}` : ''}`;
   const amountText = formatAmount(payment.amount.amountMicros, payment.amount.currencyCode);
-  const settings = await loadReceiptSettings(client);
   const issuerName =
     settings?.businessName?.trim() ||
     process.env.RECEIPT_ISSUER_NAME?.trim() ||
@@ -386,7 +438,7 @@ export const receiptHandler = async (
     (await memberName(client, senderWorkspaceMemberId)) ||
     issuerName;
   const style = resolveStyle(settings);
-  const receiptTemplate = await defaultTemplate(client, 'RECEIPT');
+  const receiptTemplate = await defaultTemplate(client, 'RECEIPT', payment.ownerId);
 
   const receiptData: ReceiptData = {
     title: resolveTitle(settings, isDeposit),

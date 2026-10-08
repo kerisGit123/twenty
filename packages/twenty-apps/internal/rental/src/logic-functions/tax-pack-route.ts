@@ -36,7 +36,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
     const [data, settings, { owners }] = await Promise.all([
       loadYearData(client, scope, year),
-      loadReceiptSettings(client),
+      loadReceiptSettings(client, ownerId || null),
       // Only look the workspace up when one is picked (an empty id isn't a valid filter).
       ownerId
         ? client.query({ owners: { __args: { filter: { id: { eq: ownerId } }, first: 1 }, edges: { node: { name: true } } } })

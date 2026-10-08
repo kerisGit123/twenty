@@ -49,12 +49,17 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       return json({ success: true });
     }
 
-    const [templates, settings] = await Promise.all([loadTemplates(client, 'STATEMENT'), loadReceiptSettings(client)]);
+    // Templates this contract's workspace can use (its own and shared ones),
+    // and its letterhead.
+    const [templates, settings] = await Promise.all([loadTemplates(client, 'STATEMENT'), loadReceiptSettings(client, source.ownerId)]);
+    const usable = templates.filter((t) => !t.ownerId || t.ownerId === source.ownerId);
+    // The workspace's own default wins over the shared one.
+    const ownDefault = usable.find((t) => t.isDefault && t.ownerId === source.ownerId);
 
     return json({
       success: true,
       source,
-      templates,
+      templates: ownDefault ? usable.map((t) => ({ ...t, isDefault: t.id === ownDefault.id })) : usable,
       accent: (settings?.accentColor as string | null) ?? 'BLACK',
       ...letterheadExtras(settings),
     });

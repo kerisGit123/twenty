@@ -3,7 +3,9 @@ import { type CoreApiClient } from 'twenty-client-sdk/core';
 import { presetTemplate } from 'src/shared/doc-template/presets';
 import { type TemplateDoc, type TemplateKind, type TemplateLanguage } from 'src/shared/doc-template/types';
 
-// Saved document templates. Without a saved default, the English sample is used.
+// Saved document templates. A template belongs to one workspace or is shared
+// (no workspace). Each workspace's documents use its own default, else the
+// shared default, else the English sample.
 
 export type SavedTemplate = {
   id: string;
@@ -11,6 +13,7 @@ export type SavedTemplate = {
   kind: TemplateKind;
   language: TemplateLanguage;
   isDefault: boolean;
+  ownerId: string | null;
   content: TemplateDoc;
 };
 
@@ -26,7 +29,7 @@ export const loadTemplates = async (client: CoreApiClient, kind?: TemplateKind):
   const { documentTemplates } = await client.query({
     documentTemplates: {
       __args: { ...(kind ? { filter: { kind: { eq: kind } } } : {}), first: 200, orderBy: [{ createdAt: 'AscNullsLast' }] },
-      edges: { node: { id: true, name: true, kind: true, language: true, isDefault: true, content: true } },
+      edges: { node: { id: true, name: true, kind: true, language: true, isDefault: true, content: true, ownerId: true } },
     },
   });
 
@@ -40,6 +43,7 @@ export const loadTemplates = async (client: CoreApiClient, kind?: TemplateKind):
       kind: nodeKind,
       language,
       isDefault: Boolean(node.isDefault),
+      ownerId: ((node as { ownerId?: string | null }).ownerId as string | null) ?? null,
       content: asDoc(node.content, nodeKind, language),
     };
   });
@@ -47,14 +51,18 @@ export const loadTemplates = async (client: CoreApiClient, kind?: TemplateKind):
 
 // The template to use: the one asked for, else the default of its kind, else
 // the English sample.
-export const pickTemplate = async (client: CoreApiClient, kind: TemplateKind, templateId?: string | null): Promise<TemplateDoc> => {
+// The default for a workspace: its own, else the shared one.
+const defaultFor = (templates: SavedTemplate[], ownerId?: string | null) =>
+  (ownerId ? templates.find((t) => t.isDefault && t.ownerId === ownerId) : undefined) ?? templates.find((t) => t.isDefault && !t.ownerId);
+
+export const pickTemplate = async (client: CoreApiClient, kind: TemplateKind, templateId?: string | null, ownerId?: string | null): Promise<TemplateDoc> => {
   const templates = await loadTemplates(client, kind);
-  const chosen = (templateId && templates.find((t) => t.id === templateId)) || templates.find((t) => t.isDefault);
+  const chosen = (templateId && templates.find((t) => t.id === templateId)) || defaultFor(templates, ownerId);
 
   return chosen?.content ?? presetTemplate(kind, 'EN');
 };
 
 
 // The saved default of a kind, or null (receipts then use their classic design).
-export const defaultTemplate = async (client: CoreApiClient, kind: TemplateKind): Promise<TemplateDoc | null> =>
-  (await loadTemplates(client, kind)).find((t) => t.isDefault)?.content ?? null;
+export const defaultTemplate = async (client: CoreApiClient, kind: TemplateKind, ownerId?: string | null): Promise<TemplateDoc | null> =>
+  defaultFor(await loadTemplates(client, kind), ownerId)?.content ?? null;

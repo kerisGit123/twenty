@@ -123,6 +123,15 @@ export default defineObject({
       universalSettings: { maxNumberOfValues: 1 },
     },
     {
+      universalIdentifier: '58b4d06b-5d3d-457d-89be-d2492a70f993',
+      type: FieldType.TEXT,
+      name: 'receiptPrefix',
+      label: 'Receipt number prefix',
+      description: 'Letters before receipt numbers, e.g. RCP → RCP-2026-0001. Give each business its own so their receipt books are separate.',
+      icon: 'IconHash',
+      isNullable: true,
+    },
+    {
       // Printed at the top left of receipts and statements.
       universalIdentifier: '66ab4c36-9786-4ef2-8db1-9cde70b7d7fa',
       type: FieldType.FILES,

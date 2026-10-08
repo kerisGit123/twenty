@@ -44,6 +44,8 @@ export type ReceiptSettingsRecord = {
   receivedBy?: string | null;
   footerText?: string | null;
   paymentDetails?: string | null; // {pay_to} in rent reminders
+  receiptPrefix?: string | null; // receipt numbers start with it (RCP)
+  ownerId?: string | null; // the workspace these belong to; none = the default
   // Signed links to the uploaded images, if any (read-only).
   signatureUrl?: string | null;
   logoUrl?: string | null;

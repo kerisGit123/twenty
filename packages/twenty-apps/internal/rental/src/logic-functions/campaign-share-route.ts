@@ -180,9 +180,12 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
     if (row?.attachment?.kind === 'statement') {
       const { rentalId, year } = row.attachment;
-      const [statement, template, settings] = await Promise.all([loadStatementSource(client, scope, rentalId, year), pickTemplate(client, 'STATEMENT'), loadReceiptSettings(client)]);
+      const statement = await loadStatementSource(client, scope, rentalId, year);
+      const [template, settings] = statement
+        ? await Promise.all([pickTemplate(client, 'STATEMENT', null, statement.ownerId), loadReceiptSettings(client, statement.ownerId)])
+        : [null, null];
 
-      if (statement) {
+      if (statement && template) {
         const ctx = statementContext(statement, template.language, (settings?.accentColor as string | null) ?? 'BLACK', letterheadExtras(settings));
         const title = `${byLanguage(template.language, 'Rent statement', 'Penyata sewa', '租金结单')} ${year} - ${ctx.values['tenant.name'] || 'tenant'}`;
         const pdf = await buildTemplatePdf(template, ctx, title);
@@ -192,7 +195,13 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     }
     // Rent reminders carry your DuitNow QR, so the tenant can scan and pay.
     if (campaign.source === 'RENT_DUE' && row) {
-      const settings = await loadReceiptSettings(client);
+      // The QR of the workspace the overdue contract belongs to.
+      const contractOwner = row.chase
+        ? (((await client.query({ rentals: { __args: { filter: { id: { eq: row.chase.contractId } }, first: 1 }, edges: { node: { property: { ownerId: true } } } } } as never)) as {
+            rentals?: { edges?: Array<{ node: { property?: { ownerId?: string | null } | null } }> };
+          }).rentals?.edges?.[0]?.node?.property?.ownerId ?? null)
+        : null;
+      const settings = await loadReceiptSettings(client, contractOwner);
 
       // An extra: the page still opens if the QR can't be fetched.
       try {

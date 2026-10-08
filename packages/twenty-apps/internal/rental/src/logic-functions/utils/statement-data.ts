@@ -38,7 +38,9 @@ export const loadStatementSource = async (
   });
   const rental = rentals?.edges?.[0]?.node;
 
-  if (!rental || !inScope(scope, rental.ownerId ?? rental.property?.ownerId)) return null;
+  const ownerId = (rental?.ownerId ?? rental?.property?.ownerId ?? null) as string | null;
+
+  if (!rental || !inScope(scope, ownerId)) return null;
 
   const [{ rentPayments }, settings] = await Promise.all([
     client.query({
@@ -50,12 +52,14 @@ export const loadStatementSource = async (
         edges: { node: { rentPeriod: true, paidOn: true, method: true, status: true, amount: { amountMicros: true } } },
       },
     }),
-    loadReceiptSettings(client),
+    // The workspace's own letterhead, else the default.
+    loadReceiptSettings(client, ownerId),
   ]);
 
   return {
     year,
     today: todayIso(),
+    ownerId,
     landlordName: settings?.businessName?.trim() || rental.owner?.name || '',
     landlordDetails: settings?.businessDetails ?? '',
     rental: {

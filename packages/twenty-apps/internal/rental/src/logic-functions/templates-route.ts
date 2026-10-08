@@ -2,10 +2,10 @@ import { defineLogicFunction, type RoutePayload } from 'twenty-sdk/define';
 import { Response } from 'twenty-sdk/logic-function';
 
 import { TEMPLATES_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers-v3';
-import { loadReceiptSettings } from 'src/logic-functions/handlers/send-receipt-handler';
+import { loadReceiptSettings, loadReceiptSettingsRecord } from 'src/logic-functions/handlers/send-receipt-handler';
 import { appClient } from 'src/logic-functions/utils/app-client';
 import { letterheadExtras } from 'src/logic-functions/utils/receipt-settings';
-import { resolveScope } from 'src/logic-functions/utils/scope';
+import { canManage, inScope, resolveScope, type Scope } from 'src/logic-functions/utils/scope';
 import { loadTemplates } from 'src/logic-functions/utils/templates';
 import { type Block, type TemplateKind, type TemplateLanguage } from 'src/shared/doc-template/types';
 
@@ -15,12 +15,16 @@ const json = (body: unknown, status = 200) =>
 const KINDS: TemplateKind[] = ['RECEIPT', 'STATEMENT'];
 const LANGUAGES: TemplateLanguage[] = ['EN', 'MS', 'ZH'];
 
-// POST { action } for the template editor:
-//   list { kind? }                                -> saved templates + your letterhead (for the preview)
-//   save { id?, name, kind, language, blocks }    -> creates or updates (admins)
-//   setDefault { id }                             -> makes it the one used (admins)
-//   delete { id }                                 -> removes it (admins)
-//   settingsRecord                                -> id of the Receipt settings record (admins)
+// POST { action } for the template editor. A template is shared (no
+// workspace; admins change it) or belongs to one workspace (its hosts too).
+//   list { kind?, ownerId? }                               -> templates you can use + that workspace's letterhead
+//   save { id?, name, kind, language, blocks, ownerId? }   -> creates or updates
+//   setDefault { id }                                      -> the one its workspace (or everyone) uses
+//   delete { id }                                          -> removes it
+//   settingsRecord { ownerId? }                            -> id of the Receipt settings record to upload images to
+
+// Who may change a template or settings of a workspace (none: shared ones).
+const mayChange = (scope: Scope, ownerId: string | null | undefined) => (ownerId ? canManage(scope, ownerId) : scope.all);
 const handler = async (event: RoutePayload, context?: { workspaceMemberId?: string | null }): Promise<Response> => {
   const body = (event.body ?? {}) as {
     action?: string;
@@ -30,7 +34,9 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     language?: string;
     blocks?: Block[];
     accent?: string;
+    ownerId?: string | null;
   };
+  const ownerId = body.ownerId || null;
 
   try {
     const client = appClient();
@@ -38,12 +44,20 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     const kind = KINDS.includes(body.kind as TemplateKind) ? (body.kind as TemplateKind) : undefined;
 
     if (!body.action || body.action === 'list') {
-      const [templates, settings] = await Promise.all([loadTemplates(client, kind), loadReceiptSettings(client)]);
+      if (ownerId && !inScope(scope, ownerId)) return json({ success: false, message: "You don't have access to this workspace." }, 403);
+      const [templates, settings, { owners }] = await Promise.all([
+        loadTemplates(client, kind),
+        loadReceiptSettings(client, ownerId),
+        client.query({ owners: { __args: { first: 200, orderBy: [{ name: 'AscNullsLast' }] }, edges: { node: { id: true, name: true } } } }),
+      ]);
 
       return json({
         success: true,
-        canEdit: scope.all,
-        templates,
+        canEdit: mayChange(scope, ownerId),
+        canEditShared: scope.all,
+        // Shared view: the shared templates. A workspace: shared + its own.
+        templates: templates.filter((t) => !t.ownerId || t.ownerId === ownerId),
+        owners: (owners?.edges ?? []).filter(({ node }) => inScope(scope, node.id)).map(({ node }) => ({ id: node.id, name: node.name ?? 'Workspace', canEdit: canManage(scope, node.id) })),
         letterhead: {
           name: settings?.businessName ?? '',
           details: settings?.businessDetails ?? '',
@@ -57,16 +71,16 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       });
     }
 
-    if (!scope.all) return json({ success: false, message: 'Only admins can change templates.' }, 403);
-
-    // The Receipt settings record (made if missing), where the signature image is uploaded.
+    // The Receipt settings record (made if missing) of a workspace, or the
+    // default one, where the logo, QR and signature are uploaded.
     if (body.action === 'settingsRecord') {
-      const settings = await loadReceiptSettings(client);
+      if (!mayChange(scope, ownerId)) return json({ success: false, message: ownerId ? 'Only the workspace’s hosts can change its settings.' : 'Only admins can change the default settings.' }, 403);
+      const record = await loadReceiptSettingsRecord(client, ownerId);
 
-      if (settings?.id) return json({ success: true, id: settings.id });
+      if (record?.id) return json({ success: true, id: record.id });
 
       const { createReceiptSetting } = await client.mutation({
-        createReceiptSetting: { __args: { data: { name: 'Receipt settings' } }, id: true },
+        createReceiptSetting: { __args: { data: { name: ownerId ? 'Receipt settings (workspace)' : 'Receipt settings', ...(ownerId ? { ownerId } : {}) } as never }, id: true },
       });
 
       return json({ success: true, id: createReceiptSetting?.id });
@@ -89,16 +103,31 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         },
       };
 
+      if (!mayChange(scope, ownerId)) return json({ success: false, message: ownerId ? 'Only the workspace’s hosts can change its templates.' : 'Only admins can change shared templates.' }, 403);
+
+      const existing = await loadTemplates(client, kind);
+
       if (body.id) {
-        await client.mutation({ updateDocumentTemplate: { __args: { id: body.id, data: data as never }, id: true } });
+        const current = existing.find((t) => t.id === body.id);
+
+        if (!current) return json({ success: false, message: 'Template not found.' }, 404);
+        if (!mayChange(scope, current.ownerId)) return json({ success: false, message: 'You can’t change this template.' }, 403);
+        // Moving it to another workspace: it stops being the default where it was.
+        const moved = (current.ownerId ?? null) !== ownerId;
+
+        await client.mutation({
+          updateDocumentTemplate: { __args: { id: body.id, data: { ...data, ownerId, ...(moved ? { isDefault: false } : {}) } as never }, id: true },
+        });
 
         return json({ success: true, id: body.id });
       }
 
-      // The first template of a kind becomes its default.
-      const existing = await loadTemplates(client, kind);
+      // The first template of a kind for a workspace (or shared) becomes its default.
       const { createDocumentTemplate } = await client.mutation({
-        createDocumentTemplate: { __args: { data: { ...data, isDefault: existing.length === 0 } as never }, id: true },
+        createDocumentTemplate: {
+          __args: { data: { ...data, ownerId, isDefault: !existing.some((t) => (t.ownerId ?? null) === ownerId) } as never },
+          id: true,
+        },
       });
 
       return json({ success: true, id: createDocumentTemplate?.id });
@@ -110,9 +139,11 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     const target = all.find((t) => t.id === body.id);
 
     if (!target) return json({ success: false, message: 'Template not found.' }, 404);
+    if (!mayChange(scope, target.ownerId)) return json({ success: false, message: 'You can’t change this template.' }, 403);
 
     if (body.action === 'setDefault') {
-      for (const template of all.filter((t) => t.kind === target.kind && t.isDefault !== (t.id === target.id))) {
+      // Default among its own group: that workspace's templates, or the shared ones.
+      for (const template of all.filter((t) => t.kind === target.kind && (t.ownerId ?? null) === (target.ownerId ?? null) && t.isDefault !== (t.id === target.id))) {
         await client.mutation({
           updateDocumentTemplate: { __args: { id: template.id, data: { isDefault: template.id === target.id } as never }, id: true },
         });

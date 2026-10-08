@@ -1,6 +1,6 @@
-import { type CSSProperties, type SyntheticEvent, useEffect, useState } from 'react';
+import { type CSSProperties, type SyntheticEvent, useCallback, useEffect, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
-import { enqueueSnackbar } from 'twenty-sdk/front-component';
+import { AppPath, enqueueSnackbar, navigate } from 'twenty-sdk/front-component';
 
 import { ReceiptView, type ReceiptViewData } from 'src/front-components/shared/receipt-view';
 import {
@@ -74,29 +74,59 @@ type SettingsResponse = {
   success: boolean;
   message?: string;
   settings?: ReceiptSettingsRecord | null;
+  defaults?: ReceiptSettingsRecord | null; // the default settings, when editing a workspace's own
+  ownerName?: string | null;
+  owners?: Array<{ id: string; name: string; hasOwn: boolean }>;
+  canEditDefault?: boolean;
+  canEdit?: boolean;
   workspaceName?: string;
   receivedByFallback?: string;
 };
 
+const LOOKS = ['template', 'accentColor', 'rentTitle', 'depositTitle', 'footerText'] as const;
+
+// Receipt settings: the default (used by every workspace without its own)
+// or one workspace's own — its name, address, bank details, logo and receipt
+// prefix; looks left empty follow the default.
 export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
+  const [ownerId, setOwnerId] = useState('');
   const [values, setValues] = useState<ReceiptSettingsRecord>({ template: 'CLASSIC', accentColor: 'TEAL' });
+  const [info, setInfo] = useState<SettingsResponse>({ success: false });
   const [fallbacks, setFallbacks] = useState({ workspaceName: '', receivedBy: '' });
   const [sample, setSample] = useState<'rent' | 'deposit'>('rent');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const result = await new RestApiClient().post<SettingsResponse>('/s/receipts/settings', { action: 'get' });
+  const load = useCallback(async (owner: string) => {
+    setLoading(true);
+    try {
+      const result = await new RestApiClient().post<SettingsResponse>('/s/receipts/settings', { action: 'get', ownerId: owner || null });
 
-        if (result.settings) setValues({ template: 'CLASSIC', accentColor: 'TEAL', ...result.settings });
-        setFallbacks({ workspaceName: result.workspaceName ?? '', receivedBy: result.receivedByFallback ?? '' });
-      } finally {
-        setLoading(false);
-      }
-    })();
+      setInfo(result);
+      // A workspace's own record keeps empty looks empty (they follow the default).
+      setValues(owner ? { ...(result.settings ?? {}) } : { template: 'CLASSIC', accentColor: 'TEAL', ...(result.settings ?? {}) });
+      setFallbacks({ workspaceName: result.workspaceName ?? '', receivedBy: result.receivedByFallback ?? '' });
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    load(ownerId);
+  }, [load, ownerId]);
+
+  const defaults = info.defaults ?? null;
+  const canEdit = Boolean(info.canEdit);
+  // What a look field prints: this workspace's own, else the default's.
+  const look = (key: (typeof LOOKS)[number]) => (values[key] || (ownerId ? defaults?.[key] : undefined) || undefined) as string | undefined;
+  const followsDefault = (key: (typeof LOOKS)[number]) => Boolean(ownerId && !values[key]);
+
+  const openImages = async () => {
+    const result = await new RestApiClient().post<{ success: boolean; id?: string; message?: string }>('/s/templates', { action: 'settingsRecord', ownerId: ownerId || null });
+
+    if (result.id) await navigate(AppPath.RecordShowPage, { objectNameSingular: 'receiptSetting', objectRecordId: result.id });
+    else await enqueueSnackbar({ message: result.message ?? 'Could not open the settings.', variant: 'error' });
+  };
 
   const set = (key: keyof ReceiptSettingsRecord) => (event: SyntheticEvent<HTMLElement>) =>
     setValues((previous) => ({ ...previous, [key]: readValue(event) }));
@@ -104,7 +134,7 @@ export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
   const save = async () => {
     setSaving(true);
     try {
-      const result = await new RestApiClient().post<SettingsResponse>('/s/receipts/settings', { action: 'save', values });
+      const result = await new RestApiClient().post<SettingsResponse>('/s/receipts/settings', { action: 'save', ownerId: ownerId || null, values });
 
       await enqueueSnackbar({ message: result.message ?? 'Saved.', variant: result.success ? 'success' : 'error' });
       if (result.success) onClose();
@@ -116,11 +146,13 @@ export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
   };
 
   const isDeposit = sample === 'deposit';
+  const shown: ReceiptSettingsRecord = { ...values, ...Object.fromEntries(LOOKS.map((key) => [key, look(key) ?? null])) };
+  const prefix = (values.receiptPrefix || (ownerId ? '' : '') || 'RCP').toUpperCase();
   const preview: ReceiptViewData = {
-    title: resolveTitle(values, isDeposit),
-    style: resolveStyle(values),
-    issuerName: values.businessName?.trim() || fallbacks.workspaceName || 'Your business',
-    receiptNumber: 'RCP-2026-0001',
+    title: resolveTitle(shown, isDeposit),
+    style: resolveStyle(shown),
+    issuerName: values.businessName?.trim() || (ownerId ? info.ownerName : '') || fallbacks.workspaceName || 'Your business',
+    receiptNumber: `${prefix}-2026-0001`,
     date: '4 Oct 2026',
     receivedFrom: 'Ali bin Ahmad',
     amountText: isDeposit ? 'RM 3,000.00' : 'RM 1,500.00',
@@ -140,19 +172,40 @@ export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
       <div style={{ padding: '14px 16px', borderBottom: `1px solid ${c.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 600, fontSize: 14 }}>Receipt settings</div>
-          <div style={{ fontSize: 12, color: c.text2, marginTop: 2 }}>Applies to new receipts and previews. Issued receipts keep their look.</div>
+          <div style={{ fontSize: 12, color: c.text2, marginTop: 2 }}>Applies to new receipts, statements and previews. Issued receipts keep their look.</div>
         </div>
         <button onClick={onClose} style={button()}>Cancel</button>
-        <button onClick={save} disabled={saving || loading} style={button(true)}>{saving ? 'Saving…' : 'Save'}</button>
+        <button onClick={save} disabled={saving || loading || !canEdit} style={button(true)}>{saving ? 'Saving…' : 'Save'}</button>
+      </div>
+      <div style={{ padding: '10px 16px', borderBottom: `1px solid ${c.border}`, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: c.bg2 }}>
+        <span style={{ fontSize: 12, color: c.text2 }}>Settings for</span>
+        <select value={ownerId} onChange={(e) => setOwnerId(readValue(e))} style={{ ...control, width: 'auto', minWidth: 200 }}>
+          {(info.canEditDefault || !ownerId) && <option value="">Default — every workspace without its own</option>}
+          {(info.owners ?? []).map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+              {o.hasOwn ? ' · own settings' : ' · uses the default'}
+            </option>
+          ))}
+        </select>
+        <button onClick={openImages} disabled={!canEdit} style={{ ...button(), height: 30 }} title="Upload the logo, DuitNow QR and signature">
+          Logo, QR &amp; signature →
+        </button>
+        <span style={{ fontSize: 11.5, color: c.text3, flex: '1 1 260px' }}>
+          {ownerId
+            ? 'This workspace prints its own name, address, bank details, logo and receipt numbers. Looks left empty follow the default.'
+            : 'Used by every workspace that has no settings of its own.'}
+          {!canEdit && ' You can view these but not change them.'}
+        </span>
       </div>
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0, flexWrap: 'wrap', overflow: 'auto' }}>
         <div style={{ flex: '1 1 300px', padding: 16, display: 'flex', flexDirection: 'column', gap: 14, borderRight: `1px solid ${c.border}` }}>
           <div style={field}>
-            Template
+            Template{followsDefault('template') ? ' (following the default)' : ''}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
               {TEMPLATES.map((template) => {
-                const active = (values.template ?? 'CLASSIC') === template.value;
+                const active = (look('template') ?? 'CLASSIC') === template.value;
 
                 return (
                   <button
@@ -169,10 +222,10 @@ export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
           </div>
 
           <div style={field}>
-            Colour
+            Colour{followsDefault('accentColor') ? ' (following the default)' : ''}
             <div style={{ display: 'flex', gap: 8 }}>
               {COLOURS.map((colour) => {
-                const active = (values.accentColor ?? 'TEAL') === colour.value;
+                const active = (look('accentColor') ?? 'TEAL') === colour.value;
 
                 return (
                   <button
@@ -189,7 +242,7 @@ export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
 
           <label style={field}>
             Business name
-            <input value={values.businessName ?? ''} onChange={set('businessName')} placeholder={fallbacks.workspaceName || 'Your business name'} style={control} />
+            <input value={values.businessName ?? ''} onChange={set('businessName')} placeholder={(ownerId ? info.ownerName : '') || fallbacks.workspaceName || 'Your business name'} style={control} />
           </label>
           <label style={field}>
             Business details (address, phone, SSM no.)
@@ -198,11 +251,11 @@ export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <label style={field}>
               Rent receipt title
-              <input value={values.rentTitle ?? ''} onChange={set('rentTitle')} placeholder={DEFAULT_TEXT.rentTitle} style={control} />
+              <input value={values.rentTitle ?? ''} onChange={set('rentTitle')} placeholder={(ownerId && defaults?.rentTitle) || DEFAULT_TEXT.rentTitle} style={control} />
             </label>
             <label style={field}>
               Deposit receipt title
-              <input value={values.depositTitle ?? ''} onChange={set('depositTitle')} placeholder={DEFAULT_TEXT.depositTitle} style={control} />
+              <input value={values.depositTitle ?? ''} onChange={set('depositTitle')} placeholder={(ownerId && defaults?.depositTitle) || DEFAULT_TEXT.depositTitle} style={control} />
             </label>
           </div>
           <label style={field}>
@@ -211,12 +264,19 @@ export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
           </label>
           <label style={field}>
             Footer text
-            <textarea value={values.footerText ?? ''} onChange={set('footerText')} placeholder={DEFAULT_TEXT.footerText} rows={2} style={{ ...control, resize: 'vertical' }} />
+            <textarea value={values.footerText ?? ''} onChange={set('footerText')} placeholder={(ownerId && defaults?.footerText) || DEFAULT_TEXT.footerText} rows={2} style={{ ...control, resize: 'vertical' }} />
           </label>
           <label style={field}>
             How tenants pay you
             <input value={values.paymentDetails ?? ''} onChange={set('paymentDetails')} placeholder="Maybank 1234 5678 9012 (Your Name) or DuitNow 012-345 6789" style={control} />
             <span style={{ fontSize: 11.5, color: c.text3, fontWeight: 400 }}>Goes into rent reminders as {'{pay_to}'}.</span>
+          </label>
+          <label style={field}>
+            Receipt number prefix
+            <input value={values.receiptPrefix ?? ''} onChange={set('receiptPrefix')} placeholder="RCP" maxLength={8} style={{ ...control, textTransform: 'uppercase', maxWidth: 140 }} />
+            <span style={{ fontSize: 11.5, color: c.text3, fontWeight: 400 }}>
+              Receipts are numbered {prefix}-2026-0001, {prefix}-2026-0002… Give each business its own prefix to keep separate receipt books.
+            </span>
           </label>
         </div>
 

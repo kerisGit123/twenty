@@ -29,13 +29,12 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
   try {
     const client = appClient();
     const scope = await resolveScope(client, context?.workspaceMemberId);
-    const [source, template, settings] = await Promise.all([
-      loadStatementSource(client, scope, query.rental, year),
-      pickTemplate(client, 'STATEMENT', query.template),
-      loadReceiptSettings(client),
-    ]);
+    const source = await loadStatementSource(client, scope, query.rental, year);
 
     if (!source) return html("<p>You don't have access to this contract.</p>", 403);
+
+    // The contract's workspace: its own template and letterhead, else the defaults.
+    const [template, settings] = await Promise.all([pickTemplate(client, 'STATEMENT', query.template, source.ownerId), loadReceiptSettings(client, source.ownerId)]);
 
     const ctx = statementContext(source, template.language, (settings?.accentColor as string | null) ?? 'BLACK', letterheadExtras(settings));
     const tenant = ctx.values['tenant.name'] || 'tenant';

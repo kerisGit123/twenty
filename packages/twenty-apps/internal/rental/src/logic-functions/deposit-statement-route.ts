@@ -86,10 +86,13 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
   try {
     const client = appClient();
     const scope = await resolveScope(client, context?.workspaceMemberId);
-    const [data, settings] = await Promise.all([loadContractsData(client, scope), loadReceiptSettings(client)]);
+    const data = await loadContractsData(client, scope);
     const contract = data.contracts.find((c) => c.id === query.rental);
 
     if (!contract) return html("<p>You don't have access to this contract.</p>", 403);
+
+    // The contract's workspace letterhead, else the default.
+    const settings = await loadReceiptSettings(client, contract.ownerId);
 
     const d = contract.deposit;
     const day = (iso: string | null) => (iso ? `${Number(iso.slice(8, 10))} ${MONTHS[lang][Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : '-');

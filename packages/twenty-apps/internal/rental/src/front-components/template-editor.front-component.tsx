@@ -34,9 +34,18 @@ import {
 
 type Accent = NonNullable<TemplateDoc['accent']>;
 
-type ListResponse = { success: boolean; canEdit?: boolean; templates?: SavedTemplate[]; letterhead?: Letterhead; message?: string };
+type ListResponse = {
+  success: boolean;
+  canEdit?: boolean; // in the workspace shown (or shared templates)
+  canEditShared?: boolean;
+  templates?: SavedTemplate[];
+  owners?: Array<{ id: string; name: string; canEdit: boolean }>;
+  letterhead?: Letterhead;
+  message?: string;
+};
 
-type Draft = { id: string | null; name: string; language: TemplateLanguage; accent: Accent | null; blocks: Block[]; isDefault: boolean };
+// ownerId: the workspace the template belongs to; null = shared by all.
+type Draft = { id: string | null; name: string; language: TemplateLanguage; accent: Accent | null; blocks: Block[]; isDefault: boolean; ownerId: string | null };
 
 // ---------------------------------------------------------------- look
 
@@ -509,8 +518,9 @@ const BlockSettings = ({
 
 // ---------------------------------------------------------------- helpers
 
-const fromPreset = (kind: TemplateKind, language: TemplateLanguage, blank = false): Draft => ({
+const fromPreset = (kind: TemplateKind, language: TemplateLanguage, blank = false, ownerId: string | null = null): Draft => ({
   id: null,
+  ownerId,
   name: blank ? byLanguage(language, 'New template', 'Templat baharu', '新模板') : PRESET_NAMES[kind][language],
   language,
   accent: null,
@@ -525,6 +535,7 @@ const fromSaved = (template: SavedTemplate): Draft => ({
   accent: template.content.accent ?? null,
   blocks: template.content.blocks,
   isDefault: template.isDefault,
+  ownerId: template.ownerId ?? null,
 });
 
 const sampleContext = (kind: TemplateKind, letterhead: Letterhead, variant: 'a' | 'b', language: TemplateLanguage): TemplateContext =>
@@ -547,6 +558,8 @@ const KIND_WORD: Record<TemplateKind, { one: string; many: string }> = {
 
 const TemplateDesigner = () => {
   const [kind, setKind] = useState<TemplateKind>('RECEIPT');
+  // The workspace whose templates and letterhead are shown ('' = shared).
+  const [workspace, setWorkspace] = useState('');
   const [data, setData] = useState<ListResponse | null>(null);
   const [screen, setScreen] = useState<'library' | 'editor'>('library');
   const [draft, setDraft] = useState<Draft>(fromPreset('RECEIPT', 'EN'));
@@ -569,19 +582,23 @@ const TemplateDesigner = () => {
   const lastEdit = useRef<{ key: string; at: number }>({ key: '', at: 0 });
 
   const load = useCallback(async () => {
-    const result = await new RestApiClient().post<ListResponse>('/s/templates', { action: 'list' });
+    const result = await new RestApiClient().post<ListResponse>('/s/templates', { action: 'list', ownerId: workspace || null });
 
     setData(result);
 
     return result;
-  }, []);
+  }, [workspace]);
 
   useEffect(() => {
     load().catch((error) => setData({ success: false, message: error instanceof Error ? error.message : String(error) }));
   }, [load]);
 
   const letterhead: Letterhead = data?.letterhead ?? { name: '', details: '', accent: 'TEAL', receivedBy: '', footer: '', rentTitle: '', depositTitle: '' };
-  const canEdit = Boolean(data?.canEdit);
+  // Shared templates are the admins'; a workspace's also its hosts'.
+  const editableOwner = (ownerId: string | null | undefined) =>
+    ownerId ? Boolean(data?.owners?.find((o) => o.id === ownerId)?.canEdit) : Boolean(data?.canEditShared);
+  const ownerLabel = (ownerId: string | null | undefined) => (ownerId ? (data?.owners?.find((o) => o.id === ownerId)?.name ?? 'Workspace') : 'Shared');
+  const canEdit = screen === 'editor' ? editableOwner(draft.ownerId) : Boolean(data?.canEdit);
   const templates = (data?.templates ?? []).filter((t) => t.kind === kind);
   const dirty = JSON.stringify(draft) !== saved;
   const selected = draft.blocks.find((b) => b.id === selectedId) ?? null;
@@ -745,7 +762,7 @@ const TemplateDesigner = () => {
 
   const save = async () => {
     const result = await call(
-      { action: 'save', id: draft.id ?? undefined, name: draft.name, kind, language: draft.language, blocks: draft.blocks, accent: draft.accent ?? undefined },
+      { action: 'save', id: draft.id ?? undefined, name: draft.name, kind, language: draft.language, blocks: draft.blocks, accent: draft.accent ?? undefined, ownerId: draft.ownerId },
       'Saved.',
     );
 
@@ -754,7 +771,7 @@ const TemplateDesigner = () => {
 
   const duplicateTemplate = async (source: Draft) => {
     const result = await call(
-      { action: 'save', name: `${source.name} (copy)`, kind, language: source.language, blocks: source.blocks, accent: source.accent ?? undefined },
+      { action: 'save', name: `${source.name} (copy)`, kind, language: source.language, blocks: source.blocks, accent: source.accent ?? undefined, ownerId: workspace || null },
       'Copy made.',
     );
 
@@ -786,7 +803,7 @@ const TemplateDesigner = () => {
   };
 
   const openLetterhead = async () => {
-    const result = await call({ action: 'settingsRecord' }, 'Fill in your details or upload a signature, then come back.');
+    const result = await call({ action: 'settingsRecord', ownerId: workspace || null }, 'Fill in your details or upload a signature, then come back.');
 
     if (result?.id) await navigate(AppPath.RecordShowPage, { objectNameSingular: 'receiptSetting', objectRecordId: result.id });
   };
@@ -842,8 +859,25 @@ const TemplateDesigner = () => {
           <div style={{ flex: '1 1 220px', minWidth: 0 }}>
             <div style={{ fontSize: 20, fontWeight: 650 }}>Templates</div>
             <div style={{ fontSize: 13, color: c.text3, marginTop: 2 }}>
-              Design how your receipts and year statements look. The <b>★ default</b> is used whenever one is made.
+              Design how your receipts and year statements look. Each workspace uses its own <b>★ default</b>, else the shared one.
             </div>
+            {(data.owners ?? []).length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12.5, color: c.text3 }}>Workspace</span>
+                <select
+                  value={workspace}
+                  onChange={(e) => setWorkspace(((e as unknown as { detail?: { value?: string }; target?: { value?: string } }).detail?.value ?? (e as unknown as { target?: { value?: string } }).target?.value) ?? '')}
+                  style={{ fontFamily: c.font, fontSize: 13, height: 30, borderRadius: 8, border: `1px solid ${c.border}`, padding: '0 8px', background: c.bg, color: c.text }}
+                >
+                  <option value="">Shared — every workspace</option>
+                  {(data.owners ?? []).map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
           {canEdit && (
             <div style={{ position: 'relative' }}>
@@ -853,10 +887,10 @@ const TemplateDesigner = () => {
               {newMenu && (
                 <div style={{ position: 'absolute', right: 0, top: 36, zIndex: 5, width: 250, ...card, boxShadow: '0 10px 30px rgba(0,0,0,0.14)', padding: 6, gap: 2 }}>
                   {[
-                    { label: 'English sample', hint: 'Ready-made, in English', run: () => open(fromPreset(kind, 'EN')) },
-                    { label: 'Malay sample', hint: 'Siap sedia, dalam Bahasa Melayu', run: () => open(fromPreset(kind, 'MS')) },
-                    { label: 'Chinese sample', hint: '现成的中文模板', run: () => open(fromPreset(kind, 'ZH')) },
-                    { label: 'Blank page', hint: 'Start from nothing', run: () => open(fromPreset(kind, 'EN', true)) },
+                    { label: 'English sample', hint: 'Ready-made, in English', run: () => open(fromPreset(kind, 'EN', false, workspace || null)) },
+                    { label: 'Malay sample', hint: 'Siap sedia, dalam Bahasa Melayu', run: () => open(fromPreset(kind, 'MS', false, workspace || null)) },
+                    { label: 'Chinese sample', hint: '现成的中文模板', run: () => open(fromPreset(kind, 'ZH', false, workspace || null)) },
+                    { label: 'Blank page', hint: 'Start from nothing', run: () => open(fromPreset(kind, 'EN', true, workspace || null)) },
                   ].map((item) => (
                     <button
                       key={item.label}
@@ -931,13 +965,19 @@ const TemplateDesigner = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ flex: 1, fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{template.name}</span>
                 <Badge>{TEMPLATE_LANGUAGES.find((l) => l.value === template.language)?.short ?? 'EN'}</Badge>
-                {template.isDefault && <Badge tone="blue">★ Default</Badge>}
+                {workspace && <Badge>{ownerLabel(template.ownerId)}</Badge>}
+                {template.isDefault &&
+                  (workspace && !template.ownerId && templates.some((t) => t.ownerId && t.isDefault) ? (
+                    <Badge>Shared default · not used here</Badge>
+                  ) : (
+                    <Badge tone="blue">★ Default</Badge>
+                  ))}
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button onClick={() => open(fromSaved(template))} style={{ ...small, flex: 1 }}>
-                  {canEdit ? 'Edit' : 'View'}
+                  {editableOwner(template.ownerId) ? 'Edit' : 'View'}
                 </button>
-                {canEdit && !template.isDefault && (
+                {editableOwner(template.ownerId) && !template.isDefault && (
                   <button onClick={() => makeDefault(template.id, template.name)} disabled={busy} style={small} title="Use for new ones">
                     ★ Default
                   </button>
@@ -954,17 +994,17 @@ const TemplateDesigner = () => {
           {templates.length === 0 &&
             TEMPLATE_LANGUAGES.map(({ value: language }) => (
               <div key={language} style={{ ...card, padding: 10, borderStyle: 'dashed' }}>
-                <button onClick={() => open(fromPreset(kind, language))} style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
+                <button onClick={() => open(fromPreset(kind, language, false, workspace || null))} style={{ all: 'unset', cursor: 'pointer', display: 'block' }}>
                   {thumb(presetTemplate(kind, language), language)}
                 </button>
                 <div style={{ fontWeight: 600, fontSize: 13.5 }}>{PRESET_NAMES[kind][language]}</div>
-                <button onClick={() => open(fromPreset(kind, language))} style={small}>
+                <button onClick={() => open(fromPreset(kind, language, false, workspace || null))} style={small}>
                   Start from this sample
                 </button>
               </div>
             ))}
         </div>
-        {!canEdit && <div style={{ fontSize: 12, color: c.text3 }}>Only admins can change templates.</div>}
+        {!canEdit && <div style={{ fontSize: 12, color: c.text3 }}>{workspace ? 'Only this workspace’s hosts and admins can change its templates.' : 'Only admins can change shared templates.'}</div>}
       </div>
     );
   }

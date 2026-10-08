@@ -4,6 +4,7 @@ import { Response } from 'twenty-sdk/logic-function';
 import { TEMPLATE_SAMPLE_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers-v3';
 import { loadReceiptSettings } from 'src/logic-functions/handlers/send-receipt-handler';
 import { appClient } from 'src/logic-functions/utils/app-client';
+import { inScope, resolveScope } from 'src/logic-functions/utils/scope';
 import { letterheadExtras } from 'src/logic-functions/utils/receipt-settings';
 import { pdfPageResponse } from 'src/logic-functions/utils/pdf-page';
 import { buildTemplatePdf } from 'src/logic-functions/utils/template-pdf';
@@ -17,15 +18,20 @@ import { sampleReceipt, sampleStatement } from 'src/shared/doc-template/samples'
 const html = (body: string, status = 200) =>
   new Response(body, { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 
-const handler = async (event: RoutePayload): Promise<Response> => {
+const handler = async (event: RoutePayload, caller?: { workspaceMemberId?: string | null }): Promise<Response> => {
   const query = event.queryStringParameters ?? {};
 
   try {
     const client = appClient();
-    const [templates, settings] = await Promise.all([loadTemplates(client), loadReceiptSettings(client)]);
-    const template = templates.find((t) => t.id === query.id);
+    const template = (await loadTemplates(client)).find((t) => t.id === query.id);
 
     if (!template) return html('<p>Save the template first.</p>', 404);
+    // A workspace's template shows that workspace's letterhead: only to its members.
+    if (template.ownerId && !inScope(await resolveScope(client, caller?.workspaceMemberId), template.ownerId)) {
+      return html("<p>You don't have access to this workspace.</p>", 403);
+    }
+
+    const settings = await loadReceiptSettings(client, template.ownerId);
 
     const letterhead = {
       name: settings?.businessName ?? '',
