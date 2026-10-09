@@ -1,0 +1,86 @@
+import { defineObject, FieldType, NumberDataType } from 'twenty-sdk/define';
+
+import {
+  STOCK_BORROW_STATUS_OPTION_IDS,
+  STOCK_MOVEMENT_BORROW_ID_FIELD_ID,
+  STOCK_MOVEMENT_BORROW_STATUS_FIELD_ID,
+  STOCK_MOVEMENT_DATE_FIELD_ID,
+  STOCK_MOVEMENT_EXPIRY_FIELD_ID,
+  STOCK_MOVEMENT_NAME_FIELD_ID,
+  STOCK_MOVEMENT_NOTES_FIELD_ID,
+  STOCK_MOVEMENT_OBJECT_ID,
+  STOCK_MOVEMENT_PARTY_FIELD_ID,
+  STOCK_MOVEMENT_QTY_FIELD_ID,
+  STOCK_MOVEMENT_REFERENCE_FIELD_ID,
+  STOCK_MOVEMENT_TYPE_FIELD_ID,
+  STOCK_MOVEMENT_UNIT_COST_FIELD_ID,
+  STOCK_TYPE_OPTION_IDS,
+} from 'src/constants/universal-identifiers-stock';
+import { BORROW_STATUSES, STOCK_MOVEMENT_TYPES } from 'src/shared/stock-types';
+
+type Color = 'green' | 'blue' | 'orange' | 'turquoise' | 'sky' | 'red' | 'gray';
+
+// One IN or OUT of a stock item at the warehouse, in inner units.
+export default defineObject({
+  universalIdentifier: STOCK_MOVEMENT_OBJECT_ID,
+  nameSingular: 'stockMovement',
+  namePlural: 'stockMovements',
+  labelSingular: 'Stock movement',
+  labelPlural: 'Stock movements',
+  description: 'Stock in (purchases, returns) and out (taken, lent, waste)',
+  icon: 'IconArrowsDownUp',
+  labelIdentifierFieldMetadataUniversalIdentifier: STOCK_MOVEMENT_NAME_FIELD_ID,
+  fields: [
+    { universalIdentifier: STOCK_MOVEMENT_NAME_FIELD_ID, type: FieldType.TEXT, name: 'name', label: 'Movement', icon: 'IconAbc' },
+    { universalIdentifier: STOCK_MOVEMENT_DATE_FIELD_ID, type: FieldType.DATE, name: 'movementDate', label: 'Date', icon: 'IconCalendar', isNullable: true },
+    {
+      universalIdentifier: STOCK_MOVEMENT_TYPE_FIELD_ID,
+      type: FieldType.SELECT,
+      name: 'movementType',
+      label: 'Type',
+      icon: 'IconArrowsDownUp',
+      defaultValue: "'TAKE'",
+      options: STOCK_MOVEMENT_TYPES.map((t, index) => ({ id: STOCK_TYPE_OPTION_IDS[index], value: t.value, label: t.label, position: index, color: t.color as Color })),
+    },
+    {
+      universalIdentifier: STOCK_MOVEMENT_QTY_FIELD_ID,
+      type: FieldType.NUMBER,
+      name: 'quantity',
+      label: 'Quantity (units)',
+      icon: 'IconNumber',
+      defaultValue: 0,
+      universalSettings: { dataType: NumberDataType.FLOAT, decimals: 2 },
+    },
+    { universalIdentifier: STOCK_MOVEMENT_PARTY_FIELD_ID, type: FieldType.TEXT, name: 'party', label: 'To / from', description: 'Wawa, a branch, the supplier...', icon: 'IconBuildingStore', isNullable: true },
+    {
+      universalIdentifier: STOCK_MOVEMENT_UNIT_COST_FIELD_ID,
+      type: FieldType.NUMBER,
+      name: 'unitCost',
+      label: 'Cost per unit (RM)',
+      icon: 'IconCash',
+      isNullable: true,
+      universalSettings: { dataType: NumberDataType.FLOAT, decimals: 4 },
+    },
+    { universalIdentifier: STOCK_MOVEMENT_EXPIRY_FIELD_ID, type: FieldType.DATE, name: 'expiryDate', label: 'Expiry date', icon: 'IconCalendarX', isNullable: true },
+    { universalIdentifier: STOCK_MOVEMENT_REFERENCE_FIELD_ID, type: FieldType.TEXT, name: 'reference', label: 'Reference', description: 'Invoice / DO number', icon: 'IconReceipt', isNullable: true },
+    { universalIdentifier: STOCK_MOVEMENT_NOTES_FIELD_ID, type: FieldType.TEXT, name: 'notes', label: 'Notes', icon: 'IconNotes', isNullable: true },
+    {
+      universalIdentifier: STOCK_MOVEMENT_BORROW_STATUS_FIELD_ID,
+      type: FieldType.SELECT,
+      name: 'borrowStatus',
+      label: 'Borrow status',
+      icon: 'IconArrowBackUp',
+      isNullable: true,
+      options: BORROW_STATUSES.map((s, index) => ({ id: STOCK_BORROW_STATUS_OPTION_IDS[index], value: s.value, label: s.label, position: index, color: s.color as Color })),
+    },
+    {
+      universalIdentifier: STOCK_MOVEMENT_BORROW_ID_FIELD_ID,
+      type: FieldType.TEXT,
+      name: 'borrowId',
+      label: 'Settles borrow',
+      description: 'The lending this return or exchange settles.',
+      icon: 'IconLink',
+      isNullable: true,
+    },
+  ],
+});

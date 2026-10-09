@@ -1,0 +1,491 @@
+import { useMemo, useState } from 'react';
+import { RestApiClient } from 'twenty-client-sdk/rest';
+
+import { type DateRange, DateRangePicker } from 'src/front-components/shared/date-range-picker';
+import { readValue } from 'src/front-components/shared/read-value';
+import { stockAction } from 'src/front-components/shared/stock-forms';
+import {
+  c,
+  Chip,
+  control,
+  dayMonth,
+  FLAG,
+  input,
+  ItemCell,
+  monthLabel,
+  num,
+  qty,
+  rm,
+  shortDate,
+  small,
+  Summary,
+  Table,
+  td,
+  th,
+} from 'src/front-components/shared/stock-ui';
+import { cartonsAndUnits, expiresSoon, monthSheet, type StockItem, type StockMovement, type StockStatus } from 'src/shared/stock';
+import { BORROW_STATUSES, movementType, STOCK_GROUPS } from 'src/shared/stock-types';
+
+// The Stock page's tabs. Each gets the items/movements already cut down to
+// the chosen workspace.
+
+const csvUrl = (query: Record<string, string>) => new RestApiClient().resolveUrl('/s/stock/csv', { query });
+
+// ---------------------------------------------------------------- Stock (in hand now)
+
+export const StockTab = ({
+  statuses,
+  today,
+  onRecord,
+  onEdit,
+  onToggleStatus,
+}: {
+  statuses: StockStatus[];
+  today: string;
+  onRecord: (type: string, itemId: string) => void;
+  onEdit: (item: StockItem) => void;
+  onToggleStatus: (item: StockItem) => void;
+}) => {
+  const [group, setGroup] = useState('');
+  const [show, setShow] = useState<'active' | 'order' | 'discontinued'>('active');
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const rows = statuses.filter(
+    (s) =>
+      (!group || s.item.group === group) &&
+      (show === 'discontinued' ? s.item.status === 'DISCONTINUED' : s.item.status !== 'DISCONTINUED') &&
+      (show !== 'order' || s.flag === 'ORDER' || s.flag === 'LOW') &&
+      (!q || `${s.item.code} ${s.item.name} ${s.item.specification}`.toLowerCase().includes(q)),
+  );
+  const active = statuses.filter((s) => s.item.status !== 'DISCONTINUED');
+  const toOrder = active.filter((s) => s.flag === 'ORDER');
+  const expiring = active.filter((s) => s.balance > 0 && expiresSoon(s.nearestExpiry, today));
+
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <Summary label="Stock value" value={rm(active.reduce((sum, s) => sum + s.value, 0))} note={`${active.length} active items`} />
+        <Summary label="Need ordering" value={String(toOrder.length)} note={toOrder.length ? `about ${rm(toOrder.reduce((sum, s) => sum + s.suggestedCost, 0))}` : 'Nothing below the re-order level'} color={toOrder.length ? 'var(--t-color-red11)' : undefined} />
+        <Summary label="Expiring within 60 days" value={String(expiring.length)} note={expiring.length ? expiring.slice(0, 2).map((s) => s.item.name.split(' ').slice(-2).join(' ')).join(', ') : 'None'} color={expiring.length ? 'var(--t-color-amber11)' : undefined} />
+        <Summary label="Lent to branches" value={String(active.filter((s) => s.lentOut > 0).length)} note="Not yet settled" />
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        {(
+          [
+            ['active', 'In use'],
+            ['order', 'Needs ordering'],
+            ['discontinued', 'Discontinued'],
+          ] as const
+        ).map(([value, label]) => (
+          <button key={value} onClick={() => setShow(value)} style={{ ...small, fontWeight: show === value ? 600 : 400, borderColor: show === value ? c.accent : c.border2 }}>
+            {label}
+          </button>
+        ))}
+        <select value={group} onChange={(e) => setGroup(readValue(e))} style={{ ...control, height: 28, fontSize: 12 }}>
+          <option value="">All groups</option>
+          {STOCK_GROUPS.map((g) => (
+            <option key={g.value} value={g.value}>
+              {g.label}
+            </option>
+          ))}
+        </select>
+        <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder="Search code or name" style={{ ...input, height: 28, fontSize: 12, width: 200 }} />
+      </div>
+      <Table
+        empty="No items here."
+        minWidth={980}
+        head={
+          <tr>
+            <th style={th}>Item</th>
+            <th style={{ ...th, textAlign: 'right' }}>In hand</th>
+            <th style={{ ...th, textAlign: 'right' }}>Value</th>
+            <th style={{ ...th, textAlign: 'right' }}>Used last month</th>
+            <th style={{ ...th, textAlign: 'right' }}>Forecast next month</th>
+            <th style={{ ...th, textAlign: 'right' }}>Lasts</th>
+            <th style={th}>Expiry</th>
+            <th style={th}>Status</th>
+            <th style={{ ...th, textAlign: 'right' }}>Actions</th>
+          </tr>
+        }
+      >
+        {rows.map((s) => (
+          <tr key={s.item.id} style={{ opacity: s.item.status === 'DISCONTINUED' ? 0.6 : 1 }}>
+            <td style={td}>
+              <ItemCell item={s.item} />
+            </td>
+            <td style={num}>
+              <div style={{ fontWeight: 500, color: s.balance < 0 ? 'var(--t-color-red11)' : c.text }}>{cartonsAndUnits(s.balance, s.item)}</div>
+              <div style={{ fontSize: 12, color: c.text3 }}>
+                {qty(s.balance)} {s.item.unit} · {qty(s.cartons)} ctn
+              </div>
+            </td>
+            <td style={num}>{rm(s.value)}</td>
+            <td style={num}>{s.lastMonthTaken ? `${qty(s.lastMonthTaken)} ${s.item.unit}` : '—'}</td>
+            <td style={num}>
+              {s.forecast ? `${qty(s.forecast)} ${s.item.unit}` : '—'}
+              {s.forecastBasis.length ? <div style={{ fontSize: 11, color: c.text3 }}>avg of {s.forecastBasis.map(monthLabel).join(', ')}</div> : null}
+            </td>
+            <td style={{ ...num, fontWeight: 600, color: s.flag === 'ORDER' ? 'var(--t-color-red11)' : s.flag === 'LOW' ? 'var(--t-color-amber11)' : c.text }}>
+              {s.monthsLeft === null ? '—' : `${qty(s.monthsLeft)} mo`}
+            </td>
+            <td style={{ ...td, whiteSpace: 'nowrap', color: expiresSoon(s.nearestExpiry, today) && s.balance > 0 ? 'var(--t-color-amber11)' : c.text2 }}>{s.balance > 0 ? shortDate(s.nearestExpiry) : '—'}</td>
+            <td style={td}>
+              <Chip {...(FLAG[s.flag] ?? FLAG.OK)} />
+              {s.lentOut ? <div style={{ fontSize: 11, color: c.text3, marginTop: 4 }}>{qty(s.lentOut)} lent out</div> : null}
+            </td>
+            <td style={{ ...td, textAlign: 'right' }}>
+              <div style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {s.item.status !== 'DISCONTINUED' ? (
+                  <>
+                    <button onClick={() => onRecord('PURCHASE', s.item.id)} style={small} title="Purchase / stock in">
+                      + In
+                    </button>
+                    <button onClick={() => onRecord('TAKE', s.item.id)} style={small} title="Take out">
+                      − Out
+                    </button>
+                  </>
+                ) : null}
+                <button onClick={() => onEdit(s.item)} style={small}>
+                  Edit
+                </button>
+                <button onClick={() => onToggleStatus(s.item)} style={small}>
+                  {s.item.status === 'DISCONTINUED' ? 'Reactivate' : 'Discontinue'}
+                </button>
+              </div>
+            </td>
+          </tr>
+        ))}
+      </Table>
+    </>
+  );
+};
+
+// ---------------------------------------------------------------- Movements (history)
+
+export const MovementsTab = ({ items, movements, today, onChanged }: { items: StockItem[]; movements: StockMovement[]; today: string; onChanged: () => void }) => {
+  const [range, setRange] = useState<DateRange>(() => ({ from: `${today.slice(0, 7)}-01`, to: today, preset: 'custom' }));
+  const [type, setType] = useState('');
+  const [query, setQuery] = useState('');
+  const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  const q = query.trim().toLowerCase();
+  const rows = movements
+    .filter((m) => m.date >= range.from && m.date <= range.to && (!type || (type === 'IN' || type === 'OUT' ? movementType(m.type)?.direction === type : m.type === type)))
+    .filter((m) => !q || `${byId.get(m.itemId)?.name ?? ''} ${m.party} ${m.reference} ${m.notes}`.toLowerCase().includes(q))
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  const remove = async (m: StockMovement) => {
+    const result = await stockAction({ action: 'deleteMovement', movementId: m.id });
+
+    if (result.success) onChanged();
+  };
+
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <DateRangePicker value={range} today={today} onChange={setRange} />
+        <select value={type} onChange={(e) => setType(readValue(e))} style={control}>
+          <option value="">All movements</option>
+          <option value="IN">All IN</option>
+          <option value="OUT">All OUT</option>
+          {['PURCHASE', 'TAKE', 'BORROW', 'RETURN', 'EXCHANGE_IN', 'WASTE', 'ADJUST_IN', 'ADJUST_OUT'].map((t) => (
+            <option key={t} value={t}>
+              {movementType(t)?.label}
+            </option>
+          ))}
+        </select>
+        <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder="Search item, to/from, reference" style={{ ...input, width: 240 }} />
+      </div>
+      <Table
+        empty="No stock movements in this period."
+        head={
+          <tr>
+            <th style={th}>Date</th>
+            <th style={th}>Movement</th>
+            <th style={th}>Item</th>
+            <th style={{ ...th, textAlign: 'right' }}>Quantity</th>
+            <th style={th}>To / from</th>
+            <th style={th}>Reference · notes</th>
+            <th style={{ ...th, textAlign: 'right' }} />
+          </tr>
+        }
+      >
+        {rows.map((m) => {
+          const item = byId.get(m.itemId);
+          const t = movementType(m.type);
+
+          return (
+            <tr key={m.id}>
+              <td style={{ ...td, whiteSpace: 'nowrap', color: c.text2 }}>{shortDate(m.date)}</td>
+              <td style={td}>
+                <Chip label={`${t?.direction === 'IN' ? '↓ IN' : '↑ OUT'} · ${t?.label ?? m.type}`} color={t?.color ?? 'gray'} />
+                {m.type === 'BORROW' ? <div style={{ fontSize: 11, color: c.text3, marginTop: 4 }}>{BORROW_STATUSES.find((b) => b.value === (m.borrowStatus ?? 'OUTSTANDING'))?.label}</div> : null}
+              </td>
+              <td style={td}>{item ? <ItemCell item={item} /> : '—'}</td>
+              <td style={{ ...num, color: t?.direction === 'IN' ? 'var(--t-color-green11)' : c.text }}>
+                {t?.direction === 'IN' ? '+' : '−'}
+                {item ? cartonsAndUnits(m.quantity, item) : qty(m.quantity)}
+                {m.expiryDate ? <div style={{ fontSize: 11, color: c.text3 }}>exp {shortDate(m.expiryDate)}</div> : null}
+              </td>
+              <td style={{ ...td, color: c.text2 }}>{m.party || '—'}</td>
+              <td style={{ ...td, color: c.text3, fontSize: 12 }}>{[m.reference, m.notes].filter(Boolean).join(' · ') || '—'}</td>
+              <td style={{ ...td, textAlign: 'right' }}>
+                <button onClick={() => remove(m)} style={{ ...small, color: 'var(--t-color-red11)' }} title="Remove (can be restored)">
+                  Remove
+                </button>
+              </td>
+            </tr>
+          );
+        })}
+      </Table>
+      <span style={{ fontSize: 12, color: c.text3 }}>Removing a line takes it out of every balance; it stays restorable from the deleted stock movements.</span>
+    </>
+  );
+};
+
+// ---------------------------------------------------------------- Monthly sheet
+
+export const MonthTab = ({ items, movementsByItem, ownerId, today }: { items: StockItem[]; movementsByItem: Map<string, StockMovement[]>; ownerId: string; today: string }) => {
+  const [month, setMonth] = useState(today.slice(0, 7));
+  const sheet = useMemo(() => {
+    const full = monthSheet(items, movementsByItem, month);
+
+    // Discontinued items only while they still move.
+    return { ...full, rows: full.rows.filter((r) => r.item.status !== 'DISCONTINUED' || r.opening || r.purchased || r.consumption || r.closing) };
+  }, [items, movementsByItem, month]);
+  const totals = sheet.rows.reduce(
+    (t, r) => ({ cost: t.cost + r.consumptionCost, closingValue: t.closingValue + Math.max(r.closing, 0) * (r.item.cartonPrice / (r.item.unitsPerCarton || 1)) }),
+    { cost: 0, closingValue: 0 },
+  );
+
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input type="month" value={month} onChange={(e) => readValue(e) && setMonth(readValue(e))} style={{ ...control, cursor: 'text' }} />
+        <span style={{ flex: 1 }} />
+        <a href={csvUrl({ kind: 'month', month, ...(ownerId ? { owner: ownerId } : {}) })} target="_blank" rel="noreferrer" style={{ ...control, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
+          ⬇ CSV
+        </a>
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <Summary label={`Consumption cost · ${monthLabel(month)}`} value={rm(totals.cost)} note="What was taken out, at cost" />
+        <Summary label="Closing stock value" value={rm(totals.closingValue)} />
+        <Summary label="Take-out days" value={String(sheet.dates.length)} note={sheet.dates.map(dayMonth).join(', ') || 'None'} />
+      </div>
+      <Table
+        empty="No items."
+        minWidth={1100}
+        head={
+          <tr>
+            <th style={th}>Item</th>
+            <th style={{ ...th, textAlign: 'right' }}>Opening</th>
+            <th style={{ ...th, textAlign: 'right' }}>Purchased</th>
+            <th style={{ ...th, textAlign: 'right' }}>Other in</th>
+            {sheet.dates.map((d) => (
+              <th key={d} style={{ ...th, textAlign: 'right', background: 'var(--t-color-blue2)' }}>
+                Out {dayMonth(d)}
+              </th>
+            ))}
+            <th style={{ ...th, textAlign: 'right' }}>Monthly consumption</th>
+            <th style={{ ...th, textAlign: 'right' }}>Cost</th>
+            <th style={{ ...th, textAlign: 'right' }}>Lent / waste</th>
+            <th style={{ ...th, textAlign: 'right' }}>Balance (units)</th>
+            <th style={{ ...th, textAlign: 'right' }}>Balance (ctn)</th>
+            <th style={{ ...th, textAlign: 'right' }}>Lasts</th>
+          </tr>
+        }
+      >
+        {sheet.rows.map((r) => (
+          <tr key={r.item.id}>
+            <td style={td}>
+              <ItemCell item={r.item} />
+            </td>
+            <td style={num}>{qty(r.opening)}</td>
+            <td style={num}>{r.purchased ? qty(r.purchased) : ''}</td>
+            <td style={num}>{r.otherIn ? qty(r.otherIn) : ''}</td>
+            {sheet.dates.map((d) => (
+              <td key={d} style={{ ...num, background: 'var(--t-color-blue2)' }}>
+                {r.takes[d] ? qty(r.takes[d]) : ''}
+              </td>
+            ))}
+            <td style={{ ...num, fontWeight: 600 }}>{r.consumption ? qty(r.consumption) : '—'}</td>
+            <td style={num}>{r.consumptionCost ? rm(r.consumptionCost) : '—'}</td>
+            <td style={num}>{r.lent || r.waste ? `${qty(r.lent)} / ${qty(r.waste)}` : ''}</td>
+            <td style={{ ...num, fontWeight: 600, color: r.closing < 0 ? 'var(--t-color-red11)' : c.text }}>{qty(r.closing)}</td>
+            <td style={num}>{qty(r.closingCartons)}</td>
+            <td style={num}>{r.monthsLeft === null ? '—' : `${qty(r.monthsLeft)} mo`}</td>
+          </tr>
+        ))}
+      </Table>
+      <span style={{ fontSize: 12, color: c.text3 }}>
+        Units are the inner unit (bag, bottle, pcs). Opening is last month's closing. "Lasts" here = balance ÷ this month's consumption, as on the paper sheet.
+      </span>
+    </>
+  );
+};
+
+// ---------------------------------------------------------------- Order plan
+
+export const OrderTab = ({
+  statuses,
+  ruleText,
+  ownerId,
+  onEditRule,
+  onOrder,
+}: {
+  statuses: StockStatus[];
+  ruleText: string;
+  ownerId: string;
+  onEditRule: (() => void) | null;
+  onOrder: (lines: Array<{ itemId: string; units: number }>) => void;
+}) => {
+  const [showAll, setShowAll] = useState(false);
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const active = statuses.filter((s) => s.item.status !== 'DISCONTINUED');
+  const rows = active.filter((s) => showAll || s.flag === 'ORDER' || s.flag === 'LOW' || edits[s.item.id]);
+  const cartons = (s: StockStatus) => (edits[s.item.id] !== undefined ? Number(edits[s.item.id]) || 0 : s.suggestedCartons);
+  const ordered = active.filter((s) => cartons(s) > 0);
+  const total = ordered.reduce((sum, s) => sum + cartons(s) * s.item.cartonPrice, 0);
+
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ fontSize: 13, color: c.text2 }}>{ruleText}</span>
+        {onEditRule ? (
+          <button onClick={onEditRule} style={small}>
+            Change rule
+          </button>
+        ) : null}
+        <span style={{ flex: 1 }} />
+        <button onClick={() => setShowAll(!showAll)} style={{ ...small, height: 34, fontWeight: showAll ? 600 : 400, borderColor: showAll ? c.accent : c.border2 }}>
+          {showAll ? 'Showing all items' : 'Show all items'}
+        </button>
+        <a href={csvUrl({ kind: 'order', ...(ownerId ? { owner: ownerId } : {}) })} target="_blank" rel="noreferrer" style={{ ...control, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
+          ⬇ CSV
+        </a>
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <Summary label="Order total" value={rm(total)} note={`${ordered.length} item${ordered.length === 1 ? '' : 's'}, ${ordered.reduce((sum, s) => sum + cartons(s), 0)} cartons`} color="var(--t-color-blue11)" />
+        <Summary label="Forecast use next month" value={rm(active.reduce((sum, s) => sum + s.forecast * (s.item.cartonPrice / (s.item.unitsPerCarton || 1)), 0))} note="At cost" />
+      </div>
+      <Table
+        empty="Nothing needs ordering. Use “Show all items” to order anyway."
+        minWidth={940}
+        head={
+          <tr>
+            <th style={th}>Item</th>
+            <th style={{ ...th, textAlign: 'right' }}>In hand</th>
+            <th style={{ ...th, textAlign: 'right' }}>Forecast next month</th>
+            <th style={{ ...th, textAlign: 'right' }}>Lasts</th>
+            <th style={th}>Status</th>
+            <th style={{ ...th, textAlign: 'right' }}>Order (ctn)</th>
+            <th style={{ ...th, textAlign: 'right' }}>Carton price</th>
+            <th style={{ ...th, textAlign: 'right' }}>Cost</th>
+          </tr>
+        }
+      >
+        {rows.map((s) => (
+          <tr key={s.item.id}>
+            <td style={td}>
+              <ItemCell item={s.item} />
+            </td>
+            <td style={num}>{cartonsAndUnits(s.balance, s.item)}</td>
+            <td style={num}>{s.forecast ? `${qty(s.forecast)} ${s.item.unit}` : '—'}</td>
+            <td style={num}>{s.monthsLeft === null ? '—' : `${qty(s.monthsLeft)} mo`}</td>
+            <td style={td}>
+              <Chip {...(FLAG[s.flag] ?? FLAG.OK)} />
+            </td>
+            <td style={num}>
+              <input
+                value={edits[s.item.id] ?? String(s.suggestedCartons || '')}
+                onChange={(e) => setEdits({ ...edits, [s.item.id]: readValue(e) })}
+                inputMode="numeric"
+                placeholder="0"
+                style={{ ...input, width: 64, textAlign: 'right' }}
+              />
+              {cartons(s) ? <div style={{ fontSize: 11, color: c.text3 }}>= {qty(cartons(s) * s.item.unitsPerCarton)} {s.item.unit}</div> : null}
+            </td>
+            <td style={num}>{rm(s.item.cartonPrice)}</td>
+            <td style={{ ...num, fontWeight: 600 }}>{cartons(s) ? rm(cartons(s) * s.item.cartonPrice) : '—'}</td>
+          </tr>
+        ))}
+      </Table>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button
+          onClick={() => onOrder(ordered.map((s) => ({ itemId: s.item.id, units: cartons(s) * s.item.unitsPerCarton })))}
+          disabled={!ordered.length}
+          style={{ ...control, background: c.accent, borderColor: c.accent, color: 'white', fontWeight: 600, opacity: ordered.length ? 1 : 0.5 }}
+        >
+          Goods arrived: record as purchase
+        </button>
+        <span style={{ fontSize: 12, color: c.text3 }}>Opens the purchase form with these lines; check the quantities and expiry dates against the delivery.</span>
+      </div>
+    </>
+  );
+};
+
+// ---------------------------------------------------------------- Borrowed
+
+export const BorrowTab = ({ items, movements, onSettle }: { items: StockItem[]; movements: StockMovement[]; onSettle: (borrow: StockMovement) => void }) => {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const lent = movements.filter((m) => m.type === 'BORROW').sort((a, b) => ((a.borrowStatus ?? 'OUTSTANDING') === 'OUTSTANDING' ? -1 : 1) - ((b.borrowStatus ?? 'OUTSTANDING') === 'OUTSTANDING' ? -1 : 1) || b.date.localeCompare(a.date));
+  const settlements = new Map<string, StockMovement[]>();
+
+  for (const m of movements) if (m.borrowId) settlements.set(m.borrowId, [...(settlements.get(m.borrowId) ?? []), m]);
+
+  return (
+    <>
+      <span style={{ fontSize: 13, color: c.text2 }}>Stock lent to other branches. Settle each one when it comes back, is exchanged for another item, or is paid for.</span>
+      <Table
+        empty="Nothing lent out. Record a lending with Record in/out → OUT · Lent to branch."
+        head={
+          <tr>
+            <th style={th}>Lent on</th>
+            <th style={th}>Branch</th>
+            <th style={th}>Item</th>
+            <th style={{ ...th, textAlign: 'right' }}>Quantity</th>
+            <th style={th}>Status</th>
+            <th style={th}>Settled with</th>
+            <th style={{ ...th, textAlign: 'right' }} />
+          </tr>
+        }
+      >
+        {lent.map((m) => {
+          const item = byId.get(m.itemId);
+          const status = BORROW_STATUSES.find((b) => b.value === (m.borrowStatus ?? 'OUTSTANDING')) ?? BORROW_STATUSES[0];
+
+          return (
+            <tr key={m.id}>
+              <td style={{ ...td, whiteSpace: 'nowrap', color: c.text2 }}>{shortDate(m.date)}</td>
+              <td style={td}>{m.party || '—'}</td>
+              <td style={td}>{item ? <ItemCell item={item} /> : '—'}</td>
+              <td style={num}>{item ? cartonsAndUnits(m.quantity, item) : qty(m.quantity)}</td>
+              <td style={td}>
+                <Chip label={status.label} color={status.color} />
+              </td>
+              <td style={{ ...td, fontSize: 12, color: c.text3 }}>
+                {(settlements.get(m.id) ?? []).map((s) => {
+                  const other = byId.get(s.itemId);
+
+                  return (
+                    <div key={s.id}>
+                      {shortDate(s.date)}: {other ? cartonsAndUnits(s.quantity, other) : qty(s.quantity)} {other && other.id !== m.itemId ? other.name : ''}
+                    </div>
+                  );
+                })}
+                {m.borrowStatus === 'PAID' ? 'Paid: see Transactions → Money in' : null}
+              </td>
+              <td style={{ ...td, textAlign: 'right' }}>
+                {status.value === 'OUTSTANDING' && item ? (
+                  <button onClick={() => onSettle(m)} style={small}>
+                    Settle
+                  </button>
+                ) : null}
+              </td>
+            </tr>
+          );
+        })}
+      </Table>
+    </>
+  );
+};
+
