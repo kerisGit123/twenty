@@ -11,6 +11,7 @@ import { todayIso } from 'src/logic-functions/utils/dates';
 import type { Contract, TodayData } from 'src/logic-functions/page-data/today-data';
 import { whatsappLink } from 'src/shared/whatsapp-link';
 import { type ChaseInfo, chaseNote, isRecentChase } from 'src/shared/rent-chase';
+import { languageFor, rentReminderText } from 'src/shared/rent-reminder';
 import { type AgendaItem, agendaItems } from 'src/shared/agenda';
 import { occasionOf, upcomingOccasions } from 'src/shared/campaigns';
 
@@ -107,7 +108,13 @@ const overdueGroup = (entries: AgendaItem[], chases: Record<string, ChaseInfo>):
   const months = entries.map((e) => e.month as string);
   const total = entries.reduce((sum, e) => sum + (e.amount ?? 0), 0);
   const part = entries.some((e) => e.received);
-  const text = `Hi ${firstName(c.tenantName)}, a friendly reminder that the rent for ${c.propertyName} for ${monthSpan(months)} (${entries.length} months, ${rm(total)} in total) hasn't been received yet. Please let us know once it's paid. Thank you!`;
+  // In the tenant's language (Malay / Chinese when chosen), as the automatic reminders.
+  const text = rentReminderText(
+    'RENT_OVERDUE',
+    entries.map((e) => ({ month: e.month as string, amount: e.amount ?? c.rent, received: e.received, date: e.date })),
+    c,
+    languageFor(c.tenantLanguage),
+  );
 
   return {
     key: `overdue-${c.id}`,
@@ -159,11 +166,12 @@ const buildItem = (entry: AgendaItem, today: string, chases: Record<string, Chas
         const c = contract as NonNullable<typeof contract>;
         const month = entry.month as string;
         const owed = entry.amount ?? c.rent;
-        const what = entry.received ? `the rest of the rent (${rm(owed)})` : `the rent`;
-        const text =
-          entry.kind === 'overdue'
-            ? `Hi ${firstName(c.tenantName)}, a friendly reminder that ${what} for ${c.propertyName} for ${monthName(month)}${entry.received ? '' : ` (${rm(owed)})`} was due on ${shortDate(entry.date)}. Please let us know once it's paid. Thank you!`
-            : `Hi ${firstName(c.tenantName)}, a reminder that ${what} for ${c.propertyName} for ${monthName(month)}${entry.received ? '' : ` (${rm(owed)})`} is due on ${shortDate(entry.date)}. Thank you!`;
+        const text = rentReminderText(
+          entry.kind === 'overdue' ? 'RENT_OVERDUE' : entry.date === today ? 'RENT_DUE' : 'RENT_UPCOMING',
+          [{ month, amount: owed, received: entry.received, date: entry.date }],
+          c,
+          languageFor(c.tenantLanguage),
+        );
 
         return {
           key: entry.key,

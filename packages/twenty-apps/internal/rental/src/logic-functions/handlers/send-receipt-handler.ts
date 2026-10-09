@@ -7,7 +7,7 @@ import { PAYMENT_RECEIPT_FILE_FIELD_ID } from 'src/constants/universal-identifie
 import { ringgitInWords } from 'src/logic-functions/utils/amount-in-words';
 import { daysInMonth, toMalaysiaDate, todayIso } from 'src/logic-functions/utils/dates';
 import { buildTemplatePdf } from 'src/logic-functions/utils/template-pdf';
-import { defaultTemplate } from 'src/logic-functions/utils/templates';
+import { templateForDocument } from 'src/logic-functions/utils/templates';
 import { type ReceiptFacts, receiptContext } from 'src/shared/doc-template/context';
 import {
   type ReceiptSettingsRecord,
@@ -342,6 +342,7 @@ export const receiptHandler = async (
           method: true,
           notes: true,
           tenant: {
+            language: true,
             name: { firstName: true, lastName: true },
             emails: { primaryEmail: true },
             phones: { primaryPhoneNumber: true, primaryPhoneCallingCode: true },
@@ -438,7 +439,8 @@ export const receiptHandler = async (
     (await memberName(client, senderWorkspaceMemberId)) ||
     issuerName;
   const style = resolveStyle(settings);
-  const receiptTemplate = await defaultTemplate(client, 'RECEIPT', payment.ownerId);
+  // Always a template now (the old built-in designs only reprint receipts issued with them).
+  const receiptTemplate = await templateForDocument(client, 'RECEIPT', payment.ownerId, (payment.tenant as { language?: string | null } | null)?.language);
 
   const receiptData: ReceiptData = {
     title: resolveTitle(settings, isDeposit),

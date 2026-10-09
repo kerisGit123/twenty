@@ -29,7 +29,7 @@ export const loadStatementSource = async (
           newRentFrom: true,
           tenantDetails: true,
           statementNote: true,
-          tenant: { name: { firstName: true, lastName: true } },
+          tenant: { name: { firstName: true, lastName: true }, language: true },
           property: { propertyType: true, ownerId: true, monthlyRent: { amountMicros: true } },
           owner: { name: true },
         },
@@ -60,6 +60,7 @@ export const loadStatementSource = async (
     year,
     today: todayIso(),
     ownerId,
+    tenantLanguage: ((rental.tenant as { language?: string | null } | null)?.language as string | null) ?? null,
     landlordName: settings?.businessName?.trim() || rental.owner?.name || '',
     landlordDetails: settings?.businessDetails ?? '',
     rental: {

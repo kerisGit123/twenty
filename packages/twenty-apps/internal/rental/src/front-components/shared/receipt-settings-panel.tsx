@@ -3,12 +3,14 @@ import { RestApiClient } from 'twenty-client-sdk/rest';
 import { AppPath, enqueueSnackbar, navigate } from 'twenty-sdk/front-component';
 
 import { ReceiptView, type ReceiptViewData } from 'src/front-components/shared/receipt-view';
+import { presetTemplate } from 'src/shared/doc-template/presets';
+import { sampleReceipt } from 'src/shared/doc-template/samples';
+import { type TemplateDoc } from 'src/shared/doc-template/types';
 import {
   ACCENTS,
   DEFAULT_TEXT,
   type ReceiptAccent,
   type ReceiptSettingsRecord,
-  type ReceiptTemplate,
   resolveStyle,
   resolveTitle,
 } from 'src/logic-functions/utils/receipt-settings';
@@ -56,12 +58,6 @@ const readValue = (event: SyntheticEvent<HTMLElement>): string => {
   return object.detail?.value ?? object.target?.value ?? '';
 };
 
-const TEMPLATES: Array<{ value: ReceiptTemplate; label: string; hint: string }> = [
-  { value: 'CLASSIC', label: 'Classic form', hint: 'Boxed form, A4' },
-  { value: 'MODERN', label: 'Modern', hint: 'Clean, big amount, A4' },
-  { value: 'COMPACT', label: 'Compact', hint: 'Half page (A5)' },
-];
-
 const COLOURS: Array<{ value: ReceiptAccent; label: string }> = [
   { value: 'TEAL', label: 'Teal' },
   { value: 'NAVY', label: 'Navy' },
@@ -96,6 +92,8 @@ export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
   const [sample, setSample] = useState<'rent' | 'deposit'>('rent');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // The receipt template this workspace uses (for the preview).
+  const [template, setTemplate] = useState<TemplateDoc | null>(null);
 
   const load = useCallback(async (owner: string) => {
     setLoading(true);
@@ -106,6 +104,16 @@ export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
       // A workspace's own record keeps empty looks empty (they follow the default).
       setValues(owner ? { ...(result.settings ?? {}) } : { template: 'CLASSIC', accentColor: 'TEAL', ...(result.settings ?? {}) });
       setFallbacks({ workspaceName: result.workspaceName ?? '', receivedBy: result.receivedByFallback ?? '' });
+      const list = await new RestApiClient().post<{ success: boolean; templates?: Array<{ isDefault: boolean; ownerId: string | null; content: TemplateDoc }> }>('/s/templates', {
+        action: 'list',
+        kind: 'RECEIPT',
+        ownerId: owner || null,
+      });
+      const usable = list.templates ?? [];
+
+      setTemplate(
+        ((owner ? usable.find((t) => t.isDefault && t.ownerId === owner) : undefined) ?? usable.find((t) => t.isDefault && !t.ownerId))?.content ?? presetTemplate('RECEIPT', 'EN'),
+      );
     } finally {
       setLoading(false);
     }
@@ -201,24 +209,12 @@ export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0, flexWrap: 'wrap', overflow: 'auto' }}>
         <div style={{ flex: '1 1 300px', padding: 16, display: 'flex', flexDirection: 'column', gap: 14, borderRight: `1px solid ${c.border}` }}>
-          <div style={field}>
-            Template{followsDefault('template') ? ' (following the default)' : ''}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
-              {TEMPLATES.map((template) => {
-                const active = (look('template') ?? 'CLASSIC') === template.value;
-
-                return (
-                  <button
-                    key={template.value}
-                    onClick={() => setValues((previous) => ({ ...previous, template: template.value }))}
-                    style={{ ...control, cursor: 'pointer', textAlign: 'left', padding: '8px 10px', border: `${active ? 2 : 1}px solid ${active ? c.accent : c.border2}` }}
-                  >
-                    <div style={{ fontWeight: 600, fontSize: 12 }}>{template.label}</div>
-                    <div style={{ fontSize: 11, color: c.text3, marginTop: 2 }}>{template.hint}</div>
-                  </button>
-                );
-              })}
-            </div>
+          <div style={{ ...field, background: c.bg2, borderRadius: 8, padding: '8px 10px' }}>
+            Layout
+            <span style={{ fontSize: 12, color: c.text3 }}>
+              Receipts and statements are designed in <b>Setup → Templates</b> (a ★ default per workspace, in English, Malay or Chinese). The name,
+              colour and wording below fill them in.
+            </span>
           </div>
 
           <div style={field}>
@@ -293,7 +289,35 @@ export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
               </button>
             ))}
           </div>
-          <ReceiptView data={preview} />
+          <ReceiptView
+            data={
+              template
+                ? {
+                    ...preview,
+                    template,
+                    facts: {
+                      ...sampleReceipt(
+                        {
+                          name: preview.issuerName,
+                          details: values.businessDetails ?? '',
+                          accent: look('accentColor') ?? 'TEAL',
+                          receivedBy: preview.receivedBy,
+                          footer: look('footerText') ?? '',
+                          rentTitle: look('rentTitle') ?? '',
+                          depositTitle: look('depositTitle') ?? '',
+                        },
+                        isDeposit,
+                        false,
+                      ),
+                      receiptNumber: preview.receiptNumber,
+                    },
+                    logoUrl: values.logoUrl ?? null,
+                    paymentQrUrl: values.paymentQrUrl ?? null,
+                    signatureUrl: values.signatureUrl ?? null,
+                  }
+                : preview
+            }
+          />
         </div>
       </div>
     </div>

@@ -9,7 +9,7 @@ import { inScope, resolveScope } from 'src/logic-functions/utils/scope';
 import { buildSmartRecipients, type SmartRecipient } from 'src/logic-functions/utils/smart-audience';
 import { loadStatementSource } from 'src/logic-functions/utils/statement-data';
 import { buildTemplatePdf } from 'src/logic-functions/utils/template-pdf';
-import { pickTemplate } from 'src/logic-functions/utils/templates';
+import { templateForDocument } from 'src/logic-functions/utils/templates';
 import { DEFAULT_SOURCE_OPTIONS, isVideo, type Language, messageFor, type SourceOptions } from 'src/shared/campaigns';
 import { statementContext } from 'src/shared/doc-template/context';
 import { byLanguage } from 'src/shared/doc-template/types';
@@ -182,7 +182,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       const { rentalId, year } = row.attachment;
       const statement = await loadStatementSource(client, scope, rentalId, year);
       const [template, settings] = statement
-        ? await Promise.all([pickTemplate(client, 'STATEMENT', null, statement.ownerId), loadReceiptSettings(client, statement.ownerId)])
+        ? await Promise.all([templateForDocument(client, 'STATEMENT', statement.ownerId, statement.tenantLanguage), loadReceiptSettings(client, statement.ownerId)])
         : [null, null];
 
       if (statement && template) {

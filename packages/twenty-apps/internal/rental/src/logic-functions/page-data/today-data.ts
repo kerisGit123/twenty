@@ -43,6 +43,7 @@ export type Contract = {
   tenantId: string | null;
   tenantName: string;
   tenantPhone: TenantPhone;
+  tenantLanguage: string | null; // EN / MS / ZH
 };
 
 export type Person = { id: string; name: string; birthday: string; phone: TenantPhone };
@@ -78,7 +79,7 @@ type RentalNode = {
   newRentFrom?: string | null;
   property?: { name?: string | null; ownerId?: string | null } | null;
   tenantId?: string | null;
-  tenant?: { name?: { firstName?: string | null; lastName?: string | null } | null; phones?: TenantPhone | null } | null;
+  tenant?: { name?: { firstName?: string | null; lastName?: string | null } | null; phones?: TenantPhone | null; language?: string | null } | null;
 };
 type PaymentNode = { rentalId?: string | null; rentPeriod?: string | null; status?: string | null; amount?: Money };
 
@@ -107,6 +108,7 @@ const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData>
         tenant: {
           name: { firstName: true, lastName: true },
           phones: { primaryPhoneNumber: true, primaryPhoneCallingCode: true },
+          language: true,
         },
       },
     ).then((edges) => ({ rentals: { edges: edges.map((node) => ({ node })) } })),
@@ -184,6 +186,7 @@ const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData>
       tenantId: node.tenantId ?? null,
       tenantName: personName(node.tenant?.name) || 'Tenant',
       tenantPhone: node.tenant?.phones ?? null,
+      tenantLanguage: (node.tenant as { language?: string | null } | null)?.language ?? null,
     }));
 
   // Payments per contract-month, then settled vs part-paid.

@@ -49,12 +49,12 @@ export const loadTemplates = async (client: CoreApiClient, kind?: TemplateKind):
   });
 };
 
-// The template to use: the one asked for, else the default of its kind, else
-// the English sample.
 // The default for a workspace: its own, else the shared one.
 const defaultFor = (templates: SavedTemplate[], ownerId?: string | null) =>
   (ownerId ? templates.find((t) => t.isDefault && t.ownerId === ownerId) : undefined) ?? templates.find((t) => t.isDefault && !t.ownerId);
 
+// The template the user asked for, else the workspace's default, else the
+// English sample.
 export const pickTemplate = async (client: CoreApiClient, kind: TemplateKind, templateId?: string | null, ownerId?: string | null): Promise<TemplateDoc> => {
   const templates = await loadTemplates(client, kind);
   const chosen = (templateId && templates.find((t) => t.id === templateId)) || defaultFor(templates, ownerId);
@@ -62,7 +62,31 @@ export const pickTemplate = async (client: CoreApiClient, kind: TemplateKind, te
   return chosen?.content ?? presetTemplate(kind, 'EN');
 };
 
+// The template a document is drawn with: the workspace's default (else the
+// shared one, else the ready-made sample) — unless the tenant reads Malay or
+// Chinese and there's a template in that language for this workspace.
+// (Everyone starts as English, so English means "not chosen".)
+export const templateForDocument = async (
+  client: CoreApiClient,
+  kind: TemplateKind,
+  ownerId?: string | null,
+  tenantLanguage?: string | null,
+): Promise<TemplateDoc> => {
+  const usable = (await loadTemplates(client, kind)).filter((t) => !t.ownerId || t.ownerId === ownerId);
+  const fallback = defaultFor(usable, ownerId);
+  const wanted = tenantLanguage === 'MS' || tenantLanguage === 'ZH' ? (tenantLanguage as TemplateLanguage) : null;
 
-// The saved default of a kind, or null (receipts then use their classic design).
+  if (wanted && fallback?.language !== wanted) {
+    const inLanguage =
+      usable.find((t) => t.language === wanted && t.ownerId === ownerId && t.isDefault) ??
+      usable.find((t) => t.language === wanted && t.ownerId === ownerId) ??
+      usable.find((t) => t.language === wanted && !t.ownerId);
+
+    if (inLanguage) return inLanguage.content;
+  }
+
+  return fallback?.content ?? presetTemplate(kind, wanted ?? fallback?.language ?? 'EN');
+};
+
 export const defaultTemplate = async (client: CoreApiClient, kind: TemplateKind, ownerId?: string | null): Promise<TemplateDoc | null> =>
   defaultFor(await loadTemplates(client, kind), ownerId)?.content ?? null;

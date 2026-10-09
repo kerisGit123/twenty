@@ -9,7 +9,7 @@ import { pdfPageResponse } from 'src/logic-functions/utils/pdf-page';
 import { resolveScope } from 'src/logic-functions/utils/scope';
 import { loadStatementSource } from 'src/logic-functions/utils/statement-data';
 import { buildTemplatePdf } from 'src/logic-functions/utils/template-pdf';
-import { pickTemplate } from 'src/logic-functions/utils/templates';
+import { pickTemplate, templateForDocument } from 'src/logic-functions/utils/templates';
 import { statementContext } from 'src/shared/doc-template/context';
 import { byLanguage } from 'src/shared/doc-template/types';
 
@@ -34,7 +34,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     if (!source) return html("<p>You don't have access to this contract.</p>", 403);
 
     // The contract's workspace: its own template and letterhead, else the defaults.
-    const [template, settings] = await Promise.all([pickTemplate(client, 'STATEMENT', query.template, source.ownerId), loadReceiptSettings(client, source.ownerId)]);
+    const [template, settings] = await Promise.all([query.template ? pickTemplate(client, 'STATEMENT', query.template, source.ownerId) : templateForDocument(client, 'STATEMENT', source.ownerId, source.tenantLanguage), loadReceiptSettings(client, source.ownerId)]);
 
     const ctx = statementContext(source, template.language, (settings?.accentColor as string | null) ?? 'BLACK', letterheadExtras(settings));
     const tenant = ctx.values['tenant.name'] || 'tenant';

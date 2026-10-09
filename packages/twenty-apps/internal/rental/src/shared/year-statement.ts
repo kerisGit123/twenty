@@ -11,6 +11,7 @@ export type StatementSource = {
   landlordName: string;
   landlordDetails: string; // address lines
   ownerId?: string | null; // the contract's workspace (its letterhead and template)
+  tenantLanguage?: string | null; // EN / MS / ZH (picks a template in that language)
   rental: {
     propertyType: string | null;
     startDate: string | null;

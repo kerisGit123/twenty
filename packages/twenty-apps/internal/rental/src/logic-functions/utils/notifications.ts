@@ -7,6 +7,7 @@ import { sendWhatsappMessage, toE164, whatsappConfig } from 'src/logic-functions
 import { addDays, type AgendaItem, agendaItems, daysBetween } from 'src/shared/agenda';
 import { chaseKey, loadChases, recordChase } from 'src/logic-functions/utils/rent-chase';
 import { type ChaseChannel, type ChaseInfo, isRecentChase } from 'src/shared/rent-chase';
+import { languageFor, reminderMonths, rentReminderText } from 'src/shared/rent-reminder';
 
 // The assistant: a WhatsApp summary for you each morning, and rent reminders
 // for tenants (before the due day, on it, and when overdue). Runs every hour;
@@ -209,34 +210,6 @@ type RentKind = 'RENT_UPCOMING' | 'RENT_DUE' | 'RENT_OVERDUE';
 // One contract-month that today's settings would remind about.
 type Candidate = { kind: RentKind; item: AgendaItem; key: string };
 
-const monthList = (months: string[], language: 'EN' | 'MS') => {
-  const names = months.map((m) => month(m, language));
-
-  return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} ${language === 'MS' ? 'dan' : 'and'} ${names[names.length - 1]}`;
-};
-
-const reminderText = (kind: RentKind, items: AgendaItem[], language: 'EN' | 'MS') => {
-  const item = items[0];
-  const c = item.contract as NonNullable<AgendaItem['contract']>;
-  const name = firstName(c.tenantName);
-  const m = monthList(items.map((i) => i.month ?? i.date), language);
-  const total = items.reduce((sum, i) => sum + (i.amount ?? c.rent), 0);
-  const part = items.some((i) => i.received);
-  const amount = `${rm(total)}${items.length > 1 ? (language === 'MS' ? ' kesemuanya' : ' in total') : ''}${part ? (language === 'MS' ? ', baki selepas bayaran separa' : ', the balance after part-payment') : ''}`;
-  const due = day(item.date, language);
-
-  if (language === 'MS') {
-    if (kind === 'RENT_UPCOMING') return `Salam ${name}, peringatan mesra bahawa sewa ${c.propertyName} bagi ${m} (${amount}) perlu dibayar pada ${due}. Terima kasih!`;
-    if (kind === 'RENT_DUE') return `Salam ${name}, sewa ${c.propertyName} bagi ${m} (${amount}) perlu dibayar hari ini. Sila maklumkan selepas pembayaran dibuat. Terima kasih!`;
-
-    return `Salam ${name}, rekod kami menunjukkan sewa ${c.propertyName} bagi ${m} (${amount}) belum diterima. Jika sudah dibayar, sila hantar slip pembayaran. Terima kasih!`;
-  }
-  if (kind === 'RENT_UPCOMING') return `Hi ${name}, a friendly reminder that the rent for ${c.propertyName} for ${m} (${amount}) is due on ${due}. Thank you!`;
-  if (kind === 'RENT_DUE') return `Hi ${name}, the rent for ${c.propertyName} for ${m} (${amount}) is due today. Please let us know once it's paid. Thank you!`;
-
-  return `Hi ${name}, our records show the rent for ${c.propertyName} for ${m} (${amount}) hasn't been received yet. If you've already paid, please send the payment slip. Thank you!`;
-};
-
 // Every contract-month today's settings would remind about, before checking
 // what was already sent.
 const candidates = (data: Data, today: string, settings: NotificationSettings): Candidate[] => {
@@ -294,16 +267,22 @@ const groupReminders = (list: Candidate[], done: Set<string>, chases: Record<str
     out.push({
       kind,
       dedupKey: `${kind}:${contractId}:${months.join(',')}`,
-      title: `${c.propertyName} · ${monthList(items.map((i) => i.month as string), 'EN')} · ${c.tenantName}`,
+      title: `${c.propertyName} · ${reminderMonths(items.map((i) => i.month as string), 'EN')} · ${c.tenantName}`,
       to: toE164(c.tenantPhone),
-      body: reminderText(kind, items, settings.tenantLanguage),
+      // The tenant's language if they chose Malay or Chinese, else the setting's.
+      body: rentReminderText(
+        kind,
+        items.map((i) => ({ month: i.month as string, amount: i.amount ?? c.rent, received: i.received, date: i.date })),
+        c,
+        languageFor((c as { tenantLanguage?: string | null }).tenantLanguage, settings.tenantLanguage),
+      ),
       templateSid: template || undefined,
       templateVariables: {
         '1': firstName(c.tenantName),
         '2': c.propertyName,
-        '3': monthList(items.map((i) => i.month as string), settings.tenantLanguage),
+        '3': reminderMonths(items.map((i) => i.month as string), 'EN'),
         '4': rm(total),
-        '5': day(items[0].date, settings.tenantLanguage),
+        '5': day(items[0].date, 'EN'),
       },
     });
   }
