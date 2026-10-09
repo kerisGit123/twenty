@@ -1,7 +1,9 @@
-import { type CSSProperties, type ReactNode, type SyntheticEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { AppPath, enqueueSnackbar, navigate, openSidePanelPage, SidePanelPages } from 'twenty-sdk/front-component';
 
+import { MONTHS } from 'src/shared/months';
+import { readValue } from 'src/front-components/shared/read-value';
 import { ContractDocumentsPanel } from 'src/front-components/shared/contract-documents';
 import { filesFromEvent, type PickedFile } from 'src/front-components/shared/file-drop';
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
@@ -28,7 +30,6 @@ import { whatsappLink } from 'src/shared/whatsapp-link';
 
 // ---------------------------------------------------------------- helpers
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const rm = (value: number) => `RM ${value.toLocaleString('en-MY', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 const day = (iso: string | null) => (iso ? `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : '—');
@@ -40,12 +41,6 @@ const addDays = (iso: string, days: number) => {
   date.setUTCDate(date.getUTCDate() + days);
 
   return date.toISOString().slice(0, 10);
-};
-
-const readValue = (event: SyntheticEvent<HTMLElement>): string => {
-  const object = event as unknown as { detail?: { value?: string }; target?: { value?: string } };
-
-  return object.detail?.value ?? object.target?.value ?? '';
 };
 
 const openContract = (id: string) => openSidePanelPage({ page: SidePanelPages.ViewRecord, recordId: id, objectNameSingular: 'rental' });

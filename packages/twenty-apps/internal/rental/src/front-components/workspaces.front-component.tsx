@@ -1,8 +1,9 @@
-import { type CSSProperties, type SyntheticEvent, useCallback, useEffect, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { defineFrontComponent } from 'twenty-sdk/define';
 import { AppPath, enqueueSnackbar, navigate } from 'twenty-sdk/front-component';
 
+import { readValue } from 'src/front-components/shared/read-value';
 import { WORKSPACES_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
 import { openPage } from 'src/front-components/shared/open-page';
 import { rememberOwnerScope } from 'src/front-components/shared/owner-switcher';
@@ -44,12 +45,6 @@ const rm = (value: number) =>
   `RM ${value.toLocaleString('en-MY', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
 // remote-dom serialises events; the value may sit on detail or target.
-const readValue = (event: SyntheticEvent<HTMLElement>): string => {
-  const object = event as unknown as { detail?: { value?: string }; target?: { value?: string } };
-
-  return object.detail?.value ?? object.target?.value ?? '';
-};
-
 const readView = (): ViewMode => {
   try {
     return globalThis.localStorage?.getItem(VIEW_KEY) === 'grid' ? 'grid' : 'cards';

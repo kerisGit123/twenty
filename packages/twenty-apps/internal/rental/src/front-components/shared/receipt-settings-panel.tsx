@@ -2,6 +2,7 @@ import { type CSSProperties, type SyntheticEvent, useCallback, useEffect, useSta
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { AppPath, enqueueSnackbar, navigate } from 'twenty-sdk/front-component';
 
+import { readValue } from 'src/front-components/shared/read-value';
 import { ReceiptView, type ReceiptViewData } from 'src/front-components/shared/receipt-view';
 import { presetTemplate } from 'src/shared/doc-template/presets';
 import { sampleReceipt } from 'src/shared/doc-template/samples';
@@ -51,12 +52,6 @@ const button = (primary = false): CSSProperties => ({
 });
 
 const field: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: c.text2 };
-
-const readValue = (event: SyntheticEvent<HTMLElement>): string => {
-  const object = event as unknown as { detail?: { value?: string }; target?: { value?: string } };
-
-  return object.detail?.value ?? object.target?.value ?? '';
-};
 
 const COLOURS: Array<{ value: ReceiptAccent; label: string }> = [
   { value: 'TEAL', label: 'Teal' },

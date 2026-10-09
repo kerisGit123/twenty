@@ -2,6 +2,7 @@ import { type CSSProperties, useCallback, useEffect, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { enqueueSnackbar, useRecordId } from 'twenty-sdk/front-component';
 
+import { MONTHS } from 'src/shared/months';
 import { ContactLogger } from 'src/front-components/shared/contact-log';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { LANGUAGES } from 'src/shared/campaigns';
@@ -13,7 +14,6 @@ import { activityKind, type HistoryEntry, QUIET_AFTER } from 'src/shared/contact
 
 type Person = { id: string; name: string; firstName: string; phone: string | null; language: string; noCampaigns: boolean; tags: string[] };
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 // Dates as written; timestamps shown as the Malaysian date.
 const when = (iso: string) => {
   if (!iso) return '';

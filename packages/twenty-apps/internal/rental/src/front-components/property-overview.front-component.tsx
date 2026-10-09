@@ -3,6 +3,7 @@ import { CoreApiClient } from 'twenty-client-sdk/core';
 import { defineFrontComponent } from 'twenty-sdk/define';
 import { AppPath, navigate, useRecordId } from 'twenty-sdk/front-component';
 
+import { MONTHS } from 'src/shared/months';
 import { PROPERTY_OVERVIEW_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
 import { dueDateInMonth, monthStart, todayIso } from 'src/logic-functions/utils/dates';
 
@@ -44,7 +45,6 @@ type Data = {
 
 // ---------------------------------------------------------------- helpers
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const TYPE_LABEL: Record<string, string> = { CONDO: 'Condo / Apartment', LANDED: 'Landed house', SHOP: 'Shop / Office', ROOM: 'Room' };
 const DEPOSIT_LABEL: Record<string, string> = {
   NOT_RECEIVED: 'Not received',

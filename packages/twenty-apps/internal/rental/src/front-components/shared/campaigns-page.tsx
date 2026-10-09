@@ -1,7 +1,9 @@
-import { type CSSProperties, type ReactNode, type SyntheticEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { AppPath, copyToClipboard, enqueueSnackbar, navigate } from 'twenty-sdk/front-component';
 
+import { MONTHS } from 'src/shared/months';
+import { readValue } from 'src/front-components/shared/read-value';
 import { CampaignEditor, repeatLabel } from 'src/front-components/shared/campaign-editor';
 import { ContactCleanup } from 'src/front-components/shared/contact-cleanup';
 import { SendPanel } from 'src/front-components/shared/campaign-send';
@@ -39,15 +41,8 @@ import { activityKind, type CampaignResults, OUTCOMES } from 'src/shared/contact
 type Owner = { id: string; name: string };
 type ListResult = { success: boolean; message?: string; campaigns?: CampaignRow[]; owners?: Owner[]; canUseTags?: boolean; audiences?: SavedAudienceRow[] };
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const day = (iso: string | null) => (iso ? `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : '—');
 const daysUntil = (today: string, iso: string) => Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
-
-const readValue = (event: SyntheticEvent<HTMLElement>): string => {
-  const object = event as unknown as { detail?: { value?: string }; target?: { value?: string } };
-
-  return object.detail?.value ?? object.target?.value ?? '';
-};
 
 const waLink = (phone: string, text: string) => `https://wa.me/${phone.replace(/^\+/, '')}?text=${encodeURIComponent(text)}`;
 

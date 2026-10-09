@@ -1,7 +1,8 @@
-import { type CSSProperties, type SyntheticEvent, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { enqueueSnackbar } from 'twenty-sdk/front-component';
 
+import { readValue } from 'src/front-components/shared/read-value';
 import { TemplatePreview } from 'src/front-components/shared/template-preview';
 import type { SavedTemplate } from 'src/logic-functions/utils/templates';
 import { statementContext, type LetterheadExtras } from 'src/shared/doc-template/context';
@@ -52,12 +53,6 @@ const button = (primary = false): CSSProperties => ({
 });
 
 const field: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: c.text2 };
-
-const readValue = (event: SyntheticEvent<HTMLElement>): string => {
-  const object = event as unknown as { detail?: { value?: string }; target?: { value?: string } };
-
-  return object.detail?.value ?? object.target?.value ?? '';
-};
 
 type StatementResponse = {
   success: boolean;

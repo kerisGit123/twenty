@@ -1,7 +1,9 @@
-import { type CSSProperties, type ReactNode, type SyntheticEvent, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { enqueueSnackbar } from 'twenty-sdk/front-component';
 
+import { MONTHS } from 'src/shared/months';
+import { readValue } from 'src/front-components/shared/read-value';
 import { FileDrop, type PickedFile, uploadFile } from 'src/front-components/shared/file-drop';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import {
@@ -56,7 +58,6 @@ export const repeatLabel = (repeat: Repeat) =>
         ? `Every year on ${repeat.day ?? 1} ${MONTHS[(repeat.month ?? 1) - 1]}`
         : 'Once';
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const day = (iso: string) => `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
 const shortDay = (iso: string) => `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]}`;
 const daysUntil = (today: string, iso: string) => Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
@@ -66,12 +67,6 @@ const addDays = (iso: string, days: number) => {
   date.setUTCDate(date.getUTCDate() + days);
 
   return date.toISOString().slice(0, 10);
-};
-
-const readValue = (event: SyntheticEvent<HTMLElement>): string => {
-  const object = event as unknown as { detail?: { value?: string }; target?: { value?: string } };
-
-  return object.detail?.value ?? object.target?.value ?? '';
 };
 
 const post = <T,>(body: Record<string, unknown>) => new RestApiClient().post<T & { success: boolean; message?: string }>('/s/campaigns', body);

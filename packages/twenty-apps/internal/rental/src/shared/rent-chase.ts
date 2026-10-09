@@ -1,6 +1,8 @@
 // Rent chasing shared by the server and the pages: how a tenant was last
 // reminded, and whether that was recent enough not to remind them again.
 
+import { MONTHS } from 'src/shared/months';
+
 export type ChaseChannel = 'AUTO' | 'LIST' | 'CAMPAIGN' | 'TODAY';
 
 export type ChaseInfo = {
@@ -20,7 +22,6 @@ export const CHANNEL_LABEL: Record<ChaseChannel, string> = {
   TODAY: 'Today page',
 };
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // Malaysia date of a timestamp, e.g. "7 Oct".
 const shortMyt = (iso: string) => {

@@ -1,7 +1,8 @@
-import { type CSSProperties, type SyntheticEvent, useState } from 'react';
+import { type CSSProperties, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { enqueueSnackbar } from 'twenty-sdk/front-component';
 
+import { readValue } from 'src/front-components/shared/read-value';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { OUTCOMES } from 'src/shared/contacts';
 
@@ -43,12 +44,6 @@ const control: CSSProperties = {
   borderRadius: 8,
   boxSizing: 'border-box',
   minWidth: 0,
-};
-
-const readValue = (event: SyntheticEvent<HTMLElement>): string => {
-  const object = event as unknown as { detail?: { value?: string }; target?: { value?: string } };
-
-  return object.detail?.value ?? object.target?.value ?? '';
 };
 
 const addDays = (iso: string, days: number) => {

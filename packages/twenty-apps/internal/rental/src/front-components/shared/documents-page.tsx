@@ -1,7 +1,9 @@
-import { type CSSProperties, type SyntheticEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { AppPath, enqueueSnackbar, navigate, openSidePanelPage, SidePanelPages } from 'twenty-sdk/front-component';
 
+import { MONTHS } from 'src/shared/months';
+import { readValue } from 'src/front-components/shared/read-value';
 import { FileDrop, type PickedFile, uploadFile } from 'src/front-components/shared/file-drop';
 import { FileViewer, type ViewerFile } from 'src/front-components/shared/file-viewer';
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
@@ -17,7 +19,6 @@ type Option = { id: string; name: string; ownerId?: string | null };
 type Filter = 'ALL' | 'EXPIRING' | 'NO_FILES' | string; // or a document type
 type QueueItem = { key: string; file: PickedFile; type: string; state: 'waiting' | 'uploading' | 'done' | 'failed'; message?: string };
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const day = (iso: string | null) => (iso ? `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : '');
 const daysUntil = (today: string, iso: string) => Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
 
@@ -35,12 +36,6 @@ const writeView = (value: 'grid' | 'list') => {
   } catch {
     // per-viewer convenience only
   }
-};
-
-const readValue = (event: SyntheticEvent<HTMLElement>): string => {
-  const object = event as unknown as { detail?: { value?: string }; target?: { value?: string } };
-
-  return object.detail?.value ?? object.target?.value ?? '';
 };
 
 // "Perjanjian_sewa-2026.pdf" → "Perjanjian sewa 2026"

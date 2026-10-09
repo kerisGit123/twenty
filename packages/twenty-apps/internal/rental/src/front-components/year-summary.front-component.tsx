@@ -1,8 +1,9 @@
-import { type CSSProperties, type ReactNode, type SyntheticEvent, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { defineFrontComponent } from 'twenty-sdk/define';
 import { copyToClipboard, enqueueSnackbar } from 'twenty-sdk/front-component';
 
+import { readValue } from 'src/front-components/shared/read-value';
 import { YEAR_SUMMARY_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import type { YearData } from 'src/logic-functions/page-data/year-data';
@@ -31,12 +32,6 @@ const c = {
 
 const rm = (value: number) =>
   `RM ${value.toLocaleString('en-MY', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-
-const readValue = (event: SyntheticEvent<HTMLElement>): string => {
-  const object = event as unknown as { detail?: { value?: string }; target?: { value?: string } };
-
-  return object.detail?.value ?? object.target?.value ?? '';
-};
 
 const control: CSSProperties = {
   fontFamily: c.font,

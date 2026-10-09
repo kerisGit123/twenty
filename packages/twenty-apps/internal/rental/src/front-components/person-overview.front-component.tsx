@@ -9,6 +9,7 @@ import {
   useRecordId,
 } from 'twenty-sdk/front-component';
 
+import { MONTHS } from 'src/shared/months';
 import { PERSON_OVERVIEW_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
 import { dueDateInMonth, monthStart, nextMonthStart, todayIso } from 'src/logic-functions/utils/dates';
 import { toE164, type TenantPhone, whatsappLink } from 'src/shared/whatsapp-link';
@@ -40,7 +41,6 @@ type Data = {
 
 // ---------------------------------------------------------------- helpers
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const GRACE_DAYS = 3;
 const TAG_COLORS: Record<string, string> = {
   TENANT: 'blue',

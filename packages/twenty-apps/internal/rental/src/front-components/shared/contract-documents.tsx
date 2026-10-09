@@ -1,7 +1,8 @@
-import { type CSSProperties, type SyntheticEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { enqueueSnackbar } from 'twenty-sdk/front-component';
 
+import { readValue } from 'src/front-components/shared/read-value';
 import { FileDrop, type PickedFile, uploadFile } from 'src/front-components/shared/file-drop';
 import { FileViewer, type ViewerFile } from 'src/front-components/shared/file-viewer';
 import { todayIso } from 'src/logic-functions/utils/dates';
@@ -68,12 +69,6 @@ const chip = (active: boolean): CSSProperties => ({
   color: active ? 'var(--t-color-blue11)' : c.text,
   border: `1px solid ${active ? 'var(--t-color-blue7)' : c.border2}`,
 });
-
-const readValue = (event: SyntheticEvent<HTMLElement>): string => {
-  const object = event as unknown as { detail?: { value?: string }; target?: { value?: string } };
-
-  return object.detail?.value ?? object.target?.value ?? '';
-};
 
 const post = <T,>(body: Record<string, unknown>) => new RestApiClient().post<T & { success: boolean; message?: string }>('/s/files', body);
 
