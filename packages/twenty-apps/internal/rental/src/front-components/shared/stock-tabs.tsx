@@ -8,11 +8,9 @@ import {
   c,
   Chip,
   control,
-  dayMonth,
   FLAG,
   input,
   ItemCell,
-  monthLabel,
   num,
   qty,
   rm,
@@ -23,7 +21,7 @@ import {
   td,
   th,
 } from 'src/front-components/shared/stock-ui';
-import { cartonsAndUnits, monthSheet, type StockItem, type StockMovement, type StockStatus } from 'src/shared/stock';
+import { cartonsAndUnits, type StockItem, type StockMovement, type StockStatus } from 'src/shared/stock';
 import { BORROW_STATUSES, movementType } from 'src/shared/stock-types';
 
 // The Stock page's tabs. Each gets the items/movements already cut down to
@@ -109,87 +107,6 @@ export const MovementsTab = ({ items, movements, today, onChanged }: { items: St
         })}
       </Table>
       <span style={{ fontSize: 12, color: c.text3 }}>Removing a line takes it out of every balance; it stays restorable from the deleted stock movements.</span>
-    </>
-  );
-};
-
-// ---------------------------------------------------------------- Monthly sheet
-
-export const MonthTab = ({ items, movementsByItem, ownerId, today }: { items: StockItem[]; movementsByItem: Map<string, StockMovement[]>; ownerId: string; today: string }) => {
-  const [month, setMonth] = useState(today.slice(0, 7));
-  const sheet = useMemo(() => {
-    const full = monthSheet(items, movementsByItem, month);
-
-    // Discontinued items only while they still move.
-    return { ...full, rows: full.rows.filter((r) => r.item.status !== 'DISCONTINUED' || r.opening || r.purchased || r.consumption || r.closing) };
-  }, [items, movementsByItem, month]);
-  const totals = sheet.rows.reduce(
-    (t, r) => ({ cost: t.cost + r.consumptionCost, closingValue: t.closingValue + Math.max(r.closing, 0) * (r.item.cartonPrice / (r.item.unitsPerCarton || 1)) }),
-    { cost: 0, closingValue: 0 },
-  );
-
-  return (
-    <>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input type="month" value={month} onChange={(e) => readValue(e) && setMonth(readValue(e))} style={{ ...control, cursor: 'text' }} />
-        <span style={{ flex: 1 }} />
-        <a href={csvUrl({ kind: 'month', month, ...(ownerId ? { owner: ownerId } : {}) })} target="_blank" rel="noreferrer" style={{ ...control, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
-          ⬇ CSV
-        </a>
-      </div>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <Summary label={`Consumption cost · ${monthLabel(month)}`} value={rm(totals.cost)} note="What was taken out, at cost" />
-        <Summary label="Closing stock value" value={rm(totals.closingValue)} />
-        <Summary label="Take-out days" value={String(sheet.dates.length)} note={sheet.dates.map(dayMonth).join(', ') || 'None'} />
-      </div>
-      <Table
-        empty="No items."
-        minWidth={1100}
-        head={
-          <tr>
-            <th style={th}>Item</th>
-            <th style={{ ...th, textAlign: 'right' }}>Opening</th>
-            <th style={{ ...th, textAlign: 'right' }}>Purchased</th>
-            <th style={{ ...th, textAlign: 'right' }}>Other in</th>
-            {sheet.dates.map((d) => (
-              <th key={d} style={{ ...th, textAlign: 'right', background: 'var(--t-color-blue2)' }}>
-                Out {dayMonth(d)}
-              </th>
-            ))}
-            <th style={{ ...th, textAlign: 'right' }}>Monthly consumption</th>
-            <th style={{ ...th, textAlign: 'right' }}>Cost</th>
-            <th style={{ ...th, textAlign: 'right' }}>Lent / waste</th>
-            <th style={{ ...th, textAlign: 'right' }}>Balance (units)</th>
-            <th style={{ ...th, textAlign: 'right' }}>Balance (ctn)</th>
-            <th style={{ ...th, textAlign: 'right' }}>Lasts</th>
-          </tr>
-        }
-      >
-        {sheet.rows.map((r) => (
-          <tr key={r.item.id}>
-            <td style={td}>
-              <ItemCell item={r.item} />
-            </td>
-            <td style={num}>{qty(r.opening)}</td>
-            <td style={num}>{r.purchased ? qty(r.purchased) : ''}</td>
-            <td style={num}>{r.otherIn ? qty(r.otherIn) : ''}</td>
-            {sheet.dates.map((d) => (
-              <td key={d} style={{ ...num, background: 'var(--t-color-blue2)' }}>
-                {r.takes[d] ? qty(r.takes[d]) : ''}
-              </td>
-            ))}
-            <td style={{ ...num, fontWeight: 600 }}>{r.consumption ? qty(r.consumption) : '—'}</td>
-            <td style={num}>{r.consumptionCost ? rm(r.consumptionCost) : '—'}</td>
-            <td style={num}>{r.lent || r.waste ? `${qty(r.lent)} / ${qty(r.waste)}` : ''}</td>
-            <td style={{ ...num, fontWeight: 600, color: r.closing < 0 ? 'var(--t-color-red11)' : c.text }}>{qty(r.closing)}</td>
-            <td style={num}>{qty(r.closingCartons)}</td>
-            <td style={num}>{r.monthsLeft === null ? '—' : `${qty(r.monthsLeft)} mo`}</td>
-          </tr>
-        ))}
-      </Table>
-      <span style={{ fontSize: 12, color: c.text3 }}>
-        Units are the inner unit (bag, bottle, pcs). Opening is last month's closing. "Lasts" here = balance ÷ this month's consumption, as on the paper sheet.
-      </span>
     </>
   );
 };

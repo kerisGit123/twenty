@@ -5,7 +5,8 @@ import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-
 import { ItemSheet, RecordSheet, RuleSheet, SettleSheet, stockAction, StockTakeSheet, WriteOffSheet } from 'src/front-components/shared/stock-forms';
 import { ItemDetailSheet } from 'src/front-components/shared/stock-detail';
 import { StockHandTab } from 'src/front-components/shared/stock-hand-tab';
-import { BorrowTab, MonthTab, MovementsTab, OrderTab } from 'src/front-components/shared/stock-tabs';
+import { MonthTab } from 'src/front-components/shared/stock-month-tab';
+import { BorrowTab, MovementsTab, OrderTab } from 'src/front-components/shared/stock-tabs';
 import { c, control, primary } from 'src/front-components/shared/stock-ui';
 import type { StockData } from 'src/logic-functions/utils/stock-data';
 import { todayIso } from 'src/logic-functions/utils/dates';
