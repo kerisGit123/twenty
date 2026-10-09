@@ -7,7 +7,8 @@ import { ItemDetailSheet } from 'src/front-components/shared/stock-detail';
 import { StockHandTab } from 'src/front-components/shared/stock-hand-tab';
 import { MonthTab } from 'src/front-components/shared/stock-month-tab';
 import { OrderTab } from 'src/front-components/shared/stock-order-tab';
-import { BorrowTab, MovementsTab } from 'src/front-components/shared/stock-tabs';
+import { BorrowTab } from 'src/front-components/shared/stock-borrow-tab';
+import { MovementsTab } from 'src/front-components/shared/stock-tabs';
 import { c, control, primary } from 'src/front-components/shared/stock-ui';
 import type { StockData } from 'src/logic-functions/utils/stock-data';
 import { todayIso } from 'src/logic-functions/utils/dates';
@@ -216,7 +217,7 @@ export const StockPage = () => {
                 onOrder={(lines) => setOpen({ kind: 'record', type: 'PURCHASE', lines })}
               />
             ) : null}
-            {tab === 'borrowed' ? <BorrowTab items={items} movements={movements} onSettle={(borrow) => setOpen({ kind: 'settle', borrow })} /> : null}
+            {tab === 'borrowed' ? <BorrowTab items={items} movements={movements} today={today} onSettle={(borrow) => setOpen({ kind: 'settle', borrow })} onLend={() => setOpen({ kind: 'record', type: 'BORROW' })} /> : null}
           </>
         ) : null}
       </div>
