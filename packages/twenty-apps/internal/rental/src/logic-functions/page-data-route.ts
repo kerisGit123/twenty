@@ -5,6 +5,7 @@ import { PAGE_DATA_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers
 import { loadExpensesData } from 'src/logic-functions/page-data/expenses-data';
 import { loadLedgerData } from 'src/logic-functions/page-data/ledger-data';
 import { loadTodayData } from 'src/logic-functions/page-data/today-data';
+import { loadTransactionsData } from 'src/logic-functions/page-data/transactions-data';
 import { loadYearData } from 'src/logic-functions/page-data/year-data';
 import { appClient } from 'src/logic-functions/utils/app-client';
 import { resolveScope } from 'src/logic-functions/utils/scope';
@@ -14,7 +15,7 @@ const json = (body: unknown, status = 200) =>
 
 const isIsoDate = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 
-// POST { page: 'ledger' | 'expenses', from, to }, { page: 'today' } or { page: 'year', year }.
+// POST { page: 'ledger' | 'expenses' | 'transactions', from, to }, { page: 'today' } or { page: 'year', year }.
 // Data for the rental pages, read as the app and cut down to the caller's
 // workspaces — staff can't read the tables directly.
 const handler = async (event: RoutePayload, context?: { workspaceMemberId?: string | null }): Promise<Response> => {
@@ -38,6 +39,8 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     }
     if (body.page === 'ledger') return json({ success: true, data: await loadLedgerData(client, scope, body.from, body.to) });
     if (body.page === 'expenses') return json({ success: true, data: await loadExpensesData(client, scope, body.from, body.to) });
+    // Transactions: from and to are both included.
+    if (body.page === 'transactions') return json({ success: true, data: await loadTransactionsData(client, scope, body.from, body.to) });
 
     return json({ success: false, message: 'Unknown page.' }, 400);
   } catch (error) {

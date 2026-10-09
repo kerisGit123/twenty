@@ -220,3 +220,12 @@ export const DOCUMENTS_PAGE_LAYOUT_ID = '12738c8b-b640-4906-88bc-fe5ea12e3a92';
 export const DOCUMENTS_TAB_ID = '413664c3-504e-49b6-98d8-6c2b38b1ce1b';
 export const DOCUMENTS_WIDGET_ID = '797cd810-65d3-451d-b9ce-1085b4ebebe1';
 export const DOCUMENTS_PAGE_NAV_ITEM_ID = 'fd07d629-fd96-4dea-bbf6-66f66f4fcbaf';
+
+// Transactions page (money in, money out, receipt register).
+export const TRANSACTIONS_FRONT_COMPONENT_ID = 'cadf2410-d6a6-4bcd-bdae-b22b169d29b2';
+export const TRANSACTIONS_PAGE_LAYOUT_ID = 'af8fe07a-ddbe-4943-8579-44d26f5ea0a3';
+export const TRANSACTIONS_TAB_ID = 'd7fdc9ef-e231-4492-bf8e-a6836e165361';
+export const TRANSACTIONS_WIDGET_ID = '66eda9d9-a3b5-4e85-9045-84286f66433e';
+export const TRANSACTIONS_NAV_ITEM_ID = '817646ea-6540-4eb9-a444-383b73c4f802';
+export const TRANSACTIONS_CSV_ROUTE_FUNCTION_ID = '250aa605-f875-429d-a576-3a64cc319ed4';
+export const TRANSACTIONS_VOID_ROUTE_FUNCTION_ID = 'f946b116-1f28-451b-a51f-ac3b27b256ab';
