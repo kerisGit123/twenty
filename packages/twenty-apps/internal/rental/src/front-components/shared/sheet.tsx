@@ -21,6 +21,7 @@ export const Sheet = ({ width, onClose, children }: { width: number; onClose: ()
         flexDirection: 'column',
         boxShadow: '-12px 0 32px rgba(0,0,0,0.16)',
         overflow: 'hidden',
+        background: 'var(--t-background-primary)',
       }}
     >
       {children}

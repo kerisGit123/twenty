@@ -136,6 +136,10 @@ const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T
 
 export const expiresSoon = (expiry: string | null, today: string, days = 60) => !!expiry && daysBetween(today, expiry) <= days;
 
+// EXPIRED (past), SOON (within the warning days), OK, or null (no date).
+export const expiryState = (expiry: string | null, today: string, days = 60): 'EXPIRED' | 'SOON' | 'OK' | null =>
+  !expiry ? null : expiry < today ? 'EXPIRED' : daysBetween(today, expiry) <= days ? 'SOON' : 'OK';
+
 // Where an item stands today and what to order.
 export const stockStatus = (item: StockItem, movements: StockMovement[], rule: StockRule, today: string): StockStatus => {
   const balance = balanceOf(movements);

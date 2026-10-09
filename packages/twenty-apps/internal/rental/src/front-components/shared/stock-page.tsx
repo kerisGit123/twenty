@@ -3,7 +3,9 @@ import { RestApiClient } from 'twenty-client-sdk/rest';
 
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { ItemSheet, RecordSheet, RuleSheet, SettleSheet, stockAction, StockTakeSheet, WriteOffSheet } from 'src/front-components/shared/stock-forms';
-import { BorrowTab, MonthTab, MovementsTab, OrderTab, StockTab } from 'src/front-components/shared/stock-tabs';
+import { ItemDetailSheet } from 'src/front-components/shared/stock-detail';
+import { StockHandTab } from 'src/front-components/shared/stock-hand-tab';
+import { BorrowTab, MonthTab, MovementsTab, OrderTab } from 'src/front-components/shared/stock-tabs';
 import { c, control, primary } from 'src/front-components/shared/stock-ui';
 import type { StockData } from 'src/logic-functions/utils/stock-data';
 import { todayIso } from 'src/logic-functions/utils/dates';
@@ -17,6 +19,7 @@ type Tab = 'stock' | 'movements' | 'month' | 'order' | 'borrowed';
 
 type Open =
   | { kind: 'item'; item: StockItem | null }
+  | { kind: 'detail'; itemId: string }
   | { kind: 'record'; type: string; itemId?: string; lines?: Array<{ itemId: string; units: number }> }
   | { kind: 'settle'; borrow: StockMovement }
   | { kind: 'take' }
@@ -93,6 +96,21 @@ export const StockPage = () => {
 
   const sheet = (() => {
     if (!open || !data) return null;
+    if (open.kind === 'detail') {
+      const status = statuses.find((s) => s.item.id === open.itemId);
+
+      return status ? (
+        <ItemDetailSheet
+          status={status}
+          movements={byItem.get(status.item.id) ?? []}
+          today={today}
+          onClose={() => setOpen(null)}
+          onRecord={(type) => setOpen({ kind: 'record', type, itemId: status.item.id })}
+          onEdit={() => setOpen({ kind: 'item', item: status.item })}
+          onToggleStatus={() => toggleStatus(status.item)}
+        />
+      ) : null;
+    }
     if (open.kind === 'item') return <ItemSheet item={open.item} owners={data.owners} defaultOwnerId={ownerId} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'record') {
       return (
@@ -178,12 +196,11 @@ export const StockPage = () => {
         {data && items.length ? (
           <>
             {tab === 'stock' ? (
-              <StockTab
+              <StockHandTab
                 statuses={statuses}
                 today={today}
                 onRecord={(type, itemId) => setOpen({ kind: 'record', type, itemId })}
-                onEdit={(item) => setOpen({ kind: 'item', item })}
-                onToggleStatus={toggleStatus}
+                onOpen={(item) => setOpen({ kind: 'detail', itemId: item.id })}
               />
             ) : null}
             {tab === 'movements' ? <MovementsTab items={items} movements={movements} today={today} onChanged={refresh} /> : null}
