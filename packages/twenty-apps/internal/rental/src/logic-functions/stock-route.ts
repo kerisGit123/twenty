@@ -205,7 +205,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       client,
       lines.map((line) => {
         const item = items.get(text(line.itemId, 64)) as StockItem;
-        const cost = num(line.unitCost);
+        const cost = line.unitCost === undefined || line.unitCost === null || line.unitCost === '' ? NaN : num(line.unitCost);
 
         return {
           item,
@@ -359,8 +359,13 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     return await action(client, await resolveScope(client, context?.workspaceMemberId), body);
   } catch (error) {
     console.error('[rental] stock action failed:', error);
+    const message = error instanceof Error ? error.message : String(error);
+    const dropped = /ECONNRESET|timeout|terminated|ETIMEDOUT|socket hang up|Rate limit/i.test(message);
 
-    return fail(error instanceof Error ? error.message : String(error), 500);
+    return json({
+      success: false,
+      message: dropped ? `The connection to the database dropped for a moment, so nothing was saved. Please try again. (${message})` : `Could not save: ${message}`,
+    });
   }
 };
 

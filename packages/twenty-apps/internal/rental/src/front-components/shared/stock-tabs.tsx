@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { RestApiClient } from 'twenty-client-sdk/rest';
 
 import { type DateRange, DateRangePicker } from 'src/front-components/shared/date-range-picker';
 import { readValue } from 'src/front-components/shared/read-value';
@@ -8,26 +7,22 @@ import {
   c,
   Chip,
   control,
-  FLAG,
   input,
   ItemCell,
   num,
   qty,
-  rm,
   shortDate,
   small,
-  Summary,
   Table,
   td,
   th,
 } from 'src/front-components/shared/stock-ui';
-import { cartonsAndUnits, type StockItem, type StockMovement, type StockStatus } from 'src/shared/stock';
+import { cartonsAndUnits, type StockItem, type StockMovement } from 'src/shared/stock';
 import { BORROW_STATUSES, movementType } from 'src/shared/stock-types';
 
 // The Stock page's tabs. Each gets the items/movements already cut down to
 // the chosen workspace.
 
-const csvUrl = (query: Record<string, string>) => new RestApiClient().resolveUrl('/s/stock/csv', { query });
 
 // ---------------------------------------------------------------- Movements (history)
 
@@ -107,106 +102,6 @@ export const MovementsTab = ({ items, movements, today, onChanged }: { items: St
         })}
       </Table>
       <span style={{ fontSize: 12, color: c.text3 }}>Removing a line takes it out of every balance; it stays restorable from the deleted stock movements.</span>
-    </>
-  );
-};
-
-// ---------------------------------------------------------------- Order plan
-
-export const OrderTab = ({
-  statuses,
-  ruleText,
-  ownerId,
-  onEditRule,
-  onOrder,
-}: {
-  statuses: StockStatus[];
-  ruleText: string;
-  ownerId: string;
-  onEditRule: (() => void) | null;
-  onOrder: (lines: Array<{ itemId: string; units: number }>) => void;
-}) => {
-  const [showAll, setShowAll] = useState(false);
-  const [edits, setEdits] = useState<Record<string, string>>({});
-  const active = statuses.filter((s) => s.item.status !== 'DISCONTINUED');
-  const rows = active.filter((s) => showAll || s.flag === 'ORDER' || s.flag === 'LOW' || edits[s.item.id]);
-  const cartons = (s: StockStatus) => (edits[s.item.id] !== undefined ? Number(edits[s.item.id]) || 0 : s.suggestedCartons);
-  const ordered = active.filter((s) => cartons(s) > 0);
-  const total = ordered.reduce((sum, s) => sum + cartons(s) * s.item.cartonPrice, 0);
-
-  return (
-    <>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ fontSize: 13, color: c.text2 }}>{ruleText}</span>
-        {onEditRule ? (
-          <button onClick={onEditRule} style={small}>
-            Change rule
-          </button>
-        ) : null}
-        <span style={{ flex: 1 }} />
-        <button onClick={() => setShowAll(!showAll)} style={{ ...small, height: 34, fontWeight: showAll ? 600 : 400, borderColor: showAll ? c.accent : c.border2 }}>
-          {showAll ? 'Showing all items' : 'Show all items'}
-        </button>
-        <a href={csvUrl({ kind: 'order', ...(ownerId ? { owner: ownerId } : {}) })} target="_blank" rel="noreferrer" style={{ ...control, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
-          ⬇ CSV
-        </a>
-      </div>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <Summary label="Order total" value={rm(total)} note={`${ordered.length} item${ordered.length === 1 ? '' : 's'}, ${ordered.reduce((sum, s) => sum + cartons(s), 0)} cartons`} color="var(--t-color-blue11)" />
-        <Summary label="Forecast use next month" value={rm(active.reduce((sum, s) => sum + s.forecast * (s.item.cartonPrice / (s.item.unitsPerCarton || 1)), 0))} note="At cost" />
-      </div>
-      <Table
-        empty="Nothing needs ordering. Use “Show all items” to order anyway."
-        minWidth={940}
-        head={
-          <tr>
-            <th style={th}>Item</th>
-            <th style={{ ...th, textAlign: 'right' }}>In hand</th>
-            <th style={{ ...th, textAlign: 'right' }}>Forecast next month</th>
-            <th style={{ ...th, textAlign: 'right' }}>Lasts</th>
-            <th style={th}>Status</th>
-            <th style={{ ...th, textAlign: 'right' }}>Order (ctn)</th>
-            <th style={{ ...th, textAlign: 'right' }}>Carton price</th>
-            <th style={{ ...th, textAlign: 'right' }}>Cost</th>
-          </tr>
-        }
-      >
-        {rows.map((s) => (
-          <tr key={s.item.id}>
-            <td style={td}>
-              <ItemCell item={s.item} />
-            </td>
-            <td style={num}>{cartonsAndUnits(s.balance, s.item)}</td>
-            <td style={num}>{s.forecast ? `${qty(s.forecast)} ${s.item.unit}` : '—'}</td>
-            <td style={num}>{s.monthsLeft === null ? '—' : `${qty(s.monthsLeft)} mo`}</td>
-            <td style={td}>
-              <Chip {...(FLAG[s.flag] ?? FLAG.OK)} />
-            </td>
-            <td style={num}>
-              <input
-                value={edits[s.item.id] ?? String(s.suggestedCartons || '')}
-                onChange={(e) => setEdits({ ...edits, [s.item.id]: readValue(e) })}
-                inputMode="numeric"
-                placeholder="0"
-                style={{ ...input, width: 64, textAlign: 'right' }}
-              />
-              {cartons(s) ? <div style={{ fontSize: 11, color: c.text3 }}>= {qty(cartons(s) * s.item.unitsPerCarton)} {s.item.unit}</div> : null}
-            </td>
-            <td style={num}>{rm(s.item.cartonPrice)}</td>
-            <td style={{ ...num, fontWeight: 600 }}>{cartons(s) ? rm(cartons(s) * s.item.cartonPrice) : '—'}</td>
-          </tr>
-        ))}
-      </Table>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button
-          onClick={() => onOrder(ordered.map((s) => ({ itemId: s.item.id, units: cartons(s) * s.item.unitsPerCarton })))}
-          disabled={!ordered.length}
-          style={{ ...control, background: c.accent, borderColor: c.accent, color: 'white', fontWeight: 600, opacity: ordered.length ? 1 : 0.5 }}
-        >
-          Goods arrived: record as purchase
-        </button>
-        <span style={{ fontSize: 12, color: c.text3 }}>Opens the purchase form with these lines; check the quantities and expiry dates against the delivery.</span>
-      </div>
     </>
   );
 };

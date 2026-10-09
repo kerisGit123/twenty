@@ -188,6 +188,7 @@ export type MonthRow = {
   purchased: number;
   otherIn: number; // borrow returns, exchanges, stock-take surplus
   takes: Record<string, number>; // date -> units taken out
+  ins: Record<string, number>; // date -> units in (purchases, returns, exchanges, stock-take surplus)
   consumption: number; // all takes this month
   lent: number;
   waste: number; // waste and stock-take shortfall
@@ -203,17 +204,23 @@ export const monthSheet = (items: StockItem[], movementsByItem: Map<string, Stoc
   const next = monthOf(new Date(Date.parse(`${start}T00:00:00Z`) + 32 * 86_400_000).toISOString());
   const end = `${next}-01`;
   const dates = new Set<string>();
+  const inDates = new Set<string>();
 
   const rows: MonthRow[] = items.map((item) => {
     const all = movementsByItem.get(item.id) ?? [];
     const inMonth = all.filter((m) => m.date >= start && m.date < end);
     const sum = (types: string[]) => round(inMonth.filter((m) => types.includes(m.type)).reduce((s, m) => s + m.quantity, 0));
     const takes: Record<string, number> = {};
+    const ins: Record<string, number> = {};
 
     for (const m of inMonth) {
-      if (m.type !== 'TAKE') continue;
-      takes[m.date] = round((takes[m.date] ?? 0) + m.quantity);
-      dates.add(m.date);
+      if (m.type === 'TAKE') {
+        takes[m.date] = round((takes[m.date] ?? 0) + m.quantity);
+        dates.add(m.date);
+      } else if (isIn(m.type)) {
+        ins[m.date] = round((ins[m.date] ?? 0) + m.quantity);
+        inDates.add(m.date);
+      }
     }
 
     const opening = balanceOf(all, start);
@@ -230,6 +237,7 @@ export const monthSheet = (items: StockItem[], movementsByItem: Map<string, Stoc
       purchased,
       otherIn,
       takes,
+      ins,
       consumption,
       lent,
       waste,
@@ -240,7 +248,7 @@ export const monthSheet = (items: StockItem[], movementsByItem: Map<string, Stoc
     };
   });
 
-  return { month, dates: [...dates].sort(), rows };
+  return { month, dates: [...dates].sort(), inDates: [...inDates].sort(), rows };
 };
 
 export const groupMovements = (movements: StockMovement[]) => {

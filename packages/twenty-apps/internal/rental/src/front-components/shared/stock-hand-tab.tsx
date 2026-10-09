@@ -20,7 +20,7 @@ const COLORS = { ORDER: 'var(--t-color-red9)', LOW: 'var(--t-color-amber9)', OK:
 const shortDay = (iso: string) => `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(2, 4)}`;
 
 // How long the stock lasts, as a bar up to 3 months with the re-order level marked.
-const LastsBar = ({ s }: { s: StockStatus }) => {
+export const LastsBar = ({ s }: { s: StockStatus }) => {
   if (s.monthsLeft === null) return <span style={{ fontSize: 12, color: c.text3 }}>{s.balance > 0 ? 'not used' : '—'}</span>;
   const scale = Math.max(3, s.reorderBelow * 2);
   const width = Math.min(100, (s.monthsLeft / scale) * 100);

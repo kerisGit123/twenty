@@ -6,7 +6,8 @@ import { ItemSheet, RecordSheet, RuleSheet, SettleSheet, stockAction, StockTakeS
 import { ItemDetailSheet } from 'src/front-components/shared/stock-detail';
 import { StockHandTab } from 'src/front-components/shared/stock-hand-tab';
 import { MonthTab } from 'src/front-components/shared/stock-month-tab';
-import { BorrowTab, MovementsTab, OrderTab } from 'src/front-components/shared/stock-tabs';
+import { OrderTab } from 'src/front-components/shared/stock-order-tab';
+import { BorrowTab, MovementsTab } from 'src/front-components/shared/stock-tabs';
 import { c, control, primary } from 'src/front-components/shared/stock-ui';
 import type { StockData } from 'src/logic-functions/utils/stock-data';
 import { todayIso } from 'src/logic-functions/utils/dates';

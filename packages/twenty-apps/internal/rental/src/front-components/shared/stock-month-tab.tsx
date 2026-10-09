@@ -17,6 +17,8 @@ const TAKE_BG = 'var(--t-color-blue2)';
 const CODE_W = 56;
 const pinned = (left: number, background: string): CSSProperties => ({ position: 'sticky', left, background, zIndex: 1 });
 const OUT_BG = 'var(--t-color-blue3)';
+const IN_BG = 'var(--t-color-green2)';
+const IN_HEAD_BG = 'var(--t-color-green3)';
 
 const shiftMonth = (month: string, by: number) => {
   const date = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1 + by, 1));
@@ -32,6 +34,8 @@ const moved = (r: MonthRow) => r.opening || r.purchased || r.otherIn || r.consum
 export const MonthTab = ({ items, movementsByItem, ownerId, today }: { items: StockItem[]; movementsByItem: Map<string, StockMovement[]>; ownerId: string; today: string }) => {
   const [month, setMonth] = useState(today.slice(0, 7));
   const [showAll, setShowAll] = useState(false);
+  // Detailed: each delivery date gets its own IN column, like the take-outs.
+  const [inByDate, setInByDate] = useState(false);
   const sheet = useMemo(() => monthSheet(items, movementsByItem, month), [items, movementsByItem, month]);
   // Discontinued items only while they still move; empty items only on request.
   const rows = sheet.rows.filter((r) => (r.item.status !== 'DISCONTINUED' || moved(r)) && (showAll || moved(r)));
@@ -42,7 +46,8 @@ export const MonthTab = ({ items, movementsByItem, ownerId, today }: { items: St
   const totalValue = rows.reduce((sum, r) => sum + value(r), 0);
   const hasOtherOut = rows.some((r) => r.lent || r.waste);
   const csv = new RestApiClient().resolveUrl('/s/stock/csv', { query: { kind: 'month', month, ...(ownerId ? { owner: ownerId } : {}) } });
-  const columns = 8 + sheet.dates.length + (hasOtherOut ? 1 : 0);
+  const inColumns = inByDate ? sheet.inDates : [];
+  const columns = 8 + sheet.dates.length + (hasOtherOut ? 1 : 0) + (inByDate ? Math.max(inColumns.length, 1) - 1 : 0);
 
   return (
     <>
@@ -62,6 +67,13 @@ export const MonthTab = ({ items, movementsByItem, ownerId, today }: { items: St
             This month
           </button>
         ) : null}
+        <button
+          onClick={() => setInByDate(!inByDate)}
+          style={{ ...control, fontWeight: inByDate ? 600 : 400, borderColor: inByDate ? 'var(--t-color-green9)' : c.border2, color: inByDate ? 'var(--t-color-green11)' : c.text }}
+          title="Show each delivery date as its own column"
+        >
+          {inByDate ? '✓ IN dates shown' : 'Show IN dates'}
+        </button>
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 13, color: c.text2 }}>
           Used <b>{rm(totalCost)}</b> · closing stock <b>{rm(totalValue)}</b> · {sheet.dates.length} take-out day{sheet.dates.length === 1 ? '' : 's'}
@@ -72,13 +84,25 @@ export const MonthTab = ({ items, movementsByItem, ownerId, today }: { items: St
       </div>
 
       <div style={{ overflow: 'auto', border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg, maxHeight: 'calc(100cqh - 220px)', minHeight: 240 }}>
-        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 820 + sheet.dates.length * 64 }}>
+        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 820 + (sheet.dates.length + inColumns.length) * 64 }}>
           <thead>
             <tr>
               <th style={{ ...head, textAlign: 'left', width: CODE_W, minWidth: CODE_W, boxSizing: 'border-box', left: 0, zIndex: 3 }}>Code</th>
               <th style={{ ...head, textAlign: 'left', left: CODE_W, zIndex: 3, borderRight: `1px solid ${c.border}` }}>Item</th>
               <th style={head}>Opening</th>
-              <th style={head}>In</th>
+              {inByDate ? (
+                inColumns.length ? (
+                  inColumns.map((d) => (
+                    <th key={`in-${d}`} style={{ ...head, background: IN_HEAD_BG, color: 'var(--t-color-green11)' }} title={`In on ${d}`}>
+                      In {dayMonth(d)}
+                    </th>
+                  ))
+                ) : (
+                  <th style={{ ...head, background: IN_HEAD_BG, color: 'var(--t-color-green11)' }}>In</th>
+                )
+              ) : (
+                <th style={head}>In</th>
+              )}
               {sheet.dates.map((d) => (
                 <th key={d} style={{ ...head, background: OUT_BG, color: 'var(--t-color-blue11)' }} title={`Taken out on ${d}`}>
                   Out {dayMonth(d)}
@@ -127,9 +151,21 @@ export const MonthTab = ({ items, movementsByItem, ownerId, today }: { items: St
                         <span style={{ color: c.text3, fontSize: 12 }}> · {r.item.unit}</span>
                       </td>
                       <td style={{ ...right, color: c.text2 }}>{n(r.opening)}</td>
-                      <td style={{ ...right, color: 'var(--t-color-green11)', fontWeight: r.purchased + r.otherIn ? 600 : 400 }}>
-                        {r.purchased + r.otherIn ? `+${qty(r.purchased + r.otherIn)}` : ''}
-                      </td>
+                      {inByDate ? (
+                        inColumns.length ? (
+                          inColumns.map((d) => (
+                            <td key={`in-${d}`} style={{ ...right, background: IN_BG, color: 'var(--t-color-green11)', fontWeight: 600 }}>
+                              {r.ins[d] ? `+${qty(r.ins[d])}` : ''}
+                            </td>
+                          ))
+                        ) : (
+                          <td style={{ ...right, background: IN_BG }} />
+                        )
+                      ) : (
+                        <td style={{ ...right, color: 'var(--t-color-green11)', fontWeight: r.purchased + r.otherIn ? 600 : 400 }}>
+                          {r.purchased + r.otherIn ? `+${qty(r.purchased + r.otherIn)}` : ''}
+                        </td>
+                      )}
                       {sheet.dates.map((d) => (
                         <td key={d} style={{ ...right, background: TAKE_BG }}>
                           {n(r.takes[d] ?? 0)}
