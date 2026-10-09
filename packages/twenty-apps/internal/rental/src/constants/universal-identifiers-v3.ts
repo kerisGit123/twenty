@@ -229,3 +229,28 @@ export const TRANSACTIONS_WIDGET_ID = '66eda9d9-a3b5-4e85-9045-84286f66433e';
 export const TRANSACTIONS_NAV_ITEM_ID = '817646ea-6540-4eb9-a444-383b73c4f802';
 export const TRANSACTIONS_CSV_ROUTE_FUNCTION_ID = '250aa605-f875-429d-a576-3a64cc319ed4';
 export const TRANSACTIONS_VOID_ROUTE_FUNCTION_ID = 'f946b116-1f28-451b-a51f-ac3b27b256ab';
+
+// Income: money in that isn't a rent receipt (late fees, refunds, interest...).
+export const INCOME_OBJECT_ID = '1080c24e-0f8e-4021-bd67-271a116be40c';
+export const INCOME_NAME_FIELD_ID = 'edebacba-6c57-452b-8c1f-7fc04ee5dcc4';
+export const INCOME_DATE_FIELD_ID = 'c7fa5f02-983d-4e95-a90e-cc9b4f65bfab';
+export const INCOME_AMOUNT_FIELD_ID = '33624f97-7d16-4490-9254-cd07e9e917e6';
+export const INCOME_CATEGORY_FIELD_ID = '042fbd39-b80a-41f7-9617-80582d54a314';
+export const INCOME_FROM_FIELD_ID = '5c4305a3-1b1b-4029-88b3-fa8387655beb';
+export const INCOME_METHOD_FIELD_ID = 'e6b197e0-3de3-4bd2-97b6-42d718ff198d';
+export const INCOME_FILES_FIELD_ID = '92a5e13b-dde8-45bf-ace9-c8a1d3de0764';
+export const INCOME_NOTES_FIELD_ID = '41e4afac-eb84-48dd-88b3-8c34b9562c48';
+export const INCOME_OWNER_FIELD_ID = '17e080ca-f4bb-42bb-bd72-3ccc1958e570';
+export const OWNER_INCOMES_FIELD_ID = '35564554-0164-4c4e-b39a-62a874c25b6a';
+export const INCOME_PROPERTY_FIELD_ID = 'b958de4f-d3b5-4013-a24a-de20cab73e85';
+export const PROPERTY_INCOMES_FIELD_ID = '237a4f4d-4340-4d44-826d-03593a98b3be';
+export const INCOME_CREATE_ROUTE_FUNCTION_ID = '50fcd16e-2d43-4d08-b489-8bad547f1c46';
+export const INCOME_CATEGORY_OPTION_IDS = [
+  'ef041636-f9b4-49b8-9e71-cafd973bc4d0', 'bdbdc07d-78af-4af7-b65a-e2915f4c2cfd', 'aff3b23a-cda4-4b91-847f-8f6d6b3d092a',
+  '22925a3d-88e4-4acf-a40c-d455a13f2c0e', 'e5f6b57c-6f2e-49c9-b19e-48c7ba926555', '3c361c30-2c41-4d8e-b74a-4b3d990db659',
+  '8843294a-77de-4e6b-a809-d7dd0f0aef79', '87e9ad6e-db9b-4054-a36b-97fc5fcf0d5d', '60ac1507-da44-4567-9bdc-e6445e2f01cc',
+];
+export const INCOME_METHOD_OPTION_IDS = [
+  '2fa4ffdd-b1e7-474e-83fe-d5b8813c731d', '501cbb59-8635-4e49-8a88-cf044c81187f', '346ce841-0c39-4cc4-b115-e27fdbc99a87',
+  '470c532a-a493-4b2b-b0ea-cbd90ea22f4c', '7f7b797f-c0c4-4978-bbd9-909e5c525676', '86075cf9-3f4b-4b21-bff2-69e92f17a85d',
+];

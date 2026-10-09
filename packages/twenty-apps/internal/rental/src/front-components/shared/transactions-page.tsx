@@ -6,13 +6,14 @@ import { type DateRange, DateRangePicker, presetRange } from 'src/front-componen
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { readValue } from 'src/front-components/shared/read-value';
 import { Sheet } from 'src/front-components/shared/sheet';
-import type { Expense } from 'src/logic-functions/page-data/expenses-data';
+import type { Expense, Option } from 'src/logic-functions/page-data/expenses-data';
 import type { MoneyIn, TransactionsData } from 'src/logic-functions/page-data/transactions-data';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { BASE_CURRENCY, formatMoney } from 'src/shared/currencies';
 import { expenseCategory } from 'src/shared/expense-categories';
 import { MONTHS } from 'src/shared/months';
-import { countsAsReceived, METHOD_LABEL, receiptRows, STATUS_LABEL, type TransactionsTab, TYPE_LABEL } from 'src/shared/transactions';
+import { INCOME_CATEGORIES, INCOME_METHODS } from 'src/shared/income-categories';
+import { countsAsReceived, METHOD_LABEL, receiptRows, STATUS_LABEL, type TransactionsTab, typeLabel } from 'src/shared/transactions';
 
 // Transactions: every ringgit in and out for a period — money received
 // (receipts, voided ones too, and deposits kept), money spent, and the
@@ -53,7 +54,7 @@ const rm = (value: number) => formatMoney(value, BASE_CURRENCY);
 const shortDate = (iso: string | null) => (iso ? `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : '—');
 const monthLabel = (iso: string | null) => (iso ? `${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : '');
 
-const STATUS_COLOR: Record<string, string> = { ISSUED: 'green', SENT: 'green', VOID: 'red', KEPT: 'sky' };
+const STATUS_COLOR: Record<string, string> = { ISSUED: 'green', SENT: 'green', VOID: 'red', KEPT: 'sky', RECORDED: 'blue' };
 
 const Chip = ({ status }: { status: string }) => {
   const color = STATUS_COLOR[status] ?? 'gray';
@@ -117,6 +118,7 @@ const Table = ({ head, children, empty }: { head: ReactNode; children: ReactNode
 
 const receiptUrl = (id: string) => new RestApiClient().resolveUrl('/s/receipts/share', { query: { payment: id } });
 const openPayment = (id: string) => openSidePanelPage({ page: SidePanelPages.ViewRecord, recordId: id, objectNameSingular: 'rentPayment' });
+const openIncome = (id: string) => openSidePanelPage({ page: SidePanelPages.ViewRecord, recordId: id, objectNameSingular: 'income' });
 const openExpense = (id: string) => openSidePanelPage({ page: SidePanelPages.ViewRecord, recordId: id, objectNameSingular: 'expense' });
 
 const matches = (query: string, ...fields: Array<string | null | undefined>) => {
@@ -179,6 +181,145 @@ const VoidSheet = ({ row, onClose, onDone }: { row: MoneyIn; onClose: () => void
   );
 };
 
+// Records money in that isn't a rent receipt (late fee, refund, interest...).
+const AddIncomeSheet = ({
+  today,
+  owners,
+  properties,
+  defaultOwnerId,
+  onClose,
+  onDone,
+}: {
+  today: string;
+  owners: Option[];
+  properties: Option[];
+  defaultOwnerId: string | null;
+  onClose: () => void;
+  onDone: () => void;
+}) => {
+  const [form, setForm] = useState({
+    name: '',
+    incomeDate: today,
+    amount: '',
+    category: 'LATE_FEE',
+    method: 'BANK_TRANSFER',
+    receivedFrom: '',
+    propertyId: '',
+    ownerId: defaultOwnerId ?? owners[0]?.id ?? '',
+    notes: '',
+  });
+  const [busy, setBusy] = useState(false);
+  const set = (key: keyof typeof form) => (e: Parameters<typeof readValue>[0]) => setForm({ ...form, [key]: readValue(e) });
+  const amount = Number(form.amount.replace(/[^0-9.]/g, ''));
+  const ready = Boolean(form.name.trim() && amount > 0 && form.incomeDate);
+  // Only the chosen workspace's properties (the property decides the workspace).
+  const shownProperties = properties.filter((p) => !form.ownerId || p.ownerId === form.ownerId);
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const result = await new RestApiClient().post<{ success: boolean; message?: string }>('/s/income/create', {
+        ...form,
+        amount,
+        propertyId: form.propertyId || null,
+        ownerId: form.ownerId || null,
+      });
+
+      await enqueueSnackbar({ message: result.message ?? (result.success ? 'Income recorded.' : 'Could not save.'), variant: result.success ? 'success' : 'error' });
+      if (result.success) onDone();
+    } catch (error) {
+      await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not save.', variant: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const field = (label: string, input: ReactNode) => (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: c.text3 }}>
+      {label}
+      {input}
+    </label>
+  );
+  const input: CSSProperties = { ...control, cursor: 'text', width: '100%' };
+  const select: CSSProperties = { ...control, width: '100%' };
+
+  return (
+    <Sheet width={440} onClose={onClose}>
+      <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: c.font, color: c.text, overflowY: 'auto' }}>
+        <span style={{ fontSize: 16, fontWeight: 600 }}>Add income</span>
+        <span style={{ fontSize: 13, color: c.text2 }}>
+          For money in that isn&apos;t a rent receipt: a late fee, a damage charge, a refund, bank interest. No receipt is issued.
+        </span>
+        {field('What was it for?', <input value={form.name} onChange={set('name')} placeholder="e.g. Late fee for September" style={input} />)}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          {field('Date received', <input type="date" value={form.incomeDate} onChange={set('incomeDate')} style={input} />)}
+          {field('Amount (RM)', <input value={form.amount} onChange={set('amount')} inputMode="decimal" placeholder="0.00" style={input} />)}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          {field(
+            'Category',
+            <select value={form.category} onChange={set('category')} style={select}>
+              {INCOME_CATEGORIES.map((cat) => (
+                <option key={cat.value} value={cat.value}>
+                  {cat.label}
+                </option>
+              ))}
+            </select>,
+          )}
+          {field(
+            'Method',
+            <select value={form.method} onChange={set('method')} style={select}>
+              {INCOME_METHODS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>,
+          )}
+        </div>
+        {field('Received from', <input value={form.receivedFrom} onChange={set('receivedFrom')} placeholder="Tenant, bank, contractor..." style={input} />)}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          {field(
+            'Workspace',
+            <select value={form.ownerId} onChange={(e) => setForm({ ...form, ownerId: readValue(e), propertyId: '' })} style={select}>
+              {owners.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>,
+          )}
+          {field(
+            'Property (optional)',
+            <select value={form.propertyId} onChange={set('propertyId')} style={select}>
+              <option value="">None</option>
+              {shownProperties.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>,
+          )}
+        </div>
+        {field('Notes', <textarea value={form.notes} onChange={set('notes')} rows={2} style={{ ...input, height: 'auto', padding: 8, resize: 'vertical' }} />)}
+        <span style={{ fontSize: 12, color: c.text3 }}>To attach a bank slip, open the record with Details after saving.</span>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={control}>
+            Cancel
+          </button>
+          <button
+            onClick={submit}
+            disabled={busy || !ready}
+            style={{ ...control, background: c.accent, borderColor: c.accent, color: 'white', fontWeight: 600, opacity: busy || !ready ? 0.5 : 1 }}
+          >
+            {busy ? 'Saving…' : 'Save income'}
+          </button>
+        </div>
+      </div>
+    </Sheet>
+  );
+};
+
 const TABS: Array<{ key: TransactionsTab; label: string }> = [
   { key: 'in', label: 'Money in' },
   { key: 'out', label: 'Money out' },
@@ -198,6 +339,7 @@ export const Transactions = () => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'void'>('all');
   const [sort, setSort] = useState<Sort>({ key: 'date', desc: true });
   const [voiding, setVoiding] = useState<MoneyIn | null>(null);
+  const [adding, setAdding] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -231,7 +373,7 @@ export const Transactions = () => {
         moneyIn.filter(
           (r) =>
             (statusFilter === 'all' || (statusFilter === 'void' ? r.status === 'VOID' : r.status !== 'VOID')) &&
-            matches(query, r.receiptNumber, r.tenantName, r.propertyName, r.ownerName, TYPE_LABEL[r.type], r.notes),
+            matches(query, r.receiptNumber, r.tenantName, r.propertyName, r.ownerName, typeLabel(r), r.notes),
         ),
         sort,
         (r) => r.date,
@@ -250,6 +392,7 @@ export const Transactions = () => {
   const rentIn = received.filter((r) => r.type === 'RENT').reduce((sum, r) => sum + r.amount, 0);
   const depositsIn = received.filter((r) => r.type === 'DEPOSIT' || r.type === 'UTILITY_DEPOSIT').reduce((sum, r) => sum + r.amount, 0);
   const voided = moneyIn.filter((r) => r.status === 'VOID');
+  const otherIn = received.filter((r) => r.type === 'INCOME').reduce((sum, r) => sum + r.amount, 0);
   const outByCurrency = moneyOut.reduce((map, e) => map.set(e.currency, (map.get(e.currency) ?? 0) + e.amount), new Map<string, number>());
   const gaps = data?.gaps ?? [];
 
@@ -271,9 +414,10 @@ export const Transactions = () => {
         {summary('Received', rm(totalIn), `${received.length} payment${received.length === 1 ? '' : 's'}`, 'var(--t-color-green11)')}
         {summary('Rent', rm(rentIn))}
         {summary('Deposits held', rm(depositsIn), 'Owed back at move-out')}
+        {summary('Other income', rm(otherIn), 'Recorded by hand')}
         {summary('Voided', String(voided.length), voided.length ? rm(voided.reduce((s, r) => s + r.amount, 0)) + ' not counted' : 'None')}
       </div>
-      <div style={{ display: 'flex', gap: 6 }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
         {(['all', 'paid', 'void'] as const).map((key) => (
           <button
             key={key}
@@ -283,6 +427,10 @@ export const Transactions = () => {
             {key === 'all' ? 'All' : key === 'paid' ? 'Paid' : 'Void'}
           </button>
         ))}
+        <span style={{ flex: 1 }} />
+        <button onClick={() => setAdding(true)} style={{ ...small, height: 32, fontSize: 13, background: c.accent, borderColor: c.accent, color: 'white', fontWeight: 600 }}>
+          + Add income
+        </button>
       </div>
       <Table
         empty="No money received in this period."
@@ -304,13 +452,22 @@ export const Transactions = () => {
             <td style={{ ...td, whiteSpace: 'nowrap', color: c.text2 }}>{shortDate(r.date)}</td>
             <td style={{ ...td, whiteSpace: 'nowrap', textDecoration: r.status === 'VOID' ? 'line-through' : 'none' }}>{r.receiptNumber || '—'}</td>
             <td style={td}>
-              <div>{r.tenantName || '—'}</div>
-              <div style={{ fontSize: 12, color: c.text3 }}>
-                {r.propertyName}
-                {r.month && r.type === 'RENT' ? ` · ${monthLabel(r.month)} rent` : ''}
-              </div>
+              {r.type === 'INCOME' ? (
+                <>
+                  <div>{r.notes || '—'}</div>
+                  <div style={{ fontSize: 12, color: c.text3 }}>{[r.tenantName && `from ${r.tenantName}`, r.propertyName].filter(Boolean).join(' · ')}</div>
+                </>
+              ) : (
+                <>
+                  <div>{r.tenantName || '—'}</div>
+                  <div style={{ fontSize: 12, color: c.text3 }}>
+                    {r.propertyName}
+                    {r.month && r.type === 'RENT' ? ` · ${monthLabel(r.month)} rent` : ''}
+                  </div>
+                </>
+              )}
             </td>
-            <td style={{ ...td, whiteSpace: 'nowrap' }}>{TYPE_LABEL[r.type] ?? r.type}</td>
+            <td style={{ ...td, whiteSpace: 'nowrap' }}>{typeLabel(r)}</td>
             <td style={{ ...td, whiteSpace: 'nowrap', color: c.text2 }}>{r.method ? METHOD_LABEL[r.method] ?? r.method : '—'}</td>
             <td style={td}>
               <Chip status={r.status} />
@@ -324,7 +481,7 @@ export const Transactions = () => {
                   </a>
                 ) : null}
                 {r.status !== 'KEPT' ? (
-                  <button onClick={() => openPayment(r.id)} style={small}>
+                  <button onClick={() => (r.type === 'INCOME' ? openIncome(r.id) : openPayment(r.id))} style={small}>
                     Details
                   </button>
                 ) : null}
@@ -439,7 +596,7 @@ export const Transactions = () => {
               <div style={{ fontSize: 12, color: c.text3 }}>{r.propertyName}</div>
               {r.status === 'VOID' && r.notes ? <div style={{ fontSize: 12, color: 'var(--t-color-red11)', whiteSpace: 'pre-line' }}>{r.notes}</div> : null}
             </td>
-            <td style={{ ...td, whiteSpace: 'nowrap' }}>{TYPE_LABEL[r.type] ?? r.type}</td>
+            <td style={{ ...td, whiteSpace: 'nowrap' }}>{typeLabel(r)}</td>
             <td style={td}>
               <Chip status={r.status} />
             </td>
@@ -461,6 +618,19 @@ export const Transactions = () => {
 
   return (
     <div style={{ fontFamily: c.font, color: c.text, background: c.bg, height: '100%', overflowY: 'auto', containerType: 'size', boxSizing: 'border-box', position: 'relative' }}>
+      {adding && data ? (
+        <AddIncomeSheet
+          today={today}
+          owners={data.owners}
+          properties={data.properties}
+          defaultOwnerId={scope.ownerId || null}
+          onClose={() => setAdding(false)}
+          onDone={() => {
+            setAdding(false);
+            refresh();
+          }}
+        />
+      ) : null}
       {voiding ? (
         <VoidSheet
           row={voiding}

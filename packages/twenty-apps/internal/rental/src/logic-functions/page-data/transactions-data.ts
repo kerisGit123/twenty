@@ -1,18 +1,20 @@
 import { type CoreApiClient } from 'twenty-client-sdk/core';
 
-import { type Expense, loadExpensesData } from 'src/logic-functions/page-data/expenses-data';
+import { type Expense, loadExpensesData, type Option } from 'src/logic-functions/page-data/expenses-data';
 import { queryAll } from 'src/logic-functions/utils/query-all';
 import { inScope, type Scope } from 'src/logic-functions/utils/scope';
 
 // Transactions page data, limited to the caller's workspaces: money received
-// (issued, sent and voided receipts, plus deposits kept at move-out), money
+// (issued, sent and voided receipts, deposits kept at move-out and other
+// recorded income), money
 // spent (expenses) and the register of receipt numbers with any gaps.
 
 export type MoneyIn = {
-  id: string; // payment id, or kept:<rental id> for a kept deposit
+  id: string; // payment id, income id, or kept:<rental id> for a kept deposit
   date: string; // paid on (kept deposits: the day it was settled)
-  status: string; // ISSUED | SENT | VOID | KEPT
-  type: string; // RENT | DEPOSIT | UTILITY_DEPOSIT | DEPOSIT_KEPT
+  status: string; // ISSUED | SENT | VOID | KEPT | RECORDED (income)
+  type: string; // RENT | DEPOSIT | UTILITY_DEPOSIT | DEPOSIT_KEPT | INCOME
+  category: string | null; // income only: LATE_FEE, REFUND...
   method: string | null;
   amount: number;
   receiptNumber: string;
@@ -23,7 +25,6 @@ export type MoneyIn = {
   ownerId: string | null;
   ownerName: string;
   notes: string;
-  recordedBy: string;
   hasFile: boolean;
 };
 
@@ -35,6 +36,24 @@ export type TransactionsData = {
   moneyIn: MoneyIn[];
   moneyOut: Expense[];
   gaps: ReceiptGap[];
+  // For the "Add income" form.
+  owners: Option[];
+  properties: Option[];
+};
+
+type IncomeNode = {
+  id: string;
+  name?: string | null;
+  incomeDate?: string | null;
+  amount?: { amountMicros?: number | null } | null;
+  category?: string | null;
+  method?: string | null;
+  receivedFrom?: string | null;
+  notes?: string | null;
+  ownerId?: string | null;
+  owner?: { name?: string | null } | null;
+  property?: { name?: string | null; ownerId?: string | null } | null;
+  attachment?: Array<{ url?: string | null }> | null;
 };
 
 type PaymentNode = {
@@ -53,7 +72,6 @@ type PaymentNode = {
   tenant?: { name?: { firstName?: string | null; lastName?: string | null } | null } | null;
   property?: { name?: string | null; ownerId?: string | null } | null;
   receiptFile?: Array<{ url?: string | null }> | null;
-  createdBy?: { name?: string | null; source?: string | null } | null;
 };
 
 type RentalNode = {
@@ -133,7 +151,6 @@ const loadPayments = (client: CoreApiClient) =>
       tenant: { name: { firstName: true, lastName: true } },
       property: { name: true, ownerId: true },
       receiptFile: { url: true },
-      createdBy: { name: true, source: true },
     },
   );
 
@@ -142,6 +159,28 @@ const loadReceiptNumbers = async (client: CoreApiClient) =>
   (await queryAll<{ receiptNumber?: string | null }>(client, 'rentPayments', { filter: { receiptNumber: { like: '%-%' } } }, { receiptNumber: true }))
     .map((p) => p.receiptNumber ?? '')
     .filter(Boolean);
+
+const loadIncome = (client: CoreApiClient, from: string, to: string) =>
+  queryAll<IncomeNode>(
+    client,
+    'incomes',
+    { filter: { and: [{ incomeDate: { gte: from } }, { incomeDate: { lt: to } }] } },
+    {
+      id: true,
+      name: true,
+      incomeDate: true,
+      amount: { amountMicros: true },
+      category: true,
+      method: true,
+      receivedFrom: true,
+      notes: true,
+      ownerId: true,
+      owner: { name: true },
+      property: { name: true, ownerId: true },
+      attachment: { url: true },
+    },
+  );
+
 
 // Deposits kept at move-out count as money received on the day they were settled.
 const loadKeptDeposits = (client: CoreApiClient, from: string, to: string) =>
@@ -162,9 +201,10 @@ const loadKeptDeposits = (client: CoreApiClient, from: string, to: string) =>
 // from and to are both included (YYYY-MM-DD).
 export const loadTransactionsData = async (client: CoreApiClient, scope: Scope, from: string, to: string): Promise<TransactionsData> => {
   const end = nextDay(to);
-  const [payments, numbers, kept, expenses] = await Promise.all([
+  const [payments, numbers, income, kept, expenses] = await Promise.all([
     loadPayments(client),
     loadReceiptNumbers(client),
+    loadIncome(client, from, end),
     loadKeptDeposits(client, from, end),
     loadExpensesData(client, scope, from, end),
   ]);
@@ -193,6 +233,7 @@ export const loadTransactionsData = async (client: CoreApiClient, scope: Scope, 
       date,
       status: p.status ?? 'ISSUED',
       type: p.paymentType ?? 'RENT',
+      category: null,
       method: p.method ?? null,
       amount: (p.amount?.amountMicros ?? 0) / 1_000_000,
       receiptNumber: p.receiptNumber ?? '',
@@ -203,7 +244,6 @@ export const loadTransactionsData = async (client: CoreApiClient, scope: Scope, 
       ownerId,
       ownerName: p.owner?.name ?? '',
       notes: p.notes ?? '',
-      recordedBy: p.createdBy?.source === 'MANUAL' || p.createdBy?.source === 'IMPORT' ? p.createdBy?.name ?? '' : 'Automatic',
       hasFile: Boolean(p.receiptFile?.some((file) => file?.url)),
     });
   }
@@ -218,6 +258,7 @@ export const loadTransactionsData = async (client: CoreApiClient, scope: Scope, 
       date: settlement.settledOn,
       status: 'KEPT',
       type: 'DEPOSIT_KEPT',
+      category: null,
       method: null,
       amount: settlement.kept,
       receiptNumber: '',
@@ -228,8 +269,31 @@ export const loadTransactionsData = async (client: CoreApiClient, scope: Scope, 
       ownerId,
       ownerName: r.owner?.name ?? '',
       notes: 'Kept from the deposit at move-out',
-      recordedBy: '',
       hasFile: false,
+    });
+  }
+
+  for (const i of income) {
+    const ownerId = i.ownerId ?? i.property?.ownerId ?? null;
+
+    if (!i.incomeDate || !inScope(scope, ownerId)) continue;
+    moneyIn.push({
+      id: i.id,
+      date: i.incomeDate,
+      status: 'RECORDED',
+      type: 'INCOME',
+      category: i.category ?? 'OTHER',
+      method: i.method ?? null,
+      amount: (i.amount?.amountMicros ?? 0) / 1_000_000,
+      receiptNumber: '',
+      receiptDate: null,
+      month: null,
+      tenantName: i.receivedFrom ?? '',
+      propertyName: i.property?.name ?? '',
+      ownerId,
+      ownerName: i.owner?.name ?? '',
+      notes: [i.name, i.notes].filter(Boolean).join(' · '),
+      hasFile: Boolean(i.attachment?.some((file) => file?.url)),
     });
   }
 
@@ -238,6 +302,8 @@ export const loadTransactionsData = async (client: CoreApiClient, scope: Scope, 
   return {
     moneyIn,
     moneyOut: expenses.expenses,
+    owners: expenses.owners,
+    properties: expenses.properties,
     gaps: receiptGaps(numbers, seriesWanted),
   };
 };

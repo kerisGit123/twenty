@@ -4,6 +4,7 @@
 import type { MoneyIn } from 'src/logic-functions/page-data/transactions-data';
 import type { Expense } from 'src/logic-functions/page-data/expenses-data';
 import { expenseCategory } from 'src/shared/expense-categories';
+import { incomeCategoryLabel } from 'src/shared/income-categories';
 
 export type TransactionsTab = 'in' | 'out' | 'receipts';
 
@@ -12,7 +13,12 @@ export const TYPE_LABEL: Record<string, string> = {
   DEPOSIT: 'Security deposit',
   UTILITY_DEPOSIT: 'Utility deposit',
   DEPOSIT_KEPT: 'Deposit kept',
+  INCOME: 'Other income',
 };
+
+// "Rent", "Security deposit"... or the income's category ("Late fee").
+export const typeLabel = (row: Pick<MoneyIn, 'type' | 'category'>) =>
+  row.type === 'INCOME' ? incomeCategoryLabel(row.category) : TYPE_LABEL[row.type] ?? row.type;
 
 export const METHOD_LABEL: Record<string, string> = {
   BANK_TRANSFER: 'Bank transfer',
@@ -21,6 +27,7 @@ export const METHOD_LABEL: Record<string, string> = {
   CHEQUE: 'Cheque',
   OTHER: 'Other',
   FROM_DEPOSIT: 'Paid from deposit',
+  EWALLET: 'E-wallet',
 };
 
 export const STATUS_LABEL: Record<string, string> = {
@@ -28,9 +35,10 @@ export const STATUS_LABEL: Record<string, string> = {
   SENT: 'Paid · sent',
   VOID: 'Void',
   KEPT: 'Kept',
+  RECORDED: 'Recorded',
 };
 
-// Cash that actually came in: issued or sent receipts, and kept deposits.
+// Cash that actually came in: issued or sent receipts, kept deposits and recorded income.
 // Rent paid from the deposit isn't new money (the deposit was counted when it came in).
 export const countsAsReceived = (row: MoneyIn) => row.status !== 'VOID' && row.method !== 'FROM_DEPOSIT';
 
@@ -47,19 +55,18 @@ const csv = (rows: Array<Array<string | number>>) => rows.map((row) => row.map(c
 
 export const moneyInCsv = (rows: MoneyIn[]) =>
   csv([
-    ['Date', 'Receipt no.', 'Status', 'Type', 'Rent for', 'Tenant', 'Property', 'Workspace', 'Method', 'Amount (RM)', 'Recorded by', 'Notes'],
+    ['Date', 'Receipt no.', 'Status', 'Type', 'Rent for', 'Tenant / from', 'Property', 'Workspace', 'Method', 'Amount (RM)', 'Notes'],
     ...rows.map((r) => [
       dmy(r.date),
       r.receiptNumber,
       STATUS_LABEL[r.status] ?? r.status,
-      TYPE_LABEL[r.type] ?? r.type,
+      typeLabel(r),
       r.month ? r.month.slice(0, 7) : '',
       r.tenantName,
       r.propertyName,
       r.ownerName,
       r.method ? METHOD_LABEL[r.method] ?? r.method : '',
       r.amount.toFixed(2),
-      r.recordedBy,
       r.notes,
     ]),
   ]);
