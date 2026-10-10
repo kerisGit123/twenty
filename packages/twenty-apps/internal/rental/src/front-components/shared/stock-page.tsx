@@ -8,7 +8,7 @@ import { StockHandTab } from 'src/front-components/shared/stock-hand-tab';
 import { MonthTab } from 'src/front-components/shared/stock-month-tab';
 import { OrderTab } from 'src/front-components/shared/stock-order-tab';
 import { BorrowTab } from 'src/front-components/shared/stock-borrow-tab';
-import { MovementsTab } from 'src/front-components/shared/stock-tabs';
+import { HistoryTab } from 'src/front-components/shared/stock-history-tab';
 import { c, control, primary } from 'src/front-components/shared/stock-ui';
 import type { StockData } from 'src/logic-functions/utils/stock-data';
 import { todayIso } from 'src/logic-functions/utils/dates';
@@ -206,7 +206,7 @@ export const StockPage = () => {
                 onOpen={(item) => setOpen({ kind: 'detail', itemId: item.id })}
               />
             ) : null}
-            {tab === 'movements' ? <MovementsTab items={items} movements={movements} today={today} onChanged={refresh} /> : null}
+            {tab === 'movements' ? <HistoryTab items={items} movements={movements} movementsByItem={byItem} today={today} onChanged={refresh} /> : null}
             {tab === 'month' ? <MonthTab items={items} movementsByItem={byItem} ownerId={ownerId} today={today} /> : null}
             {tab === 'order' ? (
               <OrderTab

@@ -251,6 +251,48 @@ export const monthSheet = (items: StockItem[], movementsByItem: Map<string, Stoc
   return { month, dates: [...dates].sort(), inDates: [...inDates].sort(), rows };
 };
 
+export type HistoryRow = {
+  item: StockItem;
+  opening: number;
+  days: Record<string, { in: number; out: number }>;
+  totalIn: number;
+  totalOut: number;
+  closing: number;
+};
+
+// Any period as a grid, like the paper sheet: per item, the IN and OUT of
+// each day that had movement (from and to both included).
+export const historySheet = (items: StockItem[], movementsByItem: Map<string, StockMovement[]>, from: string, to: string) => {
+  const dates = new Set<string>();
+
+  const rows: HistoryRow[] = items.map((item) => {
+    const all = movementsByItem.get(item.id) ?? [];
+    const days: HistoryRow['days'] = {};
+    let totalIn = 0;
+    let totalOut = 0;
+
+    for (const m of all) {
+      if (m.date < from || m.date > to) continue;
+      const day = (days[m.date] ??= { in: 0, out: 0 });
+
+      if (isIn(m.type)) {
+        day.in = round(day.in + m.quantity);
+        totalIn += m.quantity;
+      } else {
+        day.out = round(day.out + m.quantity);
+        totalOut += m.quantity;
+      }
+      dates.add(m.date);
+    }
+
+    const opening = balanceOf(all, from);
+
+    return { item, opening, days, totalIn: round(totalIn), totalOut: round(totalOut), closing: round(opening + totalIn - totalOut) };
+  });
+
+  return { dates: [...dates].sort(), rows };
+};
+
 export const groupMovements = (movements: StockMovement[]) => {
   const map = new Map<string, StockMovement[]>();
 

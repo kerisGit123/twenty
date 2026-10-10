@@ -46,6 +46,7 @@ export const MonthTab = ({ items, movementsByItem, ownerId, today }: { items: St
   const totalValue = rows.reduce((sum, r) => sum + value(r), 0);
   const hasOtherOut = rows.some((r) => r.lent || r.waste);
   const csv = new RestApiClient().resolveUrl('/s/stock/csv', { query: { kind: 'month', month, ...(ownerId ? { owner: ownerId } : {}) } });
+  const excel = new RestApiClient().resolveUrl('/s/stock/csv', { query: { kind: 'xlsx', month, ...(ownerId ? { owner: ownerId } : {}) } });
   const inColumns = inByDate ? sheet.inDates : [];
   const columns = 8 + sheet.dates.length + (hasOtherOut ? 1 : 0) + (inByDate ? Math.max(inColumns.length, 1) - 1 : 0);
 
@@ -78,6 +79,9 @@ export const MonthTab = ({ items, movementsByItem, ownerId, today }: { items: St
         <span style={{ fontSize: 13, color: c.text2 }}>
           Used <b>{rm(totalCost)}</b> · closing stock <b>{rm(totalValue)}</b> · {sheet.dates.length} take-out day{sheet.dates.length === 1 ? '' : 's'}
         </span>
+        <a href={excel} target="_blank" rel="noreferrer" style={{ ...control, display: 'inline-flex', alignItems: 'center', textDecoration: 'none', fontWeight: 600, color: 'var(--t-color-green11)' }} title="The restock sheet as an Excel file, like the paper 订货单">
+          ⬇ Excel
+        </a>
         <a href={csv} target="_blank" rel="noreferrer" style={{ ...control, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
           ⬇ CSV
         </a>
