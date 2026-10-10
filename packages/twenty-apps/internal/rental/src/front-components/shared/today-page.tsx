@@ -13,6 +13,7 @@ import { type ChaseInfo, chaseNote, isRecentChase } from 'src/shared/rent-chase'
 import { languageFor, rentReminderText } from 'src/shared/rent-reminder';
 import { type AgendaItem, agendaItems } from 'src/shared/agenda';
 import { occasionOf, upcomingOccasions } from 'src/shared/campaigns';
+import type { StockAlert } from 'src/shared/stock-alerts';
 
 // ---------------------------------------------------------------- types
 
@@ -451,6 +452,15 @@ export const Today = () => {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState('');
   const scope = useOwnerScope();
+  // Stock alerts load on their own; without stock (or access) the tile hides.
+  const [stock, setStock] = useState<StockAlert[] | null>(null);
+
+  useEffect(() => {
+    new RestApiClient()
+      .post<{ success: boolean; alerts?: StockAlert[] }>('/s/stock', { action: 'alerts' })
+      .then((result) => setStock(result.success ? (result.alerts ?? null) : null))
+      .catch(() => setStock(null));
+  }, [today]);
 
   useEffect(() => {
     // The server reads everything and keeps only the caller's workspaces.
@@ -565,6 +575,13 @@ export const Today = () => {
     return { overdue, overdueMonths, dueSoon, ending, stamping, documents, missingBills, attention, upcoming };
   }, [data, today, scope.key]);
 
+  const stockView = (() => {
+    const mine = (stock ?? []).filter((a) => scope.matches(a.ownerId));
+    const sum = (key: 'orderNow' | 'expiredItems' | 'expiredValue' | 'waiting' | 'late') => mine.reduce((s, a) => s + a[key], 0);
+
+    return mine.length ? { orderNow: sum('orderNow'), expiredItems: sum('expiredItems'), expiredValue: sum('expiredValue'), waiting: sum('waiting'), late: sum('late') } : null;
+  })();
+
   const date = new Date(`${today}T00:00:00Z`);
   const heading = `${DAYS[date.getUTCDay()]}, ${Number(today.slice(8, 10))} ${MONTHS[date.getUTCMonth()]}`;
 
@@ -631,6 +648,22 @@ export const Today = () => {
               color="blue"
               onClick={() => openList('documents')}
             />
+            {stockView ? (
+              <Tile
+                label="Stock to order"
+                value={String(stockView.orderNow)}
+                hint={
+                  [
+                    stockView.expiredItems ? `${stockView.expiredItems} expired (${rm(stockView.expiredValue)})` : '',
+                    stockView.late ? `${stockView.late} deliver${stockView.late === 1 ? 'y' : 'ies'} late` : stockView.waiting ? `${stockView.waiting} on order` : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ') || 'nothing expired'
+                }
+                color={stockView.expiredItems || stockView.late ? 'red' : stockView.orderNow ? 'amber' : 'green'}
+                onClick={() => openPage('Stock')}
+              />
+            ) : null}
           </div>
 
           <ReminderList title="📱 Reminders to send" hideWhenEmpty />

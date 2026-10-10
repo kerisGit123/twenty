@@ -18,7 +18,7 @@ const requestId = () => `${Date.now().toString(36)}-${Math.random().toString(36)
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // Saves that are safe to send again: the server recognises the request id
 // (or the change is the same whatever the number of times).
-const RETRYABLE = ['record', 'settleBorrow', 'stockTake', 'setStatus', 'saveRule', 'deleteMovement', 'data', 'saveOrder', 'receiveOrder', 'setOrderStatus', 'closeMonth', 'reopenMonth'];
+const RETRYABLE = ['alerts', 'record', 'settleBorrow', 'stockTake', 'setStatus', 'saveRule', 'deleteMovement', 'data', 'saveOrder', 'receiveOrder', 'setOrderStatus', 'closeMonth', 'reopenMonth'];
 
 export const stockAction = async (body: Record<string, unknown>): Promise<Result> => {
   const payload = { ...body, requestId: requestId() };
@@ -558,9 +558,13 @@ export const WriteOffSheet = ({ item, message, today, onClose, onDone }: { item:
 // ---------------------------------------------------------------- Re-order rule
 
 export const RuleSheet = ({ owner, onClose, onDone }: { owner: StockOwner; onClose: () => void; onDone: () => void }) => {
-  const [rule, setRule] = useState<{ reorderBelow: string; orderUpTo: string }>({ reorderBelow: String(owner.rule.reorderBelow), orderUpTo: String(owner.rule.orderUpTo) });
+  const [rule, setRule] = useState<{ reorderBelow: string; orderUpTo: string; leadDays: string }>({
+    reorderBelow: String(owner.rule.reorderBelow),
+    orderUpTo: String(owner.rule.orderUpTo),
+    leadDays: String(owner.rule.leadDays ?? 0),
+  });
   const [busy, setBusy] = useState(false);
-  const parsed: StockRule = { reorderBelow: toNumber(rule.reorderBelow), orderUpTo: toNumber(rule.orderUpTo) };
+  const parsed: StockRule = { reorderBelow: toNumber(rule.reorderBelow), orderUpTo: toNumber(rule.orderUpTo), leadDays: toNumber(rule.leadDays) };
 
   const save = async () => {
     setBusy(true);
@@ -577,6 +581,9 @@ export const RuleSheet = ({ owner, onClose, onDone }: { owner: StockOwner; onClo
       </Field>
       <Field label="Order enough for (months)" hint="The suggested order tops the item up to this many months of next month's forecast, in whole cartons.">
         <input value={rule.orderUpTo} onChange={(e) => setRule({ ...rule, orderUpTo: readValue(e) })} inputMode="decimal" style={input} />
+      </Field>
+      <Field label="Delivery takes (days)" hint="From ordering to the goods arriving. Items are flagged this much earlier, and orders cover these days too.">
+        <input value={rule.leadDays} onChange={(e) => setRule({ ...rule, leadDays: readValue(e) })} inputMode="numeric" style={input} />
       </Field>
       <Buttons onClose={onClose} onSave={save} busy={busy} ready={parsed.reorderBelow > 0 && parsed.orderUpTo >= parsed.reorderBelow} label="Save rule" />
     </Shell>

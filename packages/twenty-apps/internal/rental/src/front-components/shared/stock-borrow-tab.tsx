@@ -2,7 +2,7 @@ import { type CSSProperties, useState } from 'react';
 
 import { c, Chip, control, ExcelButton, primary, rm, small, withOwner } from 'src/front-components/shared/stock-ui';
 import { MONTHS } from 'src/shared/months';
-import { cartonsAndUnits, type StockItem, type StockMovement, unitPrice } from 'src/shared/stock';
+import { cartonsAndUnits, type StockItem, type StockMovement, unitValue } from 'src/shared/stock';
 import { BORROW_STATUSES } from 'src/shared/stock-types';
 
 // Stock lent to other branches: what each branch still owes, for how long,
@@ -40,7 +40,7 @@ export const BorrowTab = ({
   const value = (m: StockMovement) => {
     const item = byId.get(m.itemId);
 
-    return item ? m.quantity * unitPrice(item) : 0;
+    return item ? m.quantity * unitValue(item) : 0;
   };
   const settlements = new Map<string, StockMovement[]>();
 

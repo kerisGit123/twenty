@@ -88,3 +88,6 @@ export const OWNER_STOCK_LOCKED_THROUGH_FIELD_ID = '256cc06d-2b82-4d3c-9fb9-6064
 
 // Who saved a movement (the team member's name).
 export const STOCK_MOVEMENT_RECORDED_BY_FIELD_ID = 'db197040-b9a1-4d11-92b9-90359b0fdcd3';
+
+// Re-order rule: days a delivery takes to arrive.
+export const OWNER_STOCK_LEAD_DAYS_FIELD_ID = '9a522971-3269-44bd-a296-bc2b84a1fae3';

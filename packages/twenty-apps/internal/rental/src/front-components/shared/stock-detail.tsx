@@ -1,7 +1,7 @@
 import { Sheet } from 'src/front-components/shared/sheet';
 import { c, Chip, control, FLAG, primary, qty, rm, shortDate, small } from 'src/front-components/shared/stock-ui';
 import { MONTHS } from 'src/shared/months';
-import { cartonsAndUnits, expiryState, monthlyTakes, type StockItem, type StockMovement, type StockStatus } from 'src/shared/stock';
+import { cartonsAndUnits, expiryState, monthlyTakes, type StockItem, type StockMovement, type StockStatus, unitValue } from 'src/shared/stock';
 import { movementType } from 'src/shared/stock-types';
 
 // One item: key numbers, usage by month (bars) and its latest IN/OUT.
@@ -45,8 +45,8 @@ export const ItemDetailSheet = ({
   today: string;
   onClose: () => void;
   onRecord: (type: string) => void;
-  onEdit: () => void;
-  onToggleStatus: () => void;
+  onEdit: (() => void) | null; // null = not allowed
+  onToggleStatus: (() => void) | null;
 }) => {
   const { item } = status;
   // Usage over the last 6 months, plus the forecast for next month.
@@ -85,15 +85,24 @@ export const ItemDetailSheet = ({
             </>
           ) : null}
           <span style={{ flex: 1 }} />
-          <button onClick={onEdit} style={small}>
-            Edit
-          </button>
-          <button onClick={onToggleStatus} style={small}>
-            {item.status === 'DISCONTINUED' ? 'Reactivate' : 'Discontinue'}
-          </button>
+          {onEdit ? (
+            <button onClick={onEdit} style={small}>
+              Edit
+            </button>
+          ) : null}
+          {onToggleStatus ? (
+            <button onClick={onToggleStatus} style={small}>
+              {item.status === 'DISCONTINUED' ? 'Reactivate' : 'Discontinue'}
+            </button>
+          ) : null}
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
+          <Fact
+            label="Average cost"
+            value={rm(unitValue(item) * (item.unitsPerCarton || 1))}
+            note={item.avgUnitCost ? `per ctn paid on average (list ${rm(item.cartonPrice)})` : 'per ctn (list price, no costs yet)'}
+          />
           <Fact label="In hand" value={cartonsAndUnits(status.balance, item)} note={`${qty(status.balance)} ${item.unit} · ${rm(status.value)}`} color={status.balance < 0 ? 'var(--t-color-red11)' : undefined} />
           <Fact label="Lasts" value={status.monthsLeft === null ? '—' : `${qty(status.monthsLeft)} months`} note={`Re-order below ${status.reorderBelow}`} color={status.flag === 'ORDER' ? 'var(--t-color-red11)' : status.flag === 'LOW' ? 'var(--t-color-amber11)' : undefined} />
           <Fact label="Need next month" value={status.forecast ? `${qty(status.forecast)} ${item.unit}` : '—'} note={status.forecastBasis.length ? `avg of ${status.forecastBasis.length} month${status.forecastBasis.length === 1 ? '' : 's'}` : 'no take-outs yet'} />
@@ -138,7 +147,30 @@ export const ItemDetailSheet = ({
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>Latest IN / OUT</span>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>Price paid per delivery</span>
+          {(() => {
+            const buys = movements.filter((m) => m.type === 'PURCHASE' && Number(m.unitCost) > 0).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
+
+            if (!buys.length) return <span style={{ fontSize: 12, color: c.text3 }}>No purchases with a cost yet.</span>;
+
+            return buys.map((m, index) => {
+              const perCtn = Number(m.unitCost) * (item.unitsPerCarton || 1);
+              const older = buys[index + 1] ? Number(buys[index + 1].unitCost) * (item.unitsPerCarton || 1) : null;
+              const change = older ? Math.round(((perCtn - older) / older) * 1000) / 10 : 0;
+
+              return (
+                <div key={m.id} style={{ display: 'flex', gap: 8, fontSize: 13, padding: '3px 0', borderBottom: `1px dashed ${c.border}` }}>
+                  <span style={{ width: 84, color: c.text2, fontSize: 12 }}>{shortDate(m.date)}</span>
+                  <span style={{ flex: 1, color: c.text3, fontSize: 12 }}>{[m.party, m.reference].filter(Boolean).join(' · ')}</span>
+                  <span style={{ fontWeight: 600 }}>{rm(perCtn)} / ctn</span>
+                  <span style={{ width: 54, textAlign: 'right', fontSize: 12, color: change > 0 ? 'var(--t-color-red11)' : change < 0 ? 'var(--t-color-green11)' : c.text3 }}>
+                    {change ? `${change > 0 ? '+' : ''}${change}%` : ''}
+                  </span>
+                </div>
+              );
+            });
+          })()}
+          <span style={{ fontSize: 13, fontWeight: 600, marginTop: 8 }}>Latest IN / OUT</span>
           {recent.length ? (
             recent.map((m) => {
               const t = movementType(m.type);

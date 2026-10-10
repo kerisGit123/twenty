@@ -5,7 +5,7 @@ import { readValue } from 'src/front-components/shared/read-value';
 import { stockAction } from 'src/front-components/shared/stock-forms';
 import { LastsBar } from 'src/front-components/shared/stock-hand-tab';
 import { c, control, ExcelButton, input, monthLabel, primary, qty, rm, small, withOwner } from 'src/front-components/shared/stock-ui';
-import { cartonsAndUnits, type StockStatus, unitPrice } from 'src/shared/stock';
+import { cartonsAndUnits, type StockStatus, unitValue } from 'src/shared/stock';
 
 // Forecast & order: what each item will need next month, which ones fall
 // below the re-order level, and the order per supplier in whole cartons.
@@ -51,7 +51,7 @@ export const OrderTab = ({
   const ordered = active.filter((s) => cartons(s) > 0);
   const total = ordered.reduce((sum, s) => sum + cartons(s) * s.item.cartonPrice, 0);
   const totalCartons = ordered.reduce((sum, s) => sum + cartons(s), 0);
-  const nextMonthCost = active.reduce((sum, s) => sum + s.forecast * unitPrice(s.item), 0);
+  const nextMonthCost = active.reduce((sum, s) => sum + s.forecast * unitValue(s.item), 0);
   const changed = Object.keys(edits).length > 0;
   const csv = new RestApiClient().resolveUrl('/s/stock/csv', { query: { kind: 'order', ...(ownerId ? { owner: ownerId } : {}) } });
 

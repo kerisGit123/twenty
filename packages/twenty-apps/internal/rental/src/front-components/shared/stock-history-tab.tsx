@@ -27,6 +27,7 @@ export const HistoryTab = ({
   today,
   ownerId,
   onChanged,
+  mayManage,
 }: {
   items: StockItem[];
   movements: StockMovement[];
@@ -34,6 +35,7 @@ export const HistoryTab = ({
   today: string;
   ownerId: string;
   onChanged: () => void;
+  mayManage: (ownerId: string | null) => boolean;
 }) => {
   const [view, setView] = useState<'sheet' | 'list'>('sheet');
   const [range, setRange] = useState<DateRange>(() => presetRange('thisMonth', today));
@@ -69,7 +71,7 @@ export const HistoryTab = ({
     return (
       <>
         <div>{toggle}</div>
-        <MovementsTab items={items} movements={movements} today={today} onChanged={onChanged} />
+        <MovementsTab items={items} movements={movements} today={today} onChanged={onChanged} mayManage={mayManage} />
       </>
     );
   }

@@ -1,15 +1,16 @@
 import { type CoreApiClient } from 'twenty-client-sdk/core';
 
 import { queryAll } from 'src/logic-functions/utils/query-all';
-import { inScope, type Scope } from 'src/logic-functions/utils/scope';
-import { DEFAULT_RULE, type StockItem, type StockMovement, type StockRule } from 'src/shared/stock';
+import { canManage, inScope, type Scope } from 'src/logic-functions/utils/scope';
+import { averageUnitCost, DEFAULT_RULE, type StockItem, type StockMovement, type StockRule } from 'src/shared/stock';
 import { parseOrderLines, type StockOrder } from 'src/shared/stock-orders';
 
 // Stock items, their movements and each workspace's reorder rule, limited to
 // the caller's workspaces.
 
 // lockedThrough: the last day of the latest closed month (stock before it is locked).
-export type StockOwner = { id: string; name: string; rule: StockRule; lockedThrough: string | null };
+// canManage: may edit items, remove lines, close months (admins and the workspace's hosts).
+export type StockOwner = { id: string; name: string; rule: StockRule; lockedThrough: string | null; canManage: boolean };
 
 export type StockData = { items: StockItem[]; movements: StockMovement[]; owners: StockOwner[]; orders: StockOrder[] };
 
@@ -75,7 +76,7 @@ type MovementNode = {
   ownerId?: string | null;
 };
 
-type OwnerNode = { id: string; name?: string | null; stockReorderBelowMonths?: number | null; stockOrderUpToMonths?: number | null; stockLockedThrough?: string | null };
+type OwnerNode = { id: string; name?: string | null; stockReorderBelowMonths?: number | null; stockOrderUpToMonths?: number | null; stockLockedThrough?: string | null; stockLeadDays?: number | null };
 
 export const toStockItem = (node: ItemNode): StockItem => ({
   id: node.id,
@@ -161,12 +162,20 @@ export const loadStockData = async (client: CoreApiClient, scope: Scope): Promis
   const [items, movements, owners, orders] = await Promise.all([
     queryAll<ItemNode>(client, 'stockItems', { orderBy: [{ code: 'AscNullsLast' }] }, ITEM_FIELDS),
     queryAll<MovementNode>(client, 'stockMovements', { orderBy: [{ movementDate: 'AscNullsLast' }] }, MOVEMENT_FIELDS),
-    queryAll<OwnerNode>(client, 'owners', { orderBy: [{ name: 'AscNullsLast' }] }, { id: true, name: true, stockReorderBelowMonths: true, stockOrderUpToMonths: true, stockLockedThrough: true }),
+    queryAll<OwnerNode>(client, 'owners', { orderBy: [{ name: 'AscNullsLast' }] }, { id: true, name: true, stockReorderBelowMonths: true, stockOrderUpToMonths: true, stockLockedThrough: true, stockLeadDays: true }),
     queryAll<OrderNode>(client, 'stockOrders', { orderBy: [{ orderDate: 'DescNullsLast' }] }, ORDER_FIELDS),
   ]);
 
+  const allMovements = movements.map(toStockMovement);
+  const byItem = new Map<string, StockMovement[]>();
+
+  for (const m of allMovements) byItem.set(m.itemId, [...(byItem.get(m.itemId) ?? []), m]);
+
   return {
-    items: items.map(toStockItem).filter((item) => inScope(scope, item.ownerId)),
+    items: items
+      .map(toStockItem)
+      .filter((item) => inScope(scope, item.ownerId))
+      .map((item) => ({ ...item, avgUnitCost: averageUnitCost(byItem.get(item.id) ?? []) })),
     movements: movements.map(toStockMovement).filter((m) => m.itemId && m.date && inScope(scope, m.ownerId)),
     orders: orders.map(toStockOrder).filter((o) => inScope(scope, o.ownerId)),
     owners: owners
@@ -177,8 +186,10 @@ export const loadStockData = async (client: CoreApiClient, scope: Scope): Promis
         rule: {
           reorderBelow: owner.stockReorderBelowMonths ?? DEFAULT_RULE.reorderBelow,
           orderUpTo: owner.stockOrderUpToMonths ?? DEFAULT_RULE.orderUpTo,
+          leadDays: Number(owner.stockLeadDays) || 0,
         },
         lockedThrough: owner.stockLockedThrough ?? null,
+        canManage: canManage(scope, owner.id),
       })),
   };
 };

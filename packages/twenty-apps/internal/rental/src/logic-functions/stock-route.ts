@@ -5,16 +5,18 @@ import { Response } from 'twenty-sdk/logic-function';
 import { STOCK_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers-stock';
 import { appClient } from 'src/logic-functions/utils/app-client';
 import { todayIso } from 'src/logic-functions/utils/dates';
-import { inScope, NOT_ALLOWED, resolveScope, type Scope } from 'src/logic-functions/utils/scope';
+import { canManage, inScope, NOT_ALLOWED, resolveScope, type Scope } from 'src/logic-functions/utils/scope';
 import { queryAll } from 'src/logic-functions/utils/query-all';
 import { ITEM_FIELDS, loadItemMovements, loadMovementsOf, loadStockData, ORDER_FIELDS, toStockItem, toStockMovement, toStockOrder } from 'src/logic-functions/utils/stock-data';
 import { orderProgress, orderStatusFor, type OrderLine, type StockOrder } from 'src/shared/stock-orders';
 import { balanceOf, cartonsAndUnits, groupMovements, type StockItem, unitPrice } from 'src/shared/stock';
+import { stockAlerts } from 'src/shared/stock-alerts';
 import { movementType, STOCK_GROUPS } from 'src/shared/stock-types';
 
 // POST /s/stock { action, ... }: the Stock page's data and every change it
 // makes, checked against the caller's workspaces.
 //   data                         items, movements, workspace rules
+//   alerts                       per workspace: items to order, expired, late orders
 //   saveItem      item fields (+ openingUnits on a new item)
 //   setStatus     { itemId, status, writeOff? }    discontinue / reactivate
 //   record        { date, type, party, reference, notes, lines: [{ itemId, quantity, unitCost?, expiryDate? }] }
@@ -252,6 +254,9 @@ const lockedMessage = (locks: Map<string, string | null>, ownerId: string | null
 const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json) => Promise<Response>> = {
   data: async (client, scope) => json({ success: true, data: await loadStockData(client, scope), today: todayIso() }),
 
+  // Counts for the Today page: what to order, expired stock, late deliveries.
+  alerts: async (client, scope) => json({ success: true, alerts: stockAlerts(await loadStockData(client, scope), todayIso()) }),
+
   saveItem: async (client, scope, body) => {
     const id = text(body.id, 64);
     const name = text(body.name, 200);
@@ -270,6 +275,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const ownerId = existing?.ownerId ?? (text(body.ownerId, 64) || null);
 
     if (!ownerId || !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!canManage(scope, ownerId)) return fail("Only an admin or this workspace's host can add or change items and prices. Ask them, or record the stock IN/OUT instead.", 403);
 
     const data = {
       name,
@@ -317,6 +323,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
     if (!item) return fail('Item not found.', 404);
     if (!inScope(scope, item.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!canManage(scope, item.ownerId)) return fail("Only an admin or this workspace's host can discontinue or reactivate items. Ask them, or record the stock IN/OUT instead.", 403);
     const status = body.status === 'DISCONTINUED' ? 'DISCONTINUED' : 'ACTIVE';
 
     if (status === 'DISCONTINUED') {
@@ -528,6 +535,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
     if (!movement) return fail('Movement not found.', 404);
     if (!inScope(scope, movement.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!canManage(scope, movement.ownerId)) return fail("Only an admin or this workspace's host can remove recorded lines. Ask them, or record the stock IN/OUT instead.", 403);
     const removeLocked = lockedMessage(await loadLocks(client, [movement.ownerId ?? null]), movement.ownerId ?? null, movement.movementDate ?? '');
 
     if (removeLocked) return fail(removeLocked);
@@ -743,6 +751,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
     if (!ownerId) return fail('Pick a workspace first: each workspace closes its own months.');
     if (!inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!canManage(scope, ownerId)) return fail("Only an admin or this workspace's host can close months. Ask them, or record the stock IN/OUT instead.", 403);
     if (!/^\d{4}-\d{2}$/.test(month)) return fail('Pick a month.');
     const end = monthEnd(month);
 
@@ -761,6 +770,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
     if (!ownerId) return fail('Pick a workspace first.');
     if (!inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!canManage(scope, ownerId)) return fail("Only an admin or this workspace's host can reopen months. Ask them, or record the stock IN/OUT instead.", 403);
     const through = (await loadLocks(client, [ownerId])).get(ownerId);
 
     if (!through) return json({ success: true, message: 'No month is closed.' });
@@ -776,11 +786,14 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const ownerId = text(body.ownerId, 64);
     const reorderBelow = num(body.reorderBelow);
     const orderUpTo = num(body.orderUpTo);
+    const leadDays = body.leadDays === undefined || body.leadDays === '' ? 0 : num(body.leadDays);
 
     if (!ownerId || !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!canManage(scope, ownerId)) return fail("Only an admin or this workspace's host can change the re-order rule. Ask them, or record the stock IN/OUT instead.", 403);
     if (!(reorderBelow > 0) || !(orderUpTo > 0)) return fail('Both numbers must be more than 0 months.');
     if (orderUpTo < reorderBelow) return fail('"Order enough for" must be at least the re-order level.');
-    await client.mutation({ updateOwner: { __args: { id: ownerId, data: { stockReorderBelowMonths: reorderBelow, stockOrderUpToMonths: orderUpTo } }, id: true } });
+    if (!(leadDays >= 0 && leadDays <= 120)) return fail('Delivery days must be between 0 and 120.');
+    await client.mutation({ updateOwner: { __args: { id: ownerId, data: { stockReorderBelowMonths: reorderBelow, stockOrderUpToMonths: orderUpTo, stockLeadDays: Math.round(leadDays) } }, id: true } });
 
     return json({ success: true, message: 'Re-order rule saved.' });
   },
@@ -794,7 +807,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
   try {
     const client = appClient();
-    const [scope, actor] = await Promise.all([resolveScope(client, context?.workspaceMemberId), body.action === 'data' ? '' : memberName(client, context?.workspaceMemberId)]);
+    const [scope, actor] = await Promise.all([resolveScope(client, context?.workspaceMemberId), body.action === 'data' || body.action === 'alerts' ? '' : memberName(client, context?.workspaceMemberId)]);
 
     if (actor) actorOf.set(client, actor);
 

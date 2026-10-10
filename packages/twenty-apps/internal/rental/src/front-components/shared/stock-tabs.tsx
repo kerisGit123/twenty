@@ -26,7 +26,19 @@ import { BORROW_STATUSES, movementType } from 'src/shared/stock-types';
 
 // ---------------------------------------------------------------- Movements (history)
 
-export const MovementsTab = ({ items, movements, today, onChanged }: { items: StockItem[]; movements: StockMovement[]; today: string; onChanged: () => void }) => {
+export const MovementsTab = ({
+  items,
+  movements,
+  today,
+  onChanged,
+  mayManage,
+}: {
+  items: StockItem[];
+  movements: StockMovement[];
+  today: string;
+  onChanged: () => void;
+  mayManage: (ownerId: string | null) => boolean;
+}) => {
   const [range, setRange] = useState<DateRange>(() => ({ from: `${today.slice(0, 7)}-01`, to: today, preset: 'custom' }));
   const [type, setType] = useState('');
   const [query, setQuery] = useState('');
@@ -95,9 +107,11 @@ export const MovementsTab = ({ items, movements, today, onChanged }: { items: St
               <td style={{ ...td, color: c.text3, fontSize: 12 }}>{[m.reference, m.notes].filter(Boolean).join(' · ') || '—'}</td>
               <td style={{ ...td, color: c.text2, fontSize: 12, whiteSpace: 'nowrap' }}>{m.recordedBy || '—'}</td>
               <td style={{ ...td, textAlign: 'right' }}>
-                <button onClick={() => remove(m)} style={{ ...small, color: 'var(--t-color-red11)' }} title="Remove (can be restored)">
-                  Remove
-                </button>
+                {mayManage(m.ownerId) ? (
+                  <button onClick={() => remove(m)} style={{ ...small, color: 'var(--t-color-red11)' }} title="Remove (can be restored)">
+                    Remove
+                  </button>
+                ) : null}
               </td>
             </tr>
           );

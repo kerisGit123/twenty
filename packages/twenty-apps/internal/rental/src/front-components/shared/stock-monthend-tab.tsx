@@ -20,6 +20,7 @@ export const MonthEndTab = ({
   items,
   movementsByItem,
   owner,
+  canClose,
   today,
   onStockTake,
   onChanged,
@@ -27,6 +28,7 @@ export const MonthEndTab = ({
   items: StockItem[];
   movementsByItem: Map<string, StockMovement[]>;
   owner: StockOwner | null; // null = all workspaces (view only)
+  canClose: boolean; // admins and the workspace's hosts
   today: string;
   onStockTake: (date: string) => void;
   onChanged: () => void;
@@ -172,12 +174,12 @@ export const MonthEndTab = ({
                     {closed ? <Chip label="🔒 Closed" color="gray" /> : current ? <Chip label="This month" color="blue" /> : <Chip label="Open" color="orange" />}
                   </td>
                   <td style={{ ...cell, textAlign: 'right' }}>
-                    {owner && r.month === nextToClose ? (
+                    {canClose && r.month === nextToClose ? (
                       <button onClick={() => setClosing(r)} style={primary}>
                         Close month
                       </button>
                     ) : null}
-                    {owner && r.month === latestClosed ? (
+                    {canClose && r.month === latestClosed ? (
                       <button onClick={reopen} style={small} title="Open the latest closed month again for corrections">
                         Reopen
                       </button>

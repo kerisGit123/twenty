@@ -96,6 +96,11 @@ export const StockPage = () => {
     [items, byItem, ruleOf, today, onOrder],
   );
   const owner = data?.owners.find((o) => o.id === ownerId) ?? null;
+  // Editing items, removing lines, closing months and the rule are for admins
+  // and the workspace's hosts; the server enforces it, the page hides it.
+  const managed = new Set((data?.owners ?? []).filter((o) => o.canManage).map((o) => o.id));
+  const mayManage = (id: string | null) => !!id && managed.has(id);
+  const mayAddItems = owner ? owner.canManage : managed.size > 0;
   const activeItems = items.filter((i) => i.status !== 'DISCONTINUED');
 
   const toggleStatus = async (item: StockItem) => {
@@ -123,12 +128,12 @@ export const StockPage = () => {
           today={today}
           onClose={() => setOpen(null)}
           onRecord={(type) => setOpen({ kind: 'record', type, itemId: status.item.id })}
-          onEdit={() => setOpen({ kind: 'item', item: status.item })}
-          onToggleStatus={() => toggleStatus(status.item)}
+          onEdit={mayManage(status.item.ownerId) ? () => setOpen({ kind: 'item', item: status.item }) : null}
+          onToggleStatus={mayManage(status.item.ownerId) ? () => toggleStatus(status.item) : null}
         />
       ) : null;
     }
-    if (open.kind === 'item') return <ItemSheet item={open.item} owners={data.owners} defaultOwnerId={ownerId} today={today} onClose={() => setOpen(null)} onDone={done} />;
+    if (open.kind === 'item') return <ItemSheet item={open.item} owners={data.owners.filter((o) => o.canManage)} defaultOwnerId={ownerId} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'record') {
       return (
         <RecordSheet
@@ -168,7 +173,7 @@ export const StockPage = () => {
 
   const rule = owner?.rule ?? DEFAULT_RULE;
   const ruleText = owner
-    ? `Rule for ${owner.name}: re-order when stock lasts under ${rule.reorderBelow} months; order enough for ${rule.orderUpTo} months.`
+    ? `Rule for ${owner.name}: re-order when stock lasts under ${rule.reorderBelow} months; order enough for ${rule.orderUpTo} months${rule.leadDays ? `; delivery takes ${rule.leadDays} days` : ''}.`
     : 'Each workspace uses its own re-order rule (default: under 1.5 months, order enough for 2.5). Pick a workspace to change it.';
 
   return (
@@ -184,9 +189,11 @@ export const StockPage = () => {
           <button onClick={() => setOpen({ kind: 'take' })} style={control} disabled={!data}>
             Stock take
           </button>
-          <button onClick={() => setOpen({ kind: 'item', item: null })} style={control} disabled={!data}>
-            + Add item
-          </button>
+          {mayAddItems ? (
+            <button onClick={() => setOpen({ kind: 'item', item: null })} style={control} disabled={!data}>
+              + Add item
+            </button>
+          ) : null}
           <button onClick={() => setOpen({ kind: 'quick' })} style={{ ...control, fontWeight: 600 }} disabled={!data} title="Fast entry: search, tap, save (good on a phone)">
             ⚡ Quick entry
           </button>
@@ -235,14 +242,14 @@ export const StockPage = () => {
                 onWriteOffExpired={() => setOpen({ kind: 'expired' })}
               />
             ) : null}
-            {tab === 'movements' ? <HistoryTab items={items} movements={movements} movementsByItem={byItem} today={today} ownerId={ownerId} onChanged={refresh} /> : null}
+            {tab === 'movements' ? <HistoryTab items={items} movements={movements} movementsByItem={byItem} today={today} ownerId={ownerId} onChanged={refresh} mayManage={mayManage} /> : null}
             {tab === 'month' ? <MonthTab items={items} movementsByItem={byItem} ownerId={ownerId} today={today} /> : null}
             {tab === 'order' ? (
               <OrderTab
                 statuses={statuses}
                 ruleText={ruleText}
                 ownerId={ownerId}
-                onEditRule={owner ? () => setOpen({ kind: 'rule' }) : null}
+                onEditRule={owner?.canManage ? () => setOpen({ kind: 'rule' }) : null}
                 onOrder={(lines) => setOpen({ kind: 'record', type: 'PURCHASE', lines })}
                 onSaved={() => {
                   refresh();
@@ -252,7 +259,7 @@ export const StockPage = () => {
             ) : null}
             {tab === 'orders' ? <OrdersTab orders={orders} items={items} movements={movements} today={today} ownerId={ownerId} onChanged={refresh} /> : null}
             {tab === 'monthend' ? (
-              <MonthEndTab items={items} movementsByItem={byItem} owner={owner} today={today} onStockTake={(date) => setOpen({ kind: 'take', date })} onChanged={refresh} />
+              <MonthEndTab items={items} movementsByItem={byItem} owner={owner} canClose={!!owner?.canManage} today={today} onStockTake={(date) => setOpen({ kind: 'take', date })} onChanged={refresh} />
             ) : null}
             {tab === 'borrowed' ? <BorrowTab items={items} movements={movements} today={today} ownerId={ownerId} onSettle={(borrow) => setOpen({ kind: 'settle', borrow })} onLend={() => setOpen({ kind: 'record', type: 'BORROW' })} /> : null}
           </>

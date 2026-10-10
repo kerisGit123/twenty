@@ -19,6 +19,7 @@ export type StockItem = {
   notes: string;
   ownerId: string | null;
   ownerName: string;
+  avgUnitCost?: number | null; // average paid per unit (purchases and opening stock), set when loaded
 };
 
 export type StockMovement = {
@@ -40,7 +41,8 @@ export type StockMovement = {
   ownerId: string | null;
 };
 
-export type StockRule = { reorderBelow: number; orderUpTo: number };
+// leadDays: how long a delivery takes; the stock has to last that long too.
+export type StockRule = { reorderBelow: number; orderUpTo: number; leadDays?: number };
 
 export const DEFAULT_RULE: StockRule = { reorderBelow: DEFAULT_REORDER_BELOW_MONTHS, orderUpTo: DEFAULT_ORDER_UP_TO_MONTHS };
 
@@ -48,7 +50,26 @@ const round = (value: number, places = 4) => Math.round(value * 10 ** places) / 
 
 export const signedQuantity = (m: Pick<StockMovement, 'type' | 'quantity'>) => (isIn(m.type) ? m.quantity : -m.quantity);
 
+// Today's list price per unit (what an order costs).
 export const unitPrice = (item: Pick<StockItem, 'cartonPrice' | 'unitsPerCarton'>) => item.cartonPrice / (item.unitsPerCarton || 1);
+
+// What a unit in stock is worth: the average actually paid, else the list price.
+export const unitValue = (item: Pick<StockItem, 'cartonPrice' | 'unitsPerCarton' | 'avgUnitCost'>) =>
+  item.avgUnitCost && item.avgUnitCost > 0 ? item.avgUnitCost : unitPrice(item);
+
+// Average cost per unit, weighted by quantity, over deliveries that carry a cost.
+export const averageUnitCost = (movements: Array<Pick<StockMovement, 'type' | 'quantity' | 'unitCost'>>) => {
+  let units = 0;
+  let paid = 0;
+
+  for (const m of movements) {
+    if ((m.type !== 'PURCHASE' && m.type !== 'ADJUST_IN') || !(Number(m.unitCost) > 0) || !(m.quantity > 0)) continue;
+    units += m.quantity;
+    paid += m.quantity * Number(m.unitCost);
+  }
+
+  return units > 0 ? Math.round((paid / units) * 10000) / 10000 : null;
+};
 
 export const toCartons = (units: number, item: Pick<StockItem, 'unitsPerCarton'>) => round(units / (item.unitsPerCarton || 1), 2);
 
@@ -175,7 +196,9 @@ export const expiryState = (expiry: string | null, today: string, days = 60): 'E
 export const stockStatus = (item: StockItem, movements: StockMovement[], rule: StockRule, today: string, onOrder = 0): StockStatus => {
   const balance = balanceOf(movements);
   const { forecast, basis } = forecastNextMonth(movements, today);
-  const reorderBelow = item.reorderBelowMonths ?? rule.reorderBelow;
+  // Waiting for a delivery uses stock too: order that much earlier.
+  const lead = Math.max(0, rule.leadDays ?? 0) / 30.4;
+  const reorderBelow = Math.round(((item.reorderBelowMonths ?? rule.reorderBelow) + lead) * 100) / 100;
   const monthsLeft = forecast > 0 ? round(Math.max(balance, 0) / forecast, 2) : null;
   const lastMonth = monthOf(new Date(Date.parse(`${today.slice(0, 7)}-01T00:00:00Z`) - 86_400_000).toISOString());
   const lastMonthTaken = monthlyTakes(movements).find(([month]) => month === lastMonth)?.[1] ?? 0;
@@ -190,7 +213,7 @@ export const stockStatus = (item: StockItem, movements: StockMovement[], rule: S
 
   // Bring the item up to "order enough for" months of next month's use, in
   // whole cartons, counting what is already ordered and still to come.
-  const shortBy = active && flag === 'ORDER' ? Math.max(0, forecast * Math.max(rule.orderUpTo, reorderBelow) - Math.max(balance, 0) - onOrder) : 0;
+  const shortBy = active && flag === 'ORDER' ? Math.max(0, forecast * Math.max(rule.orderUpTo + lead, reorderBelow) - Math.max(balance, 0) - onOrder) : 0;
   const suggestedCartons = shortBy > 0 ? Math.ceil(round(shortBy / per, 4)) : 0;
 
   if (flag === 'ORDER' && onOrder > 0 && !suggestedCartons) flag = 'ON_ORDER';
@@ -199,7 +222,7 @@ export const stockStatus = (item: StockItem, movements: StockMovement[], rule: S
     item,
     balance,
     cartons: toCartons(balance, item),
-    value: round(Math.max(balance, 0) * unitPrice(item), 2),
+    value: round(Math.max(balance, 0) * unitValue(item), 2),
     lastMonthTaken,
     forecast,
     forecastBasis: basis,
@@ -278,7 +301,7 @@ export const monthSheet = (items: StockItem[], movementsByItem: Map<string, Stoc
       waste,
       closing,
       closingCartons: toCartons(closing, item),
-      consumptionCost: round(consumption * unitPrice(item), 2),
+      consumptionCost: round(consumption * unitValue(item), 2),
       monthsLeft: consumption > 0 ? round(Math.max(closing, 0) / consumption, 2) : null,
     };
   });
@@ -382,7 +405,7 @@ export const monthEndRows = (items: StockItem[], movementsByItem: Map<string, St
 
     for (const item of items) {
       const list = movementsByItem.get(item.id) ?? [];
-      const price = unitPrice(item);
+      const price = unitValue(item);
       const opening = balanceOf(list, start);
       const closing = balanceOf(list, end);
 

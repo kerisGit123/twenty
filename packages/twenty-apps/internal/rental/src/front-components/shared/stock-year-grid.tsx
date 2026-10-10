@@ -3,7 +3,7 @@ import { type CSSProperties, useMemo, useState } from 'react';
 import { readValue } from 'src/front-components/shared/read-value';
 import { c, control, ExcelButton, input, qty, rm, withOwner } from 'src/front-components/shared/stock-ui';
 import { MONTHS } from 'src/shared/months';
-import { type StockItem, type StockMovement, toCartons, unitPrice, yearGrid } from 'src/shared/stock';
+import { type StockItem, type StockMovement, toCartons, unitValue, yearGrid } from 'src/shared/stock';
 import { STOCK_GROUPS } from 'src/shared/stock-types';
 
 // Every product's opening and closing for each month of a year, like a
@@ -36,11 +36,11 @@ export const YearGrid = ({ items, movementsByItem, today, ownerId }: { items: St
   const show = (units: number, item: StockItem) => {
     if (!units) return '';
     if (measure === 'ctn') return qty(toCartons(units, item));
-    if (measure === 'rm') return rm(Math.max(units, 0) * unitPrice(item)).replace('RM ', '');
+    if (measure === 'rm') return rm(Math.max(units, 0) * unitValue(item)).replace('RM ', '');
 
     return qty(units);
   };
-  const totalOf = (month: number, key: 'opening' | 'closing') => visible.reduce((sum, r) => sum + Math.max(r.months[month][key], 0) * unitPrice(r.item), 0);
+  const totalOf = (month: number, key: 'opening' | 'closing') => visible.reduce((sum, r) => sum + Math.max(r.months[month][key], 0) * unitValue(r.item), 0);
 
   return (
     <>

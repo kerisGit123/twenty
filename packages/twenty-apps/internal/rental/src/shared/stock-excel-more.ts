@@ -13,7 +13,7 @@ import {
   cartonsAndUnits,
   expiryState,
   toCartons,
-  unitPrice,
+  unitValue,
 } from 'src/shared/stock';
 import { BROWN, CREAM, GROUP, HEAD, ORDER, PASAR, PASAR_LIGHT, TEAL, cell, dmy } from 'src/shared/stock-excel';
 import { type LineProgress, type StockOrder } from 'src/shared/stock-orders';
@@ -198,7 +198,7 @@ export const yearWorkbook = (rows: YearRow[], year: number, lastMonth: number, h
   const total: XlsxCell[] = [cell(null, { fill: HEAD }), cell('Total value (RM)', { fill: HEAD, bold: true }), cell(null, { fill: HEAD })];
 
   for (let i = 0; i < 12; i++) {
-    const value = (key: 'opening' | 'closing') => visible.reduce((sum, r) => sum + Math.max(r.months[i][key], 0) * unitPrice(r.item), 0);
+    const value = (key: 'opening' | 'closing') => visible.reduce((sum, r) => sum + Math.max(r.months[i][key], 0) * unitValue(r.item), 0);
 
     total.push(i < lastMonth ? money(value('opening'), { fill: HEAD }) : cell(null, { fill: HEAD }), i < lastMonth ? money(value('closing'), { fill: HEAD, bold: true }) : cell(null, { fill: HEAD }));
   }
@@ -374,7 +374,7 @@ export const borrowWorkbook = (items: StockItem[], movements: StockMovement[], t
     const item = byId.get(m.itemId);
     const status = m.borrowStatus ?? 'OUTSTANDING';
     const open = status === 'OUTSTANDING';
-    const value = item ? m.quantity * unitPrice(item) : 0;
+    const value = item ? m.quantity * unitValue(item) : 0;
     const days = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${m.date}T00:00:00Z`)) / 86_400_000);
     const settled =
       status === 'PAID'

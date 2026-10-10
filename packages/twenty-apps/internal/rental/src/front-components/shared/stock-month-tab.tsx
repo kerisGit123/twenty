@@ -3,7 +3,7 @@ import { RestApiClient } from 'twenty-client-sdk/rest';
 
 import { readValue } from 'src/front-components/shared/read-value';
 import { c, control, dayMonth, monthLabel, qty, rm } from 'src/front-components/shared/stock-ui';
-import { cartonsAndUnits, type MonthRow, monthSheet, type StockItem, type StockMovement, unitPrice } from 'src/shared/stock';
+import { cartonsAndUnits, type MonthRow, monthSheet, type StockItem, type StockMovement, unitValue } from 'src/shared/stock';
 import { STOCK_GROUPS } from 'src/shared/stock-types';
 
 // The monthly restock sheet, laid out like the paper one: per group, one line
@@ -41,7 +41,7 @@ export const MonthTab = ({ items, movementsByItem, ownerId, today }: { items: St
   const rows = sheet.rows.filter((r) => (r.item.status !== 'DISCONTINUED' || moved(r)) && (showAll || moved(r)));
   const hidden = sheet.rows.length - rows.length;
   const groups = STOCK_GROUPS.map((g) => ({ ...g, rows: rows.filter((r) => r.item.group === g.value) })).filter((g) => g.rows.length);
-  const value = (r: MonthRow) => Math.max(r.closing, 0) * unitPrice(r.item);
+  const value = (r: MonthRow) => Math.max(r.closing, 0) * unitValue(r.item);
   const totalCost = rows.reduce((sum, r) => sum + r.consumptionCost, 0);
   const totalValue = rows.reduce((sum, r) => sum + value(r), 0);
   const hasOtherOut = rows.some((r) => r.lent || r.waste);
