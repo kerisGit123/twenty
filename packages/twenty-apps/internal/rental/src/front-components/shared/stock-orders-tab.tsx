@@ -29,6 +29,7 @@ const ReceiveSheet = ({ order, lines, items, today, onClose, onDone }: { order: 
   const [got, setGot] = useState<Record<string, string>>(() => Object.fromEntries(open.map((l) => [l.itemId, String(toCartons(l.outstanding, items.get(l.itemId) ?? { unitsPerCarton: 1 }))])));
   const [expiry, setExpiry] = useState<Record<string, string>>({});
   const [notComing, setNotComing] = useState<Record<string, boolean>>({});
+  const [addExpense, setAddExpense] = useState(true);
   const [busy, setBusy] = useState(false);
   const unitsOf = (l: LineProgress) => toNumber(got[l.itemId] ?? '') * (items.get(l.itemId)?.unitsPerCarton || 1);
   const ready = isFullDate(date) && open.some((l) => unitsOf(l) > 0 || notComing[l.itemId]);
@@ -40,6 +41,7 @@ const ReceiveSheet = ({ order, lines, items, today, onClose, onDone }: { order: 
       orderId: order.id,
       date,
       reference,
+      addExpense,
       lines: open.map((l) => ({ itemId: l.itemId, units: unitsOf(l), expiryDate: expiry[l.itemId] || undefined, close: Boolean(notComing[l.itemId]) })),
     });
 
@@ -117,6 +119,13 @@ const ReceiveSheet = ({ order, lines, items, today, onClose, onDone }: { order: 
             </tbody>
           </table>
         </div>
+        <button
+          onClick={() => setAddExpense(!addExpense)}
+          style={{ ...small, height: 30, alignSelf: 'flex-start', fontWeight: 600, color: addExpense ? 'var(--t-color-green11)' : c.text3, borderColor: addExpense ? 'var(--t-color-green9)' : c.border2 }}
+          title="Book the cost as an expense (Stock & ingredients) so it shows in Expenses, Transactions and the year summary"
+        >
+          {addExpense ? '✓ Also add to Expenses' : 'Not added to Expenses'}
+        </button>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={control}>
             Cancel

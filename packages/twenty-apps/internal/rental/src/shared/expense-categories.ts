@@ -133,6 +133,8 @@ export const EXPENSE_CATEGORIES: ExpenseCategory[] = [
   { value: 'GOV_FEES', label: 'Government fees & fines', group: 'GOVERNMENT', id: '41d3a505-cd0d-4df0-b974-779b833bc40b' },
   // Other
   { value: 'OTHER', label: 'Other', group: 'OTHER', id: 'f83ca586-ab0e-4f68-afac-4ea0dc9bfa2b' },
+  // F&B stock bought from suppliers (booked automatically from Stock purchases).
+  { value: 'STOCK_PURCHASE', label: 'Stock & ingredients', group: 'BUSINESS', id: '92ada5f5-f04c-442a-ad00-28467d9a6e45' },
 ];
 
 const GROUP_BY_KEY = Object.fromEntries(EXPENSE_GROUPS.map((group) => [group.key, group]));

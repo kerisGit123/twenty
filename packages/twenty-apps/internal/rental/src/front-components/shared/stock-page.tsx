@@ -9,6 +9,7 @@ import { MonthTab } from 'src/front-components/shared/stock-month-tab';
 import { OrderTab } from 'src/front-components/shared/stock-order-tab';
 import { OrdersTab } from 'src/front-components/shared/stock-orders-tab';
 import { MonthEndTab } from 'src/front-components/shared/stock-monthend-tab';
+import { ExpiredSheet, QuickSheet } from 'src/front-components/shared/stock-quick';
 import { onOrderUnits } from 'src/shared/stock-orders';
 import { BorrowTab } from 'src/front-components/shared/stock-borrow-tab';
 import { HistoryTab } from 'src/front-components/shared/stock-history-tab';
@@ -29,6 +30,8 @@ type Open =
   | { kind: 'record'; type: string; itemId?: string; lines?: Array<{ itemId: string; units: number }> }
   | { kind: 'settle'; borrow: StockMovement }
   | { kind: 'take'; date?: string }
+  | { kind: 'quick' }
+  | { kind: 'expired' }
   | { kind: 'rule' }
   | { kind: 'writeOff'; item: StockItem; message: string }
   | null;
@@ -146,6 +149,10 @@ export const StockPage = () => {
 
       return item ? <SettleSheet borrow={open.borrow} item={item} items={activeItems} today={today} onClose={() => setOpen(null)} onDone={done} /> : null;
     }
+    if (open.kind === 'quick') return <QuickSheet items={activeItems} balances={balances} movements={movements} today={today} onClose={() => setOpen(null)} onDone={done} />;
+    if (open.kind === 'expired') {
+      return <ExpiredSheet items={activeItems} movementsByItem={byItem} balances={balances} today={today} onClose={() => setOpen(null)} onDone={done} />;
+    }
     if (open.kind === 'take') {
       // Counting as at a date: the balance expected then.
       const at = open.date;
@@ -179,6 +186,9 @@ export const StockPage = () => {
           </button>
           <button onClick={() => setOpen({ kind: 'item', item: null })} style={control} disabled={!data}>
             + Add item
+          </button>
+          <button onClick={() => setOpen({ kind: 'quick' })} style={{ ...control, fontWeight: 600 }} disabled={!data} title="Fast entry: search, tap, save (good on a phone)">
+            ⚡ Quick entry
           </button>
           <button onClick={() => setOpen({ kind: 'record', type: 'TAKE' })} style={primary} disabled={!data}>
             Record in / out
@@ -222,6 +232,7 @@ export const StockPage = () => {
                 ownerId={ownerId}
                 onRecord={(type, itemId) => setOpen({ kind: 'record', type, itemId })}
                 onOpen={(item) => setOpen({ kind: 'detail', itemId: item.id })}
+                onWriteOffExpired={() => setOpen({ kind: 'expired' })}
               />
             ) : null}
             {tab === 'movements' ? <HistoryTab items={items} movements={movements} movementsByItem={byItem} today={today} ownerId={ownerId} onChanged={refresh} /> : null}

@@ -239,6 +239,8 @@ export const RecordSheet = ({
   const [party, setParty] = useState(initialType === 'TAKE' ? 'Wawa' : initialType === 'PURCHASE' ? 'WeDrink' : '');
   const [reference, setReference] = useState(initialReference ?? '');
   const [notes, setNotes] = useState('');
+  // Purchases also go into Expenses (switch off if the bill is recorded already).
+  const [addExpense, setAddExpense] = useState(true);
   const [lines, setLines] = useState<Line[]>(
     initialLines?.length
       ? initialLines.map((l, index) => ({ key: index + 1, itemId: l.itemId, units: l.units, unitCost: '', expiryDate: '' }))
@@ -266,6 +268,7 @@ export const RecordSheet = ({
       party,
       reference,
       notes,
+      addExpense: type === 'PURCHASE' ? addExpense : undefined,
       lines: lines.filter((l) => l.itemId && l.units > 0).map((l) => ({ itemId: l.itemId, quantity: l.units, unitCost: l.unitCost ? toNumber(l.unitCost) : undefined, expiryDate: l.expiryDate || undefined })),
     });
 
@@ -365,7 +368,18 @@ export const RecordSheet = ({
       <Field label="Notes">
         <input value={notes} onChange={(e) => setNotes(readValue(e))} style={input} />
       </Field>
-      <span style={{ fontSize: 13, color: c.text2 }}>Value: RM {total.toFixed(2)}</span>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 13, color: c.text2 }}>Value: RM {total.toFixed(2)}</span>
+        {type === 'PURCHASE' ? (
+          <button
+          onClick={() => setAddExpense(!addExpense)}
+          style={{ ...small, height: 30, alignSelf: 'flex-start', fontWeight: 600, color: addExpense ? 'var(--t-color-green11)' : c.text3, borderColor: addExpense ? 'var(--t-color-green9)' : c.border2 }}
+          title="Book the cost as an expense (Stock & ingredients) so it shows in Expenses, Transactions and the year summary"
+        >
+          {addExpense ? '✓ Also add to Expenses' : 'Not added to Expenses'}
+        </button>
+        ) : null}
+      </div>
       <Buttons onClose={onClose} onSave={save} busy={busy} ready={Boolean(ready)} label="Save" />
     </Shell>
   );

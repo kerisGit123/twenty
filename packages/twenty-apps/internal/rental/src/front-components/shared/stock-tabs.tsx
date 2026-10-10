@@ -69,6 +69,7 @@ export const MovementsTab = ({ items, movements, today, onChanged }: { items: St
             <th style={{ ...th, textAlign: 'right' }}>Quantity</th>
             <th style={th}>To / from</th>
             <th style={th}>Reference · notes</th>
+            <th style={th}>By</th>
             <th style={{ ...th, textAlign: 'right' }} />
           </tr>
         }
@@ -92,6 +93,7 @@ export const MovementsTab = ({ items, movements, today, onChanged }: { items: St
               </td>
               <td style={{ ...td, color: c.text2 }}>{m.party || '—'}</td>
               <td style={{ ...td, color: c.text3, fontSize: 12 }}>{[m.reference, m.notes].filter(Boolean).join(' · ') || '—'}</td>
+              <td style={{ ...td, color: c.text2, fontSize: 12, whiteSpace: 'nowrap' }}>{m.recordedBy || '—'}</td>
               <td style={{ ...td, textAlign: 'right' }}>
                 <button onClick={() => remove(m)} style={{ ...small, color: 'var(--t-color-red11)' }} title="Remove (can be restored)">
                   Remove

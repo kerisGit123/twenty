@@ -36,6 +36,7 @@ export type StockMovement = {
   borrowId: string | null;
   batchId?: string | null; // lines saved together (one delivery)
   orderId?: string | null; // a purchase received against a stock order
+  recordedBy?: string; // the team member who saved it
   ownerId: string | null;
 };
 
@@ -115,6 +116,32 @@ export const nearestExpiry = (movements: StockMovement[], balance: number) => {
 };
 
 // ON_ORDER: below the re-order level, but enough is already ordered.
+// How much of what is on the shelf has passed its expiry, assuming the oldest
+// stock goes out first (the balance is made of the newest deliveries).
+export const expiredStock = (movements: StockMovement[], balance: number, today: string) => {
+  let left = Math.max(balance, 0);
+  let units = 0;
+  let earliest: string | null = null;
+  const deliveries = movements
+    .map((m, index) => ({ m, index }))
+    .filter(({ m }) => isIn(m.type) && m.quantity > 0)
+    .sort((a, b) => b.m.date.localeCompare(a.m.date) || b.index - a.index)
+    .map(({ m }) => m);
+
+  for (const d of deliveries) {
+    if (left <= 0) break;
+    const part = Math.min(d.quantity, left);
+
+    if (d.expiryDate && d.expiryDate < today) {
+      units += part;
+      if (!earliest || d.expiryDate < earliest) earliest = d.expiryDate;
+    }
+    left -= part;
+  }
+
+  return { units: round(units), earliest };
+};
+
 export type StockFlag = 'ORDER' | 'ON_ORDER' | 'LOW' | 'OK' | 'NO_USE' | 'EMPTY';
 
 export type StockStatus = {

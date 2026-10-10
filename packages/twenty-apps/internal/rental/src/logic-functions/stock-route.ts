@@ -53,6 +53,82 @@ const loadItem = async (client: CoreApiClient, itemId: string): Promise<StockIte
   return node ? toStockItem(node) : null;
 };
 
+// The name of the person saving, per request (each request has its own client).
+const actorOf = new WeakMap<CoreApiClient, string>();
+
+const memberName = async (client: CoreApiClient, workspaceMemberId?: string | null) => {
+  if (!workspaceMemberId) return '';
+  try {
+    const { workspaceMembers } = await client.query({
+      workspaceMembers: { __args: { filter: { id: { eq: workspaceMemberId } }, first: 1 }, edges: { node: { name: { firstName: true, lastName: true } } } },
+    });
+    const name = workspaceMembers?.edges?.[0]?.node?.name;
+
+    return [name?.firstName, name?.lastName].filter(Boolean).join(' ');
+  } catch {
+    return '';
+  }
+};
+
+// ---------------------------------------------------------------- purchases -> expenses
+
+// One expense per delivery (per workspace), so stock bought shows in Expenses,
+// Transactions and the year summary. Its notes carry "stock:<batch>" to find it again.
+const bookPurchaseExpense = async (
+  client: CoreApiClient,
+  batchId: string,
+  lines: Array<{ item: StockItem; units: number; unitCost: number }>,
+  info: { date: string; supplier: string; reference: string },
+) => {
+  const byOwner = new Map<string, typeof lines>();
+
+  for (const l of lines) byOwner.set(l.item.ownerId ?? '', [...(byOwner.get(l.item.ownerId ?? '') ?? []), l]);
+  for (const [ownerId, list] of byOwner) {
+    const amount = Math.round(list.reduce((sum, l) => sum + l.units * l.unitCost, 0) * 100) / 100;
+
+    if (!(amount > 0)) continue;
+    await client.mutation({
+      createExpense: {
+        __args: {
+          data: {
+            name: `Stock purchase · ${info.supplier || 'supplier'}${info.reference ? ` · ${info.reference}` : ''}`,
+            expenseDate: info.date,
+            amount: { amountMicros: Math.round(amount * 1_000_000), currencyCode: 'MYR' },
+            category: 'STOCK_PURCHASE' as never,
+            method: 'OTHER' as never,
+            paidTo: info.supplier,
+            notes: [`stock:${batchId}`, ...list.map((l) => `${l.item.code} ${l.item.name}: ${cartonsAndUnits(l.units, l.item)}`)].join('\n'),
+            ownerId: ownerId || null,
+          },
+        },
+        id: true,
+      },
+    });
+  }
+};
+
+// After a purchase line is removed: the delivery's expense follows what is left.
+const resyncPurchaseExpense = async (client: CoreApiClient, batchId: string) => {
+  if (!batchId) return;
+  const { expenses } = await client.query({ expenses: { __args: { filter: { notes: { like: `stock:${batchId}%` } }, first: 10 }, edges: { node: { id: true, ownerId: true } } } });
+  const rows = expenses?.edges?.map((e) => e.node) ?? [];
+
+  if (!rows.length) return;
+  const left = await queryAll<{ quantity?: number | null; unitCost?: number | null; ownerId?: string | null }>(
+    client,
+    'stockMovements',
+    { filter: { and: [{ batchId: { eq: batchId } }, { movementType: { eq: 'PURCHASE' } }] } },
+    { quantity: true, unitCost: true, ownerId: true },
+  );
+
+  for (const expense of rows) {
+    const amount = Math.round(left.filter((m) => (m.ownerId ?? null) === (expense.ownerId ?? null)).reduce((sum, m) => sum + (Number(m.quantity) || 0) * (Number(m.unitCost) || 0), 0) * 100) / 100;
+
+    if (amount > 0) await client.mutation({ updateExpense: { __args: { id: expense.id, data: { amount: { amountMicros: Math.round(amount * 1_000_000), currencyCode: 'MYR' } } }, id: true } });
+    else await client.mutation({ deleteExpense: { __args: { id: expense.id }, id: true } });
+  }
+};
+
 // Several items in one query.
 const loadItems = async (client: CoreApiClient, ids: string[]) => {
   const unique = [...new Set(ids.filter(Boolean))];
@@ -85,7 +161,7 @@ const alreadySaved = async (client: CoreApiClient, requestId: string) => {
   return Boolean(stockMovements?.edges?.length);
 };
 
-const movementData = (item: StockItem, data: MovementInput) => ({
+const movementData = (item: StockItem, data: MovementInput, recordedBy = '') => ({
           name: `${movementType(data.type)?.label ?? data.type} · ${item.name}`,
           movementDate: data.date,
           movementType: data.type as never,
@@ -99,12 +175,13 @@ const movementData = (item: StockItem, data: MovementInput) => ({
           borrowId: data.borrowId ?? null,
           batchId: data.batchId ?? null,
           orderId: data.orderId ?? null,
+          recordedBy: recordedBy || null,
           itemId: item.id,
           ownerId: item.ownerId,
 });
 
 const createMovement = async (client: CoreApiClient, item: StockItem, data: MovementInput) => {
-  const { createStockMovement } = await client.mutation({ createStockMovement: { __args: { data: movementData(item, data) }, id: true } });
+  const { createStockMovement } = await client.mutation({ createStockMovement: { __args: { data: movementData(item, data, actorOf.get(client)) }, id: true } });
 
   return createStockMovement?.id as string | undefined;
 };
@@ -113,7 +190,7 @@ const createMovement = async (client: CoreApiClient, item: StockItem, data: Move
 const createMovements = async (client: CoreApiClient, list: Array<{ item: StockItem; data: MovementInput }>) => {
   for (let i = 0; i < list.length; i += 50) {
     await client.mutation({
-      createStockMovements: { __args: { data: list.slice(i, i + 50).map(({ item, data }) => movementData(item, data)) as never }, id: true },
+      createStockMovements: { __args: { data: list.slice(i, i + 50).map(({ item, data }) => movementData(item, data, actorOf.get(client))) as never }, id: true },
     });
   }
 };
@@ -270,7 +347,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     if (!isDate(body.date)) return fail('Pick a date.');
     if (!lines.length) return fail('Add at least one item.');
     if (type === 'BORROW' && !text(body.party)) return fail('Say which branch borrowed it.');
-    const requestId = text(body.requestId, 64);
+    const requestId = text(body.requestId, 64) || `srv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
     if (await alreadySaved(client, requestId)) return json({ success: true, message: 'Already saved.' });
 
@@ -315,6 +392,22 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
         };
       }),
     );
+
+    if (type === 'PURCHASE' && body.addExpense !== false) {
+      await bookPurchaseExpense(
+        client,
+        requestId,
+        lines.map((line) => {
+          const item = items.get(text(line.itemId, 64)) as StockItem;
+          const cost = line.unitCost === undefined || line.unitCost === null || line.unitCost === '' ? NaN : num(line.unitCost);
+
+          return { item, units: num(line.quantity), unitCost: cost >= 0 ? cost : unitPrice(item) };
+        }),
+        { date: body.date as string, supplier: text(body.party, 120), reference: text(body.reference, 120) },
+      );
+
+      return json({ success: true, message: `Recorded ${lines.length} line${lines.length === 1 ? '' : 's'} and added the cost to Expenses.` });
+    }
 
     return json({ success: true, message: `Recorded ${lines.length} line${lines.length === 1 ? '' : 's'}.` });
   },
@@ -430,7 +523,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
   deleteMovement: async (client, scope, body) => {
     const id = text(body.movementId, 64);
-    const { stockMovements } = await client.query({ stockMovements: { __args: { filter: { id: { eq: id } }, first: 1 }, edges: { node: { id: true, ownerId: true, movementDate: true } } } });
+    const { stockMovements } = await client.query({ stockMovements: { __args: { filter: { id: { eq: id } }, first: 1 }, edges: { node: { id: true, ownerId: true, movementDate: true, movementType: true, batchId: true } } } });
     const movement = stockMovements?.edges?.[0]?.node;
 
     if (!movement) return fail('Movement not found.', 404);
@@ -440,6 +533,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     if (removeLocked) return fail(removeLocked);
     // Soft delete: it can be restored from the deleted records.
     await client.mutation({ deleteStockMovement: { __args: { id }, id: true } });
+    if (movement.movementType === 'PURCHASE' && movement.batchId) await resyncPurchaseExpense(client, movement.batchId);
 
     return json({ success: true, message: 'Removed. It can be restored from deleted stock movements.' });
   },
@@ -535,6 +629,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
     if (await alreadySaved(client, requestId)) return json({ success: true, message: 'Already saved.' });
 
+    const batch = requestId || `srv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     const lines = (Array.isArray(body.lines) ? (body.lines as Json[]) : []).map((l) => ({
       itemId: text(l.itemId, 64),
       units: num(l.units),
@@ -566,12 +661,27 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
               expiryDate: l.expiryDate,
               reference,
               notes: `Order ${order.number}`,
-              batchId: requestId || null,
+              batchId: batch,
               orderId: order.id,
             },
           };
         }),
     );
+
+    if (body.addExpense !== false) {
+      await bookPurchaseExpense(
+        client,
+        batch,
+        lines
+          .filter((l) => l.units > 0)
+          .map((l) => {
+            const item = items.get(l.itemId) as StockItem;
+
+            return { item, units: l.units, unitCost: (ordered.get(l.itemId)?.cartonPrice ?? item.cartonPrice) / (item.unitsPerCarton || 1) };
+          }),
+        { date: body.date as string, supplier: order.supplier, reference },
+      );
+    }
 
     // Lines that will not come any more stop counting as on order.
     const closing = new Set(lines.filter((l) => l.close).map((l) => l.itemId));
@@ -684,8 +794,11 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
   try {
     const client = appClient();
+    const [scope, actor] = await Promise.all([resolveScope(client, context?.workspaceMemberId), body.action === 'data' ? '' : memberName(client, context?.workspaceMemberId)]);
 
-    return await action(client, await resolveScope(client, context?.workspaceMemberId), body);
+    if (actor) actorOf.set(client, actor);
+
+    return await action(client, scope, body);
   } catch (error) {
     console.error('[rental] stock action failed:', error);
     const message = error instanceof Error ? error.message : String(error);

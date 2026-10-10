@@ -149,7 +149,7 @@ export const ItemDetailSheet = ({
                   <span style={{ width: 130 }}>
                     <Chip label={t?.label ?? m.type} color={t?.color ?? 'gray'} />
                   </span>
-                  <span style={{ flex: 1, color: c.text3, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[m.party, m.reference, m.notes].filter(Boolean).join(' · ')}</span>
+                  <span style={{ flex: 1, color: c.text3, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[m.party, m.reference, m.notes, m.recordedBy ? `by ${m.recordedBy}` : ''].filter(Boolean).join(' · ')}</span>
                   <span style={{ fontWeight: 600, whiteSpace: 'nowrap', color: t?.direction === 'IN' ? 'var(--t-color-green11)' : c.text }}>
                     {t?.direction === 'IN' ? '+' : '−'}
                     {cartonsAndUnits(m.quantity, item)}

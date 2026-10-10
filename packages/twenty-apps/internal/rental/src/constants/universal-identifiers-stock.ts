@@ -85,3 +85,6 @@ export const STOCK_MOVEMENT_ORDER_ID_FIELD_ID = 'ff51e870-29d8-47e5-b6aa-623af32
 
 // Month end: stock is locked up to and including this date (a closed month's last day).
 export const OWNER_STOCK_LOCKED_THROUGH_FIELD_ID = '256cc06d-2b82-4d3c-9fb9-606476a3a0d9';
+
+// Who saved a movement (the team member's name).
+export const STOCK_MOVEMENT_RECORDED_BY_FIELD_ID = 'db197040-b9a1-4d11-92b9-90359b0fdcd3';

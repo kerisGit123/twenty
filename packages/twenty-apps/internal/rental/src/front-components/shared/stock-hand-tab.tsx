@@ -78,10 +78,12 @@ export const StockHandTab = ({
   ownerId,
   onRecord,
   onOpen,
+  onWriteOffExpired,
 }: {
   statuses: StockStatus[];
   today: string;
   ownerId: string;
+  onWriteOffExpired: () => void;
   onRecord: (type: string, itemId: string) => void;
   onOpen: (item: StockItem) => void;
 }) => {
@@ -129,6 +131,18 @@ export const StockHandTab = ({
         />
         <Tile label="Stock value" value={rm(active.reduce((sum, s) => sum + s.value, 0))} note={`${active.length} items in use`} active={filter === 'all'} onClick={() => setFilter('all')} />
       </div>
+
+      {expired.length ? (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '8px 12px', borderRadius: c.radius, background: 'var(--t-color-red2)', border: '1px solid var(--t-color-red6)', fontSize: 13 }}>
+          <span style={{ color: 'var(--t-color-red11)' }}>
+            {expired.length} item{expired.length === 1 ? ' has' : 's have'} stock past its expiry date. Check the shelf, then write off what can&apos;t be used.
+          </span>
+          <span style={{ flex: 1 }} />
+          <button onClick={onWriteOffExpired} style={{ ...control, color: 'var(--t-color-red11)', borderColor: 'var(--t-color-red9)', fontWeight: 600 }}>
+            Write off expired…
+          </button>
+        </div>
+      ) : null}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder="Search code or name" style={{ ...input, width: 220 }} />
