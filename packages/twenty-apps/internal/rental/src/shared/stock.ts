@@ -290,7 +290,11 @@ export const historySheet = (items: StockItem[], movementsByItem: Map<string, St
     return { item, opening, days, totalIn: round(totalIn), totalOut: round(totalOut), closing: round(opening + totalIn - totalOut) };
   });
 
-  return { dates: [...dates].sort(), rows };
+  // Days with an IN and days with an OUT, for the two sections of the grid.
+  const inDates = [...dates].filter((d) => rows.some((r) => r.days[d]?.in)).sort();
+  const outDates = [...dates].filter((d) => rows.some((r) => r.days[d]?.out)).sort();
+
+  return { dates: [...dates].sort(), inDates, outDates, rows };
 };
 
 export const groupMovements = (movements: StockMovement[]) => {

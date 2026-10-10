@@ -20,6 +20,10 @@ const RED = 'C00000';
 const AMBER = '9C5700';
 const GREEN_TEXT = '2E7D32';
 const BLUE_TEXT = '1F4E79';
+const IN_BAND = '375623';
+const OUT_BAND = '1F4E79';
+const IN_HEAD_FILL = 'C6E0B4';
+const IN_LIGHT_FILL = 'E2EFDA';
 
 type Heading = { title: string; company: string; generatedOn: string; period?: string };
 
@@ -150,25 +154,41 @@ export const orderWorkbook = (statuses: StockStatus[], cartonsOf: (s: StockStatu
 
 // ---------------------------------------------------------------- In / out history grid
 
-export const historyWorkbook = (sheet: { dates: string[]; rows: HistoryRow[] }, heading: Heading) => {
+// Two sections, as on the page: IN (one column per day something came in,
+// then the total) and OUT (one column per day something went out, then the total).
+export const historyWorkbook = (sheet: { inDates: string[]; outDates: string[]; rows: HistoryRow[] }, heading: Heading) => {
   const fixed = ['Item code', 'Product name', 'Unit', 'Opening'];
-  const tail = ['Total in', 'Total out', 'Balance (units)', 'Balance (ctn)'];
-  // Two columns per day: IN and OUT.
-  const width = fixed.length + sheet.dates.length * 2 + tail.length;
+  const inCols = sheet.inDates.length + 1;
+  const outCols = sheet.outDates.length + 1;
+  const tail = ['Balance (units)', 'Balance (ctn)'];
+  const width = fixed.length + inCols + outCols + tail.length;
+  const inStart = fixed.length;
+  const outStart = inStart + inCols;
+  const tailStart = outStart + outCols;
   const rows: XlsxCell[][] = [...titleBlock(heading)];
   const merges: Array<[number, number, number, number]> = [];
-  const top: XlsxCell[] = [...fixed.map(() => cell(null, { fill: TEAL })), ...sheet.dates.flatMap(() => [cell(null, { fill: PASAR }), cell(null, { fill: PASAR })]), ...tail.map(() => cell(null, { fill: TEAL }))];
   const bandRow = rows.length;
+  const band: XlsxCell[] = [];
 
-  sheet.dates.forEach((d, i) => {
-    const col = fixed.length + i * 2;
+  for (let col = 0; col < width; col++) {
+    if (col < inStart) band.push(cell(col === 0 ? 'Item' : '', { fill: TEAL, bold: true, color: 'FFFFFF' }));
+    else if (col < outStart) band.push(cell(col === inStart ? 'IN · purchases, returns (tarikh masuk)' : '', { fill: IN_BAND, bold: true, color: 'FFFFFF', align: 'center' }));
+    else if (col < tailStart) band.push(cell(col === outStart ? 'OUT · taken out, lent, waste (tarikh ambil)' : '', { fill: OUT_BAND, bold: true, color: 'FFFFFF', align: 'center' }));
+    else band.push(cell(col === tailStart ? 'Balance' : '', { fill: TEAL, bold: true, color: 'FFFFFF', align: 'center' }));
+  }
+  rows.push(band);
+  merges.push([bandRow, 0, bandRow, inStart - 1], [bandRow, tailStart, bandRow, width - 1]);
+  if (inCols > 1) merges.push([bandRow, inStart, bandRow, outStart - 1]);
+  if (outCols > 1) merges.push([bandRow, outStart, bandRow, tailStart - 1]);
 
-    top[col] = cell(dmy(d), { fill: PASAR, bold: true, align: 'center' });
-    merges.push([bandRow, col, bandRow, col + 1]);
-  });
-  top[0] = cell('Item', { fill: TEAL, bold: true, color: 'FFFFFF' });
-  rows.push(top);
-  rows.push([...headerRow(fixed), ...sheet.dates.flatMap(() => [cell('In', { fill: PASAR_LIGHT, bold: true, align: 'center', color: GREEN_TEXT }), cell('Out', { fill: PASAR_LIGHT, bold: true, align: 'center', color: BLUE_TEXT })]), ...headerRow(tail)]);
+  rows.push([
+    ...headerRow(fixed),
+    ...sheet.inDates.map((d) => cell(dmy(d), { fill: IN_HEAD_FILL, bold: true, align: 'center', color: GREEN_TEXT })),
+    cell('Total in', { fill: IN_HEAD_FILL, bold: true, align: 'center', color: GREEN_TEXT }),
+    ...sheet.outDates.map((d) => cell(dmy(d), { fill: PASAR, bold: true, align: 'center', color: BLUE_TEXT })),
+    cell('Total out', { fill: PASAR, bold: true, align: 'center', color: BLUE_TEXT }),
+    ...headerRow(tail),
+  ]);
 
   const moved = sheet.rows.filter((r) => r.totalIn || r.totalOut);
 
@@ -184,9 +204,10 @@ export const historyWorkbook = (sheet: { dates: string[]; rows: HistoryRow[] }, 
         cell(r.item.name),
         cell(r.item.unit, { align: 'center' }),
         num(r.opening),
-        ...sheet.dates.flatMap((d) => [num(r.days[d]?.in, { color: GREEN_TEXT }), num(r.days[d]?.out, { color: BLUE_TEXT })]),
-        num(r.totalIn, { color: GREEN_TEXT, bold: true }),
-        num(r.totalOut, { color: BLUE_TEXT, bold: true }),
+        ...sheet.inDates.map((d) => num(r.days[d]?.in, { color: GREEN_TEXT, fill: IN_LIGHT_FILL })),
+        num(r.totalIn, { color: GREEN_TEXT, bold: true, fill: IN_HEAD_FILL }),
+        ...sheet.outDates.map((d) => num(r.days[d]?.out, { color: BLUE_TEXT, fill: PASAR_LIGHT })),
+        num(r.totalOut, { color: BLUE_TEXT, bold: true, fill: PASAR }),
         num(r.closing, { bold: true }),
         num(toCartons(r.closing, r.item)),
       ]);
@@ -198,7 +219,7 @@ export const historyWorkbook = (sheet: { dates: string[]; rows: HistoryRow[] }, 
     rows,
     merges,
     freeze: { rows: 7, cols: 2 },
-    widths: [9, 36, 7, 9, ...sheet.dates.flatMap(() => [6, 6]), 9, 9, 11, 10],
+    widths: [9, 36, 7, 9, ...sheet.inDates.map(() => 8), 9, ...sheet.outDates.map(() => 8), 9, 11, 10],
   });
 };
 
