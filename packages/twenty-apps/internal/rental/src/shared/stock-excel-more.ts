@@ -3,6 +3,7 @@
 // Same look as the monthly 订货单 file.
 
 import {
+  type Delivery,
   type HistoryRow,
   type StockItem,
   type StockMovement,
@@ -156,9 +157,9 @@ export const orderWorkbook = (statuses: StockStatus[], cartonsOf: (s: StockStatu
 
 // Two sections, as on the page: IN (one column per day something came in,
 // then the total) and OUT (one column per day something went out, then the total).
-export const historyWorkbook = (sheet: { inDates: string[]; outDates: string[]; rows: HistoryRow[] }, heading: Heading) => {
+export const historyWorkbook = (sheet: { ins: Delivery[]; outDates: string[]; rows: HistoryRow[] }, heading: Heading) => {
   const fixed = ['Item code', 'Product name', 'Unit', 'Opening'];
-  const inCols = sheet.inDates.length + 1;
+  const inCols = sheet.ins.length + 1;
   const outCols = sheet.outDates.length + 1;
   const tail = ['Balance (units)', 'Balance (ctn)'];
   const width = fixed.length + inCols + outCols + tail.length;
@@ -183,7 +184,7 @@ export const historyWorkbook = (sheet: { inDates: string[]; outDates: string[]; 
 
   rows.push([
     ...headerRow(fixed),
-    ...sheet.inDates.map((d) => cell(dmy(d), { fill: IN_HEAD_FILL, bold: true, align: 'center', color: GREEN_TEXT })),
+    ...sheet.ins.map((d) => cell(`${dmy(d.date)}${d.reference || d.party ? `\n${d.reference || d.party}` : ''}`, { fill: IN_HEAD_FILL, bold: true, align: 'center', color: GREEN_TEXT, wrap: true })),
     cell('Total in', { fill: IN_HEAD_FILL, bold: true, align: 'center', color: GREEN_TEXT }),
     ...sheet.outDates.map((d) => cell(dmy(d), { fill: PASAR, bold: true, align: 'center', color: BLUE_TEXT })),
     cell('Total out', { fill: PASAR, bold: true, align: 'center', color: BLUE_TEXT }),
@@ -204,7 +205,7 @@ export const historyWorkbook = (sheet: { inDates: string[]; outDates: string[]; 
         cell(r.item.name),
         cell(r.item.unit, { align: 'center' }),
         num(r.opening),
-        ...sheet.inDates.map((d) => num(r.days[d]?.in, { color: GREEN_TEXT, fill: IN_LIGHT_FILL })),
+        ...sheet.ins.map((d) => num(r.deliveries[d.key], { color: GREEN_TEXT, fill: IN_LIGHT_FILL })),
         num(r.totalIn, { color: GREEN_TEXT, bold: true, fill: IN_HEAD_FILL }),
         ...sheet.outDates.map((d) => num(r.days[d]?.out, { color: BLUE_TEXT, fill: PASAR_LIGHT })),
         num(r.totalOut, { color: BLUE_TEXT, bold: true, fill: PASAR }),
@@ -219,7 +220,8 @@ export const historyWorkbook = (sheet: { inDates: string[]; outDates: string[]; 
     rows,
     merges,
     freeze: { rows: 7, cols: 2 },
-    widths: [9, 36, 7, 9, ...sheet.inDates.map(() => 8), 9, ...sheet.outDates.map(() => 8), 9, 11, 10],
+    heights: { 6: 30 },
+    widths: [9, 36, 7, 9, ...sheet.ins.map(() => 11), 9, ...sheet.outDates.map(() => 8), 9, 11, 10],
   });
 };
 

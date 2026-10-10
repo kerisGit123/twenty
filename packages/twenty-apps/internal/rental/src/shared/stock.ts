@@ -34,6 +34,7 @@ export type StockMovement = {
   notes: string;
   borrowStatus: string | null;
   borrowId: string | null;
+  batchId?: string | null; // lines saved together (one delivery)
   ownerId: string | null;
 };
 
@@ -251,10 +252,14 @@ export const monthSheet = (items: StockItem[], movementsByItem: Map<string, Stoc
   return { month, dates: [...dates].sort(), inDates: [...inDates].sort(), rows };
 };
 
+// One delivery (stock that came in together): its date and who it came from.
+export type Delivery = { key: string; date: string; party: string; reference: string };
+
 export type HistoryRow = {
   item: StockItem;
   opening: number;
   days: Record<string, { in: number; out: number }>;
+  deliveries: Record<string, number>; // delivery key -> units in
   totalIn: number;
   totalOut: number;
   closing: number;
@@ -262,12 +267,18 @@ export type HistoryRow = {
 
 // Any period as a grid, like the paper sheet: per item, the IN and OUT of
 // each day that had movement (from and to both included).
+// Lines saved together are one delivery; older lines without a save id are
+// grouped by day, supplier and reference.
+const deliveryKey = (m: StockMovement) => m.batchId || `${m.date}|${m.type}|${m.party}|${m.reference}`;
+
 export const historySheet = (items: StockItem[], movementsByItem: Map<string, StockMovement[]>, from: string, to: string) => {
   const dates = new Set<string>();
+  const deliveryList = new Map<string, Delivery>();
 
   const rows: HistoryRow[] = items.map((item) => {
     const all = movementsByItem.get(item.id) ?? [];
     const days: HistoryRow['days'] = {};
+    const deliveries: HistoryRow['deliveries'] = {};
     let totalIn = 0;
     let totalOut = 0;
 
@@ -276,7 +287,11 @@ export const historySheet = (items: StockItem[], movementsByItem: Map<string, St
       const day = (days[m.date] ??= { in: 0, out: 0 });
 
       if (isIn(m.type)) {
+        const key = deliveryKey(m);
+
         day.in = round(day.in + m.quantity);
+        deliveries[key] = round((deliveries[key] ?? 0) + m.quantity);
+        if (!deliveryList.has(key)) deliveryList.set(key, { key, date: m.date, party: m.party, reference: m.reference });
         totalIn += m.quantity;
       } else {
         day.out = round(day.out + m.quantity);
@@ -287,14 +302,17 @@ export const historySheet = (items: StockItem[], movementsByItem: Map<string, St
 
     const opening = balanceOf(all, from);
 
-    return { item, opening, days, totalIn: round(totalIn), totalOut: round(totalOut), closing: round(opening + totalIn - totalOut) };
+    return { item, opening, days, deliveries, totalIn: round(totalIn), totalOut: round(totalOut), closing: round(opening + totalIn - totalOut) };
   });
 
   // Days with an IN and days with an OUT, for the two sections of the grid.
   const inDates = [...dates].filter((d) => rows.some((r) => r.days[d]?.in)).sort();
   const outDates = [...dates].filter((d) => rows.some((r) => r.days[d]?.out)).sort();
 
-  return { dates: [...dates].sort(), inDates, outDates, rows };
+  // Each delivery is its own IN column, oldest first.
+  const ins = [...deliveryList.values()].sort((a, b) => a.date.localeCompare(b.date));
+
+  return { dates: [...dates].sort(), inDates, outDates, ins, rows };
 };
 
 export const groupMovements = (movements: StockMovement[]) => {

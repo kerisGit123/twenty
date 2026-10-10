@@ -46,9 +46,9 @@ export const HistoryTab = ({
   );
   const groups = STOCK_GROUPS.map((g) => ({ ...g, rows: rows.filter((r) => r.item.group === g.value) })).filter((g) => g.rows.length);
   // IN and OUT each get their own block of dates, then their total.
-  const inDates = sheet.inDates;
+  const ins = sheet.ins;
   const outDates = sheet.outDates;
-  const columns = 4 + inDates.length + 1 + outDates.length + 1;
+  const columns = 4 + ins.length + 1 + outDates.length + 1;
   const ROW2 = 31; // second header row sits under the IN / OUT band row
 
   const toggle = (
@@ -82,19 +82,19 @@ export const HistoryTab = ({
         <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder="Search code or name" style={{ ...input, width: 200 }} />
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: c.text3 }}>
-          <span style={{ color: GREEN, fontWeight: 600 }}>{inDates.length} IN day{inDates.length === 1 ? '' : 's'}</span> · <span style={{ color: BLUE, fontWeight: 600 }}>{outDates.length} OUT day{outDates.length === 1 ? '' : 's'}</span>
+          <span style={{ color: GREEN, fontWeight: 600 }}>{ins.length} deliver{ins.length === 1 ? 'y' : 'ies'} in</span> · <span style={{ color: BLUE, fontWeight: 600 }}>{outDates.length} OUT day{outDates.length === 1 ? '' : 's'}</span>
         </span>
         <ExcelButton query={withOwner({ kind: 'xlsx-history', from: range.from, to: range.to }, ownerId)} title="This period's IN / OUT grid as an Excel file" />
       </div>
 
       <div style={{ overflow: 'auto', border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg, maxHeight: 'calc(100cqh - 230px)', minHeight: 240 }}>
-        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 720 + (inDates.length + outDates.length) * 64 }}>
+        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 720 + ins.length * 84 + outDates.length * 64 }}>
           <thead>
             <tr>
               <th rowSpan={2} style={{ ...head, textAlign: 'left', width: CODE_W, minWidth: CODE_W, boxSizing: 'border-box', left: 0, zIndex: 3 }}>Code</th>
               <th rowSpan={2} style={{ ...head, textAlign: 'left', left: CODE_W, zIndex: 3, borderRight: `1px solid ${c.border}` }}>Item</th>
               <th rowSpan={2} style={{ ...head, borderRight: `1px solid ${c.border}` }}>Opening</th>
-              <th colSpan={inDates.length + 1} style={{ ...head, textAlign: 'center', color: 'white', background: 'var(--t-color-green9)', borderRight: '2px solid white' }}>
+              <th colSpan={ins.length + 1} style={{ ...head, textAlign: 'center', color: 'white', background: 'var(--t-color-green9)', borderRight: '2px solid white' }}>
                 IN · purchases, returns
               </th>
               <th colSpan={outDates.length + 1} style={{ ...head, textAlign: 'center', color: 'white', background: 'var(--t-color-blue9)', borderRight: '2px solid white' }}>
@@ -103,9 +103,18 @@ export const HistoryTab = ({
               <th rowSpan={2} style={head}>Balance</th>
             </tr>
             <tr>
-              {inDates.map((d) => (
-                <th key={`in-${d}`} style={{ ...head, top: ROW2, color: GREEN, background: 'var(--t-color-green2)' }} title={d}>
-                  {dayMonth(d)}
+              {ins.map((d) => (
+                <th
+                  key={`in-${d.key}`}
+                  style={{ ...head, top: ROW2, color: GREEN, background: 'var(--t-color-green2)', lineHeight: 1.2 }}
+                  title={[d.date, d.party, d.reference].filter(Boolean).join(' · ')}
+                >
+                  {dayMonth(d.date)}
+                  {d.party || d.reference ? (
+                    <div style={{ fontSize: 10, fontWeight: 400, textTransform: 'none', letterSpacing: 0, maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {d.reference || d.party}
+                    </div>
+                  ) : null}
                 </th>
               ))}
               <th style={{ ...head, top: ROW2, color: GREEN, background: 'var(--t-color-green3)', borderRight: `2px solid ${c.border2}` }}>Total in</th>
@@ -143,9 +152,9 @@ export const HistoryTab = ({
                       <span style={{ color: c.text3, fontSize: 12 }}> · {r.item.unit}</span>
                     </td>
                     <td style={{ ...right, color: c.text2, borderRight: `1px solid ${c.border}` }}>{r.opening ? qty(r.opening) : ''}</td>
-                    {inDates.map((d) => (
-                      <td key={`in-${d}`} style={{ ...right, color: GREEN, fontWeight: 600, background: r.days[d]?.in ? DAY_BG : undefined }}>
-                        {r.days[d]?.in ? `+${qty(r.days[d].in)}` : ''}
+                    {ins.map((d) => (
+                      <td key={`in-${d.key}`} style={{ ...right, color: GREEN, fontWeight: 600, background: r.deliveries[d.key] ? DAY_BG : undefined }}>
+                        {r.deliveries[d.key] ? `+${qty(r.deliveries[d.key])}` : ''}
                       </td>
                     ))}
                     <td style={{ ...right, color: GREEN, background: 'var(--t-color-green2)', fontWeight: 700, borderRight: `2px solid ${c.border2}` }}>{r.totalIn ? `+${qty(r.totalIn)}` : ''}</td>

@@ -41,6 +41,7 @@ type MovementNode = {
   notes?: string | null;
   borrowStatus?: string | null;
   borrowId?: string | null;
+  batchId?: string | null;
   ownerId?: string | null;
 };
 
@@ -93,6 +94,7 @@ const MOVEMENT_FIELDS = {
   notes: true,
   borrowStatus: true,
   borrowId: true,
+  batchId: true,
   ownerId: true,
 };
 
@@ -109,6 +111,7 @@ export const toStockMovement = (node: MovementNode): StockMovement => ({
   notes: node.notes ?? '',
   borrowStatus: node.borrowStatus ?? null,
   borrowId: node.borrowId ?? null,
+  batchId: node.batchId ?? null,
   ownerId: node.ownerId ?? null,
 });
 
