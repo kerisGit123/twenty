@@ -25,7 +25,9 @@ import { movementType, STOCK_GROUPS } from 'src/shared/stock-types';
 type Json = Record<string, unknown>;
 
 const json = (body: Json, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-const fail = (message: string, status = 400) => json({ success: false, message }, status);
+// Problems come back as { success: false, message } with status 200: the
+// browser client hides the body of an error status, and the page shows the message.
+const fail = (message: string, _status = 400) => json({ success: false, message });
 
 const isDate = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 const num = (value: unknown) => {
@@ -66,6 +68,16 @@ type MovementInput = {
   notes?: string;
   borrowStatus?: string | null;
   borrowId?: string | null;
+  batchId?: string | null;
+};
+
+// A save the page retried after a dropped connection: already done if any
+// line carries its request id.
+const alreadySaved = async (client: CoreApiClient, requestId: string) => {
+  if (!requestId) return false;
+  const { stockMovements } = await client.query({ stockMovements: { __args: { filter: { batchId: { eq: requestId } }, first: 1 }, edges: { node: { id: true } } } });
+
+  return Boolean(stockMovements?.edges?.length);
 };
 
 const movementData = (item: StockItem, data: MovementInput) => ({
@@ -80,6 +92,7 @@ const movementData = (item: StockItem, data: MovementInput) => ({
           notes: data.notes ?? '',
           borrowStatus: (data.borrowStatus ?? null) as never,
           borrowId: data.borrowId ?? null,
+          batchId: data.batchId ?? null,
           itemId: item.id,
           ownerId: item.ownerId,
 });
@@ -189,6 +202,9 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     if (!isDate(body.date)) return fail('Pick a date.');
     if (!lines.length) return fail('Add at least one item.');
     if (type === 'BORROW' && !text(body.party)) return fail('Say which branch borrowed it.');
+    const requestId = text(body.requestId, 64);
+
+    if (await alreadySaved(client, requestId)) return json({ success: true, message: 'Already saved.' });
 
     const items = await loadItems(client, lines.map((line) => text(line.itemId, 64)));
 
@@ -219,6 +235,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
         reference: text(body.reference, 120),
         notes: text(body.notes, 500),
             borrowStatus: type === 'BORROW' ? 'OUTSTANDING' : null,
+            batchId: requestId || null,
           },
         };
       }),
@@ -236,6 +253,9 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
     if (!borrow || borrow.movementType !== 'BORROW') return fail('That lending was not found.', 404);
     if (!inScope(scope, borrow.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    const requestId = text(body.requestId, 64);
+
+    if (await alreadySaved(client, requestId)) return json({ success: true, message: 'Already settled.' });
     if ((borrow.borrowStatus ?? 'OUTSTANDING') !== 'OUTSTANDING') return fail('This lending is already settled.');
 
     const how = text(body.how, 20);
@@ -249,7 +269,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       const quantity = num(body.quantity ?? borrow.quantity);
 
       if (!(quantity > 0)) return fail('How many came back?');
-      await createMovement(client, item, { date, type: 'RETURN', quantity, party, borrowId: borrow.id, notes: text(body.notes, 300) });
+      await createMovement(client, item, { date, type: 'RETURN', quantity, party, borrowId: borrow.id, notes: text(body.notes, 300), batchId: requestId || null });
     } else if (how === 'EXCHANGED') {
       const other = await loadItem(client, text(body.exchangeItemId, 64));
       const quantity = num(body.exchangeQuantity);
@@ -257,7 +277,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       if (!other) return fail('Pick the item received in exchange.');
       if (!inScope(scope, other.ownerId)) return json({ ...NOT_ALLOWED }, 403);
       if (!(quantity > 0)) return fail('How many of it came in?');
-      await createMovement(client, other, { date, type: 'EXCHANGE_IN', quantity, party, borrowId: borrow.id, notes: `For ${cartonsAndUnits(Number(borrow.quantity), item)} ${item.name} lent` });
+      await createMovement(client, other, { date, type: 'EXCHANGE_IN', quantity, party, borrowId: borrow.id, notes: `For ${cartonsAndUnits(Number(borrow.quantity), item)} ${item.name} lent`, batchId: requestId || null });
     } else if (how === 'PAID') {
       const amount = num(body.amount);
 
@@ -291,6 +311,9 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
   stockTake: async (client, scope, body) => {
     const date = isDate(body.date) ? body.date : todayIso();
+    const requestId = text(body.requestId, 64);
+
+    if (await alreadySaved(client, requestId)) return json({ success: true, message: 'Stock take already saved.' });
     const counts = (Array.isArray(body.counts) ? (body.counts as Json[]) : []).filter((entry) => entry.counted !== '' && num(entry.counted) >= 0);
     const items = await loadItems(client, counts.map((entry) => text(entry.itemId, 64)));
 
@@ -310,7 +333,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       if (diff === 0) continue;
       adjustments.push({
         item,
-        data: { date, type: diff > 0 ? 'ADJUST_IN' : 'ADJUST_OUT', quantity: Math.abs(diff), notes: `Stock take: counted ${counted}, expected ${expected}` },
+        data: { date, type: diff > 0 ? 'ADJUST_IN' : 'ADJUST_OUT', quantity: Math.abs(diff), notes: `Stock take: counted ${counted}, expected ${expected}`, batchId: requestId || null },
       });
     }
 

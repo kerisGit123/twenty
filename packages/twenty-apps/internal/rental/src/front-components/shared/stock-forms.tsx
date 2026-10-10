@@ -14,19 +14,41 @@ import { STOCK_GROUPS, STOCK_MOVEMENT_TYPES } from 'src/shared/stock-types';
 
 type Result = { success: boolean; message?: string; needsWriteOff?: boolean };
 
+const requestId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`;
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+// Saves that are safe to send again: the server recognises the request id
+// (or the change is the same whatever the number of times).
+const RETRYABLE = ['record', 'settleBorrow', 'stockTake', 'setStatus', 'saveRule', 'deleteMovement', 'data'];
+
 export const stockAction = async (body: Record<string, unknown>): Promise<Result> => {
-  try {
-    const result = await new RestApiClient().post<Result>('/s/stock', body);
+  const payload = { ...body, requestId: requestId() };
+  // A new item has no id yet, so it is only sent once.
+  const attempts = RETRYABLE.includes(String(body.action)) || (body.action === 'saveItem' && body.id) ? 3 : 1;
+  let lastError: unknown;
 
-    if (!result.needsWriteOff) await enqueueSnackbar({ message: result.message ?? (result.success ? 'Saved.' : 'Could not save.'), variant: result.success ? 'success' : 'error' });
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const result = await new RestApiClient().post<Result>('/s/stock', payload);
 
-    return result;
-  } catch (error) {
-    await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not save.', variant: 'error' });
+      if (!result.needsWriteOff) await enqueueSnackbar({ message: result.message ?? (result.success ? 'Saved.' : 'Could not save.'), variant: result.success ? 'success' : 'error' });
 
-    return { success: false };
+      return result;
+    } catch (error) {
+      // The connection dropped or the server was busy starting up: try again.
+      lastError = error;
+      if (attempt < attempts) await wait(attempt * 1500);
+    }
   }
+
+  await enqueueSnackbar({
+    message: `Could not reach the server, so nothing was saved. Please try again in a moment. (${lastError instanceof Error ? lastError.message : 'connection problem'})`,
+    variant: 'error',
+  });
+
+  return { success: false };
 };
+
+const isFullDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 const toNumber = (value: string) => Number(value.replace(/[^0-9.]/g, '')) || 0;
 
@@ -226,7 +248,7 @@ export const RecordSheet = ({
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const choosable = items.filter((i) => i.status !== 'DISCONTINUED' || type !== 'PURCHASE');
   const isOut = STOCK_MOVEMENT_TYPES.find((t) => t.value === type)?.direction === 'OUT';
-  const ready = lines.some((l) => l.itemId && l.units > 0) && !lines.some((l) => l.itemId && !(l.units > 0)) && (type !== 'BORROW' || party.trim());
+  const ready = isFullDate(date) && lines.some((l) => l.itemId && l.units > 0) && !lines.some((l) => l.itemId && !(l.units > 0)) && (type !== 'BORROW' || party.trim());
   const total = lines.reduce((sum, l) => {
     const item = byId.get(l.itemId);
 
@@ -273,8 +295,8 @@ export const RecordSheet = ({
             ))}
           </select>
         </Field>
-        <Field label="Date">
-          <input type="date" value={date} onChange={(e) => setDate(readValue(e))} style={input} />
+        <Field label="Date" hint={isFullDate(date) ? undefined : 'Pick a full date (day, month and year).'}>
+          <input type="date" value={date} onChange={(e) => setDate(readValue(e))} style={{ ...input, borderColor: isFullDate(date) ? undefined : 'var(--t-color-red9)' }} />
         </Field>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>

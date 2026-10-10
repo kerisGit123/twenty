@@ -25,6 +25,8 @@ export const STOCK_MOVEMENT_REFERENCE_FIELD_ID = '020ebb42-7ef9-44dc-a1ae-0d4052
 export const STOCK_MOVEMENT_NOTES_FIELD_ID = 'c9473154-3ac4-48ef-9d42-06799e206212';
 export const STOCK_MOVEMENT_BORROW_STATUS_FIELD_ID = '4ed72a63-b893-4ea0-a1f1-d90bd425f17a';
 export const STOCK_MOVEMENT_BORROW_ID_FIELD_ID = 'eed3782c-7677-4fc5-9fe3-a2ada6647d60';
+// The save a movement came from (lines saved together share it; a retried save is recognised by it).
+export const STOCK_MOVEMENT_BATCH_ID_FIELD_ID = '78b8c5ff-846c-4ad0-9bf8-8006dee3d072';
 
 export const STOCK_MOVEMENT_ITEM_FIELD_ID = '33aa38db-5184-4cbd-87b2-0f497ca1e06d';
 export const STOCK_ITEM_MOVEMENTS_FIELD_ID = '2511fbbc-3ae7-4a7f-8556-ce54711230c8';
