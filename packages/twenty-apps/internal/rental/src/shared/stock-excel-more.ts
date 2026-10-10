@@ -5,6 +5,7 @@
 import {
   type Delivery,
   type MonthEndRow,
+  type YearRow,
   type HistoryRow,
   type StockItem,
   type StockMovement,
@@ -14,7 +15,7 @@ import {
   toCartons,
   unitPrice,
 } from 'src/shared/stock';
-import { CREAM, GROUP, HEAD, ORDER, PASAR, PASAR_LIGHT, TEAL, cell, dmy } from 'src/shared/stock-excel';
+import { BROWN, CREAM, GROUP, HEAD, ORDER, PASAR, PASAR_LIGHT, TEAL, cell, dmy } from 'src/shared/stock-excel';
 import { type LineProgress, type StockOrder } from 'src/shared/stock-orders';
 import { BORROW_STATUSES, STOCK_GROUPS } from 'src/shared/stock-types';
 import { buildXlsx, type XlsxCell, type XlsxStyle } from 'src/shared/xlsx';
@@ -155,10 +156,63 @@ export const orderWorkbook = (statuses: StockStatus[], cartonsOf: (s: StockStatu
   return buildXlsx({ name: 'Order', rows, merges, freeze: { rows: 6, cols: 2 }, heights: { 5: 30 }, widths: [9, 36, 22, 7, 12, 9, 11, 9, 9, 12, 13] });
 };
 
+// ---------------------------------------------------------------- Year: every product, opening/closing per month
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+export const yearWorkbook = (rows: YearRow[], year: number, lastMonth: number, heading: Heading) => {
+  const fixed = ['Item code', 'Product name', 'Unit'];
+  const width = fixed.length + 24;
+  const out: XlsxCell[][] = [...titleBlock({ ...heading, period: String(year) })];
+  const merges: Array<[number, number, number, number]> = [];
+  const band = out.length;
+
+  out.push([
+    ...fixed.map((_, i) => cell(i === 0 ? 'Item' : '', { fill: TEAL, bold: true, color: 'FFFFFF' })),
+    ...MONTH_NAMES.flatMap((m, i) => [cell(`${m} ${year}`, { fill: i % 2 ? TEAL : BROWN, bold: true, color: 'FFFFFF', align: 'center' }), cell('', { fill: i % 2 ? TEAL : BROWN })]),
+  ]);
+  merges.push([band, 0, band, fixed.length - 1]);
+  MONTH_NAMES.forEach((_, i) => merges.push([band, fixed.length + i * 2, band, fixed.length + i * 2 + 1]));
+  out.push([...headerRow(fixed), ...MONTH_NAMES.flatMap(() => [cell('Opening', { fill: HEAD, bold: true, align: 'center' }), cell('Closing', { fill: CREAM, bold: true, align: 'center' })])]);
+
+  const visible = rows.filter((r) => r.months.some((m, i) => i < lastMonth && (m.opening || m.closing || m.in || m.used || m.waste)));
+
+  for (const group of STOCK_GROUPS) {
+    const list = visible.filter((r) => r.item.group === group.value);
+
+    if (!list.length) continue;
+    out.push(groupRow(group.label, width));
+    merges.push([out.length - 1, 0, out.length - 1, width - 1]);
+    for (const r of list) {
+      out.push([
+        cell(r.item.code, { align: 'center' }),
+        cell(r.item.name),
+        cell(r.item.unit, { align: 'center' }),
+        ...r.months.flatMap((m, i) =>
+          i < lastMonth ? [num(m.opening, { color: '808080' }), num(m.closing, { bold: true, fill: CREAM, color: m.waste ? RED : undefined })] : [cell(null), cell(null, { fill: CREAM })],
+        ),
+      ]);
+    }
+  }
+
+  const total: XlsxCell[] = [cell(null, { fill: HEAD }), cell('Total value (RM)', { fill: HEAD, bold: true }), cell(null, { fill: HEAD })];
+
+  for (let i = 0; i < 12; i++) {
+    const value = (key: 'opening' | 'closing') => visible.reduce((sum, r) => sum + Math.max(r.months[i][key], 0) * unitPrice(r.item), 0);
+
+    total.push(i < lastMonth ? money(value('opening'), { fill: HEAD }) : cell(null, { fill: HEAD }), i < lastMonth ? money(value('closing'), { fill: HEAD, bold: true }) : cell(null, { fill: HEAD }));
+  }
+  out.push(total);
+  out.push([]);
+  out.push([{ value: 'Quantities in each item’s unit. Opening = stock on the 1st; Closing = after the last day (= next month’s opening). Red closing = waste that month.', style: { italic: true, color: '808080' } }]);
+
+  return buildXlsx({ name: `Stock ${year}`, rows: out, merges, freeze: { rows: 7, cols: 2 }, widths: [9, 34, 7, ...MONTH_NAMES.flatMap(() => [8, 8])] });
+};
+
 // ---------------------------------------------------------------- Month end
 
 export const monthEndWorkbook = (rows: MonthEndRow[], lockedThrough: string | null, heading: Heading) => {
-  const labels = ['Month', 'Opening (RM)', '+ Purchased (RM)', '+ Other in (RM)', '− Used (RM)', '− Lent / waste / count (RM)', 'Closing (RM)', 'Stock take', 'Status'];
+  const labels = ['Month', 'Opening (RM)', '+ Purchased (RM)', '+ Other in (RM)', '− Used (RM)', '− Waste (RM)', '− Lent / count (RM)', 'Closing (RM)', 'Stock take', 'Status'];
   const out: XlsxCell[][] = [...titleBlock(heading), headerRow(labels)];
   const monthEnd = (month: string) => new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
 
@@ -171,6 +225,7 @@ export const monthEndWorkbook = (rows: MonthEndRow[], lockedThrough: string | nu
       money(r.purchasedValue, { color: GREEN_TEXT }),
       money(r.otherInValue, { color: GREEN_TEXT }),
       money(r.usedValue, { color: BLUE_TEXT }),
+      money(r.wasteValue, { color: RED }),
       money(r.otherOutValue, { color: BLUE_TEXT }),
       money(r.closingValue, { bold: true, fill: CREAM }),
       cell(r.counted ? 'counted' : 'not counted', { color: r.counted ? GREEN_TEXT : '808080' }),
@@ -180,7 +235,7 @@ export const monthEndWorkbook = (rows: MonthEndRow[], lockedThrough: string | nu
   out.push([]);
   out.push([{ value: 'Values at each item’s carton price ÷ units. Opening = the previous month’s closing.', style: { italic: true, color: '808080' } }]);
 
-  return buildXlsx({ name: 'Month end', rows: out, freeze: { rows: 6, cols: 1 }, heights: { 5: 30 }, widths: [10, 14, 15, 14, 14, 17, 15, 12, 10] });
+  return buildXlsx({ name: 'Month end', rows: out, freeze: { rows: 6, cols: 1 }, heights: { 5: 30 }, widths: [10, 14, 15, 14, 14, 13, 15, 15, 12, 10] });
 };
 
 // ---------------------------------------------------------------- One order (to send to the supplier)

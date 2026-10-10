@@ -1,6 +1,7 @@
 import { type CSSProperties, useMemo, useState } from 'react';
 
 import { Sheet } from 'src/front-components/shared/sheet';
+import { YearGrid } from 'src/front-components/shared/stock-year-grid';
 import { stockAction } from 'src/front-components/shared/stock-forms';
 import { c, Chip, control, ExcelButton, monthLabel, primary, rm, small, withOwner } from 'src/front-components/shared/stock-ui';
 import type { StockOwner } from 'src/logic-functions/utils/stock-data';
@@ -30,6 +31,7 @@ export const MonthEndTab = ({
   onStockTake: (date: string) => void;
   onChanged: () => void;
 }) => {
+  const [view, setView] = useState<'products' | 'months'>('products');
   const [closing, setClosing] = useState<MonthEndRow | null>(null);
   const [busy, setBusy] = useState(false);
   const rows = useMemo(() => monthEndRows(items, movementsByItem, today.slice(0, 7)).reverse(), [items, movementsByItem, today]);
@@ -95,6 +97,22 @@ export const MonthEndTab = ({
       ) : null}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ display: 'inline-flex', border: `1px solid ${c.border2}`, borderRadius: c.radius, overflow: 'hidden' }}>
+          {(
+            [
+              ['products', 'By product · Jan–Dec'],
+              ['months', 'Summary by month'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              onClick={() => setView(value)}
+              style={{ ...control, border: 'none', borderRadius: 0, fontWeight: view === value ? 600 : 400, background: view === value ? 'var(--t-color-blue2)' : c.bg, color: view === value ? 'var(--t-color-blue11)' : c.text }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <span style={{ fontSize: 13, color: c.text2 }}>
           {owner
             ? lockedThrough
@@ -103,8 +121,12 @@ export const MonthEndTab = ({
             : 'Pick a workspace (top right) to close months; each workspace closes its own.'}
         </span>
         <span style={{ flex: 1 }} />
-        <ExcelButton query={withOwner({ kind: 'xlsx-monthend' }, owner?.id ?? '')} title="Month-end summary as an Excel file" />
+        {view === 'months' ? <ExcelButton query={withOwner({ kind: 'xlsx-monthend' }, owner?.id ?? '')} title="Month-end summary as an Excel file" /> : null}
       </div>
+
+      {view === 'products' ? <YearGrid items={items} movementsByItem={movementsByItem} today={today} ownerId={owner?.id ?? ''} /> : null}
+      {view === 'months' ? (
+        <>
 
       <div style={{ overflow: 'auto', border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
@@ -115,7 +137,8 @@ export const MonthEndTab = ({
               <th style={{ ...head, color: 'var(--t-color-green11)' }}>+ Purchased</th>
               <th style={{ ...head, color: 'var(--t-color-green11)' }}>+ Other in</th>
               <th style={{ ...head, color: 'var(--t-color-blue11)' }}>− Used</th>
-              <th style={{ ...head, color: 'var(--t-color-blue11)' }}>− Lent / waste / count</th>
+              <th style={{ ...head, color: 'var(--t-color-red11)' }}>− Waste</th>
+              <th style={{ ...head, color: 'var(--t-color-blue11)' }}>− Lent / count</th>
               <th style={head}>Closing</th>
               <th style={{ ...head, textAlign: 'left' }}>Stock take</th>
               <th style={{ ...head, textAlign: 'left' }}>Status</th>
@@ -125,7 +148,7 @@ export const MonthEndTab = ({
           <tbody>
             {rows.length ? null : (
               <tr>
-                <td colSpan={10} style={{ ...cell, textAlign: 'center', color: c.text3, padding: 32 }}>
+                <td colSpan={11} style={{ ...cell, textAlign: 'center', color: c.text3, padding: 32 }}>
                   No stock recorded yet.
                 </td>
               </tr>
@@ -141,6 +164,7 @@ export const MonthEndTab = ({
                   <td style={{ ...right, color: 'var(--t-color-green11)' }}>{r.purchasedValue ? `+${rm(r.purchasedValue)}` : '—'}</td>
                   <td style={{ ...right, color: 'var(--t-color-green11)' }}>{r.otherInValue ? `+${rm(r.otherInValue)}` : '—'}</td>
                   <td style={{ ...right, color: 'var(--t-color-blue11)' }}>{r.usedValue ? `−${rm(r.usedValue)}` : '—'}</td>
+                  <td style={{ ...right, color: 'var(--t-color-red11)' }}>{r.wasteValue ? `−${rm(r.wasteValue)}` : '—'}</td>
                   <td style={{ ...right, color: 'var(--t-color-blue11)' }}>{r.otherOutValue ? `−${rm(r.otherOutValue)}` : '—'}</td>
                   <td style={{ ...right, fontWeight: 700 }}>{rm(r.closingValue)}</td>
                   <td style={{ ...cell, color: r.counted ? 'var(--t-color-green11)' : c.text3, fontSize: 12 }}>{r.counted ? '✓ counted' : 'not counted'}</td>
@@ -166,8 +190,10 @@ export const MonthEndTab = ({
         </table>
       </div>
       <span style={{ fontSize: 12, color: c.text3 }}>
-        Values at each item&apos;s carton price ÷ units. Opening = the previous month&apos;s closing. Close months in order, after the month is over; per item opening and closing are on the Monthly sheet.
+        Values at each item&apos;s carton price ÷ units. Opening = the previous month&apos;s closing. Close months in order, after the month is over.
       </span>
+        </>
+      ) : null}
     </>
   );
 };

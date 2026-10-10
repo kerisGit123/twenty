@@ -328,7 +328,8 @@ export type MonthEndRow = {
   purchasedValue: number;
   otherInValue: number; // returns, exchanges, stock-take surplus
   usedValue: number; // taken out
-  otherOutValue: number; // lent, waste, stock-take shortfall
+  wasteValue: number; // thrown away: expired, damaged
+  otherOutValue: number; // lent, stock-take shortfall
   closingValue: number;
   closingUnits: number;
   itemsWithStock: number;
@@ -350,7 +351,7 @@ export const monthEndRows = (items: StockItem[], movementsByItem: Map<string, St
   for (let month = first.slice(0, 7); month <= lastMonth; month = nextMonth(month)) {
     const start = `${month}-01`;
     const end = `${nextMonth(month)}-01`;
-    const row: MonthEndRow = { month, openingValue: 0, purchasedValue: 0, otherInValue: 0, usedValue: 0, otherOutValue: 0, closingValue: 0, closingUnits: 0, itemsWithStock: 0, movements: 0, counted: false };
+    const row: MonthEndRow = { month, openingValue: 0, purchasedValue: 0, otherInValue: 0, usedValue: 0, wasteValue: 0, otherOutValue: 0, closingValue: 0, closingUnits: 0, itemsWithStock: 0, movements: 0, counted: false };
 
     for (const item of items) {
       const list = movementsByItem.get(item.id) ?? [];
@@ -369,17 +370,51 @@ export const monthEndRows = (items: StockItem[], movementsByItem: Map<string, St
 
         if (m.type === 'PURCHASE') row.purchasedValue += value;
         else if (m.type === 'TAKE') row.usedValue += value;
+        else if (m.type === 'WASTE') row.wasteValue += value;
         else if (isIn(m.type)) row.otherInValue += value;
         else row.otherOutValue += value;
         if (m.type === 'ADJUST_IN' || m.type === 'ADJUST_OUT') row.counted = true;
       }
     }
-    for (const key of ['openingValue', 'purchasedValue', 'otherInValue', 'usedValue', 'otherOutValue', 'closingValue', 'closingUnits'] as const) row[key] = round(row[key], 2);
+    for (const key of ['openingValue', 'purchasedValue', 'otherInValue', 'usedValue', 'wasteValue', 'otherOutValue', 'closingValue', 'closingUnits'] as const) row[key] = round(row[key], 2);
     rows.push(row);
   }
 
   return rows;
 };
+
+export type YearCell = { opening: number; in: number; used: number; waste: number; otherOut: number; closing: number };
+export type YearRow = { item: StockItem; months: YearCell[] }; // Jan..Dec
+
+// Each product's opening and closing for every month of a year (units):
+// opening = stock before the 1st, closing = stock after the last day.
+export const yearGrid = (items: StockItem[], movementsByItem: Map<string, StockMovement[]>, year: number): YearRow[] =>
+  items.map((item) => {
+    const list = movementsByItem.get(item.id) ?? [];
+
+    return {
+      item,
+      months: Array.from({ length: 12 }, (_, index) => {
+        const start = `${year}-${String(index + 1).padStart(2, '0')}-01`;
+        const end = index === 11 ? `${year + 1}-01-01` : `${year}-${String(index + 2).padStart(2, '0')}-01`;
+        const cell: YearCell = { opening: balanceOf(list, start), in: 0, used: 0, waste: 0, otherOut: 0, closing: balanceOf(list, end) };
+
+        for (const m of list) {
+          if (m.date < start || m.date >= end) continue;
+          if (isIn(m.type)) cell.in += m.quantity;
+          else if (m.type === 'TAKE') cell.used += m.quantity;
+          else if (m.type === 'WASTE') cell.waste += m.quantity;
+          else cell.otherOut += m.quantity;
+        }
+        cell.in = round(cell.in);
+        cell.used = round(cell.used);
+        cell.waste = round(cell.waste);
+        cell.otherOut = round(cell.otherOut);
+
+        return cell;
+      }),
+    };
+  });
 
 export const groupMovements = (movements: StockMovement[]) => {
   const map = new Map<string, StockMovement[]>();

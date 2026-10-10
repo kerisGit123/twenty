@@ -6,8 +6,8 @@ import { appClient } from 'src/logic-functions/utils/app-client';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { inScope, resolveScope } from 'src/logic-functions/utils/scope';
 import { loadStockData } from 'src/logic-functions/utils/stock-data';
-import { DEFAULT_RULE, groupMovements, historySheet, monthEndRows, monthSheet, monthSheetCsv, orderPlanCsv, stockStatus } from 'src/shared/stock';
-import { borrowWorkbook, historyWorkbook, monthEndWorkbook, orderWorkbook, purchaseOrderWorkbook, stockHandWorkbook } from 'src/shared/stock-excel-more';
+import { DEFAULT_RULE, groupMovements, historySheet, monthEndRows, monthSheet, monthSheetCsv, orderPlanCsv, stockStatus, yearGrid } from 'src/shared/stock';
+import { borrowWorkbook, historyWorkbook, monthEndWorkbook, orderWorkbook, purchaseOrderWorkbook, stockHandWorkbook, yearWorkbook } from 'src/shared/stock-excel-more';
 import { onOrderUnits, orderProgress } from 'src/shared/stock-orders';
 import { stockMonthFileName, stockMonthWorkbook } from 'src/shared/stock-excel';
 
@@ -20,7 +20,7 @@ import { stockMonthFileName, stockMonthWorkbook } from 'src/shared/stock-excel';
 // GET /s/stock/csv?kind=xlsx-borrowed&owner=                   stock lent to branches
 // GET /s/stock/csv?kind=xlsx-po&order=<id>                     one order, to send to the supplier
 
-const EXCEL_KINDS = ['xlsx', 'xlsx-hand', 'xlsx-order', 'xlsx-history', 'xlsx-borrowed', 'xlsx-po', 'xlsx-monthend'];
+const EXCEL_KINDS = ['xlsx', 'xlsx-hand', 'xlsx-order', 'xlsx-history', 'xlsx-borrowed', 'xlsx-po', 'xlsx-monthend', 'xlsx-year'];
 const isDate = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 const escapeHtml = (text: string) => text.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch] as string);
@@ -81,6 +81,13 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       const onOrder = onOrderUnits(data.orders, data.movements);
       const statuses = () => items.map((item) => stockStatus(item, byItem.get(item.id) ?? [], ruleOf(item.ownerId), today, onOrder.get(item.id) ?? 0));
 
+      if (kind === 'xlsx-year') {
+        const year = Number(query.year) || Number(today.slice(0, 4));
+        const thisYear = Number(today.slice(0, 4));
+        const lastMonth = year < thisYear ? 12 : year > thisYear ? 0 : Number(today.slice(5, 7));
+
+        return downloadPage(`stock-${year}-opening-closing.xlsx`, yearWorkbook(yearGrid(items, byItem, year), year, lastMonth, { title: `Stock ${year}: opening & closing 月结`, company, generatedOn: today }));
+      }
       if (kind === 'xlsx-monthend') {
         return downloadPage(
           `stock-month-end-${today}.xlsx`,
