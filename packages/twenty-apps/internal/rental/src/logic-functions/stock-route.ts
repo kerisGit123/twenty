@@ -7,7 +7,8 @@ import { appClient } from 'src/logic-functions/utils/app-client';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { inScope, NOT_ALLOWED, resolveScope, type Scope } from 'src/logic-functions/utils/scope';
 import { queryAll } from 'src/logic-functions/utils/query-all';
-import { ITEM_FIELDS, loadItemMovements, loadMovementsOf, loadStockData, toStockItem } from 'src/logic-functions/utils/stock-data';
+import { ITEM_FIELDS, loadItemMovements, loadMovementsOf, loadStockData, ORDER_FIELDS, toStockItem, toStockMovement, toStockOrder } from 'src/logic-functions/utils/stock-data';
+import { orderProgress, orderStatusFor, type OrderLine, type StockOrder } from 'src/shared/stock-orders';
 import { balanceOf, cartonsAndUnits, groupMovements, type StockItem, unitPrice } from 'src/shared/stock';
 import { movementType, STOCK_GROUPS } from 'src/shared/stock-types';
 
@@ -21,6 +22,9 @@ import { movementType, STOCK_GROUPS } from 'src/shared/stock-types';
 //   stockTake     { date, counts: [{ itemId, counted }] }
 //   deleteMovement { movementId }                 (soft delete, restorable)
 //   saveRule      { ownerId, reorderBelow, orderUpTo }
+//   saveOrder     { id?, date, notes, lines: [{ itemId, cartons }] }   new: one order per supplier and workspace
+//   receiveOrder  { orderId, date, reference, lines: [{ itemId, units, expiryDate?, close? }] }
+//   setOrderStatus { orderId, status: SENT | CANCELLED | CLOSE_REST | DRAFT }
 
 type Json = Record<string, unknown>;
 
@@ -69,6 +73,7 @@ type MovementInput = {
   borrowStatus?: string | null;
   borrowId?: string | null;
   batchId?: string | null;
+  orderId?: string | null;
 };
 
 // A save the page retried after a dropped connection: already done if any
@@ -93,6 +98,7 @@ const movementData = (item: StockItem, data: MovementInput) => ({
           borrowStatus: (data.borrowStatus ?? null) as never,
           borrowId: data.borrowId ?? null,
           batchId: data.batchId ?? null,
+          orderId: data.orderId ?? null,
           itemId: item.id,
           ownerId: item.ownerId,
 });
@@ -110,6 +116,35 @@ const createMovements = async (client: CoreApiClient, list: Array<{ item: StockI
       createStockMovements: { __args: { data: list.slice(i, i + 50).map(({ item, data }) => movementData(item, data)) as never }, id: true },
     });
   }
+};
+
+const loadOrder = async (client: CoreApiClient, orderId: string): Promise<StockOrder | null> => {
+  const { stockOrders } = (await client.query({ stockOrders: { __args: { filter: { id: { eq: orderId } }, first: 1 }, edges: { node: ORDER_FIELDS } } } as never)) as {
+    stockOrders?: { edges?: Array<{ node: Parameters<typeof toStockOrder>[0] }> };
+  };
+  const node = stockOrders?.edges?.[0]?.node;
+
+  return node ? toStockOrder(node) : null;
+};
+
+const orderMovements = async (client: CoreApiClient, orderId: string) =>
+  (await queryAll<Parameters<typeof toStockMovement>[0]>(
+    client,
+    'stockMovements',
+    { filter: { orderId: { eq: orderId } } },
+    { id: true, itemId: true, movementDate: true, movementType: true, quantity: true, orderId: true, ownerId: true },
+  )).map(toStockMovement);
+
+// ORD-2026-0001: the next number this year.
+const nextOrderNumber = async (client: CoreApiClient, year: string) => {
+  const rows = await queryAll<{ orderNumber?: string | null }>(client, 'stockOrders', { filter: { orderNumber: { like: `ORD-${year}-%` } } }, { orderNumber: true });
+  const highest = rows.reduce((max, r) => Math.max(max, Number((r.orderNumber ?? '').split('-')[2]) || 0), 0);
+
+  return `ORD-${year}-${String(highest + 1).padStart(4, '0')}`;
+};
+
+const saveOrderFields = async (client: CoreApiClient, order: StockOrder, data: Record<string, unknown>) => {
+  await client.mutation({ updateStockOrder: { __args: { id: order.id, data: data as never }, id: true } });
 };
 
 const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json) => Promise<Response>> = {
@@ -354,6 +389,186 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     await client.mutation({ deleteStockMovement: { __args: { id }, id: true } });
 
     return json({ success: true, message: 'Removed. It can be restored from deleted stock movements.' });
+  },
+
+  saveOrder: async (client, scope, body) => {
+    const date = isDate(body.date) ? body.date : todayIso();
+    const wanted = (Array.isArray(body.lines) ? (body.lines as Json[]) : []).map((l) => ({ itemId: text(l.itemId, 64), cartons: num(l.cartons) })).filter((l) => l.itemId && l.cartons > 0);
+
+    if (!wanted.length) return fail('Put at least one carton on the order.');
+    const items = await loadItems(client, wanted.map((l) => l.itemId));
+
+    for (const l of wanted) {
+      const item = items.get(l.itemId);
+
+      if (!item) return fail('One of the items no longer exists.', 404);
+      if (!inScope(scope, item.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    }
+    const lineOf = (l: { itemId: string; cartons: number }): OrderLine => {
+      const item = items.get(l.itemId) as StockItem;
+
+      return { itemId: l.itemId, orderedUnits: Math.round(l.cartons * (item.unitsPerCarton || 1) * 100) / 100, cartonPrice: item.cartonPrice };
+    };
+
+    // Changing a draft: replace its lines.
+    if (body.id) {
+      const order = await loadOrder(client, text(body.id, 64));
+
+      if (!order) return fail('Order not found.', 404);
+      if (!inScope(scope, order.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+      if (order.status !== 'DRAFT') return fail('Only a draft order can be changed. Cancel it and make a new one instead.');
+      await saveOrderFields(client, order, { lines: wanted.map(lineOf), orderDate: date, notes: text(body.notes, 500) });
+
+      return json({ success: true, message: `${order.number} updated.` });
+    }
+
+    // A new order per supplier and workspace (each is sent to one supplier).
+    const groups = new Map<string, typeof wanted>();
+
+    for (const l of wanted) {
+      const item = items.get(l.itemId) as StockItem;
+      const key = `${item.ownerId ?? ''}|${item.supplier || 'No supplier'}`;
+
+      groups.set(key, [...(groups.get(key) ?? []), l]);
+    }
+    const requestId = text(body.requestId, 64);
+
+    // A retried save: the orders exist already.
+    if (requestId) {
+      const { stockOrders } = await client.query({ stockOrders: { __args: { filter: { notes: { like: `%req:${requestId}%` } }, first: 1 }, edges: { node: { id: true } } } });
+
+      if (stockOrders?.edges?.length) return json({ success: true, message: 'Order already saved.' });
+    }
+    const made: string[] = [];
+
+    for (const [key, list] of groups) {
+      const [ownerId, supplier] = key.split('|');
+      const number = await nextOrderNumber(client, date.slice(0, 4));
+
+      await client.mutation({
+        createStockOrder: {
+          __args: {
+            data: {
+              name: `${number} · ${supplier}`,
+              orderNumber: number,
+              supplier,
+              orderDate: date,
+              status: 'DRAFT' as never,
+              lines: list.map(lineOf) as never,
+              notes: [text(body.notes, 500), requestId ? `req:${requestId}` : ''].filter(Boolean).join('\n'),
+              ownerId: ownerId || null,
+            },
+          },
+          id: true,
+        },
+      });
+      made.push(`${number} (${supplier})`);
+    }
+
+    return json({ success: true, message: `Order saved: ${made.join(', ')}. Send it to the supplier, then mark it as sent.` });
+  },
+
+  receiveOrder: async (client, scope, body) => {
+    const order = await loadOrder(client, text(body.orderId, 64));
+
+    if (!order) return fail('Order not found.', 404);
+    if (!inScope(scope, order.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (order.status === 'CANCELLED' || order.status === 'RECEIVED') return fail('This order is already finished.');
+    if (!isDate(body.date)) return fail('Pick the date the goods arrived.');
+    const requestId = text(body.requestId, 64);
+
+    if (await alreadySaved(client, requestId)) return json({ success: true, message: 'Already saved.' });
+
+    const lines = (Array.isArray(body.lines) ? (body.lines as Json[]) : []).map((l) => ({
+      itemId: text(l.itemId, 64),
+      units: num(l.units),
+      expiryDate: isDate(l.expiryDate) ? l.expiryDate : null,
+      close: l.close === true,
+    }));
+    const ordered = new Map(order.lines.map((l) => [l.itemId, l]));
+
+    if (lines.some((l) => !ordered.has(l.itemId))) return fail('A line is not on this order.');
+    if (!lines.some((l) => l.units > 0 || l.close)) return fail('Type what arrived (or mark a line as not coming).');
+    const items = await loadItems(client, lines.map((l) => l.itemId));
+    const reference = text(body.reference, 120) || order.supplierRef || order.number;
+
+    await createMovements(
+      client,
+      lines
+        .filter((l) => l.units > 0)
+        .map((l) => {
+          const item = items.get(l.itemId) as StockItem;
+
+          return {
+            item,
+            data: {
+              date: body.date as string,
+              type: 'PURCHASE',
+              quantity: l.units,
+              party: order.supplier,
+              unitCost: (ordered.get(l.itemId)?.cartonPrice ?? item.cartonPrice) / (item.unitsPerCarton || 1),
+              expiryDate: l.expiryDate,
+              reference,
+              notes: `Order ${order.number}`,
+              batchId: requestId || null,
+              orderId: order.id,
+            },
+          };
+        }),
+    );
+
+    // Lines that will not come any more stop counting as on order.
+    const closing = new Set(lines.filter((l) => l.close).map((l) => l.itemId));
+    const updated: StockOrder = { ...order, lines: order.lines.map((l) => (closing.has(l.itemId) ? { ...l, closed: true } : l)) };
+    const progress = orderProgress(updated, await orderMovements(client, order.id));
+    const status = orderStatusFor(updated, progress.lines);
+
+    await saveOrderFields(client, order, {
+      lines: updated.lines,
+      status: status as never,
+      ...(text(body.reference, 120) && !order.supplierRef ? { supplierRef: text(body.reference, 120) } : {}),
+    });
+
+    return json({
+      success: true,
+      message: status === 'RECEIVED' ? `${order.number} is complete.` : `Received. ${order.number} still has items to come.`,
+    });
+  },
+
+  setOrderStatus: async (client, scope, body) => {
+    const order = await loadOrder(client, text(body.orderId, 64));
+
+    if (!order) return fail('Order not found.', 404);
+    if (!inScope(scope, order.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    const wanted = text(body.status, 20);
+    const progress = orderProgress(order, await orderMovements(client, order.id));
+
+    if (wanted === 'SENT') {
+      if (order.status !== 'DRAFT') return fail('Only a draft can be marked as sent.');
+      await saveOrderFields(client, order, { status: 'SENT' as never, ...(text(body.supplierRef, 120) ? { supplierRef: text(body.supplierRef, 120) } : {}) });
+
+      return json({ success: true, message: `${order.number} marked as sent to ${order.supplier}.` });
+    }
+    if (wanted === 'CANCELLED') {
+      if (progress.received > 0) return fail('Some goods already arrived. Use "close the rest" instead.');
+      await saveOrderFields(client, order, { status: 'CANCELLED' as never });
+
+      return json({ success: true, message: `${order.number} cancelled.` });
+    }
+    if (wanted === 'CLOSE_REST') {
+      // Stop waiting for whatever has not arrived.
+      await saveOrderFields(client, order, { lines: order.lines.map((l) => ({ ...l, closed: true })), status: 'RECEIVED' as never });
+
+      return json({ success: true, message: `${order.number} closed; anything not received is no longer on order.` });
+    }
+    if (wanted === 'DRAFT') {
+      if (order.status !== 'CANCELLED' && order.status !== 'SENT') return fail('Only a sent or cancelled order can go back to draft.');
+      await saveOrderFields(client, order, { status: (progress.received > 0 ? 'PARTLY_RECEIVED' : 'DRAFT') as never });
+
+      return json({ success: true, message: `${order.number} is open again.` });
+    }
+
+    return fail('Unknown status.');
   },
 
   saveRule: async (client, scope, body) => {

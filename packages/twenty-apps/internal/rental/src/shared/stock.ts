@@ -35,6 +35,7 @@ export type StockMovement = {
   borrowStatus: string | null;
   borrowId: string | null;
   batchId?: string | null; // lines saved together (one delivery)
+  orderId?: string | null; // a purchase received against a stock order
   ownerId: string | null;
 };
 
@@ -113,7 +114,8 @@ export const nearestExpiry = (movements: StockMovement[], balance: number) => {
   return nearest;
 };
 
-export type StockFlag = 'ORDER' | 'LOW' | 'OK' | 'NO_USE' | 'EMPTY';
+// ON_ORDER: below the re-order level, but enough is already ordered.
+export type StockFlag = 'ORDER' | 'ON_ORDER' | 'LOW' | 'OK' | 'NO_USE' | 'EMPTY';
 
 export type StockStatus = {
   item: StockItem;
@@ -131,6 +133,7 @@ export type StockStatus = {
   suggestedCost: number;
   nearestExpiry: string | null;
   lentOut: number; // lent to branches, not yet settled
+  onOrder: number; // units ordered from suppliers, not yet arrived
 };
 
 const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
@@ -142,7 +145,7 @@ export const expiryState = (expiry: string | null, today: string, days = 60): 'E
   !expiry ? null : expiry < today ? 'EXPIRED' : daysBetween(today, expiry) <= days ? 'SOON' : 'OK';
 
 // Where an item stands today and what to order.
-export const stockStatus = (item: StockItem, movements: StockMovement[], rule: StockRule, today: string): StockStatus => {
+export const stockStatus = (item: StockItem, movements: StockMovement[], rule: StockRule, today: string, onOrder = 0): StockStatus => {
   const balance = balanceOf(movements);
   const { forecast, basis } = forecastNextMonth(movements, today);
   const reorderBelow = item.reorderBelowMonths ?? rule.reorderBelow;
@@ -158,9 +161,12 @@ export const stockStatus = (item: StockItem, movements: StockMovement[], rule: S
   else if (monthsLeft < reorderBelow) flag = 'ORDER';
   else if (monthsLeft < reorderBelow + 0.5) flag = 'LOW';
 
-  // Bring the item up to "order enough for" months of next month's use, in whole cartons.
-  const shortBy = active && flag === 'ORDER' ? Math.max(0, forecast * Math.max(rule.orderUpTo, reorderBelow) - Math.max(balance, 0)) : 0;
+  // Bring the item up to "order enough for" months of next month's use, in
+  // whole cartons, counting what is already ordered and still to come.
+  const shortBy = active && flag === 'ORDER' ? Math.max(0, forecast * Math.max(rule.orderUpTo, reorderBelow) - Math.max(balance, 0) - onOrder) : 0;
   const suggestedCartons = shortBy > 0 ? Math.ceil(round(shortBy / per, 4)) : 0;
+
+  if (flag === 'ORDER' && onOrder > 0 && !suggestedCartons) flag = 'ON_ORDER';
 
   return {
     item,
@@ -180,6 +186,7 @@ export const stockStatus = (item: StockItem, movements: StockMovement[], rule: S
     lentOut: round(
       movements.filter((m) => m.type === 'BORROW' && (m.borrowStatus ?? 'OUTSTANDING') === 'OUTSTANDING').reduce((sum, m) => sum + m.quantity, 0),
     ),
+    onOrder: round(onOrder),
   };
 };
 

@@ -7,7 +7,8 @@ import { todayIso } from 'src/logic-functions/utils/dates';
 import { inScope, resolveScope } from 'src/logic-functions/utils/scope';
 import { loadStockData } from 'src/logic-functions/utils/stock-data';
 import { DEFAULT_RULE, groupMovements, historySheet, monthSheet, monthSheetCsv, orderPlanCsv, stockStatus } from 'src/shared/stock';
-import { borrowWorkbook, historyWorkbook, orderWorkbook, stockHandWorkbook } from 'src/shared/stock-excel-more';
+import { borrowWorkbook, historyWorkbook, orderWorkbook, purchaseOrderWorkbook, stockHandWorkbook } from 'src/shared/stock-excel-more';
+import { onOrderUnits, orderProgress } from 'src/shared/stock-orders';
 import { stockMonthFileName, stockMonthWorkbook } from 'src/shared/stock-excel';
 
 // GET /s/stock/csv?kind=month&month=2026-05&owner=<workspace>  the monthly restock sheet
@@ -17,8 +18,9 @@ import { stockMonthFileName, stockMonthWorkbook } from 'src/shared/stock-excel';
 // GET /s/stock/csv?kind=xlsx-order&owner=&orders=<id:ctn,...>  the order (cartons as edited on the page)
 // GET /s/stock/csv?kind=xlsx-history&from=&to=&owner=          the in/out grid for a period
 // GET /s/stock/csv?kind=xlsx-borrowed&owner=                   stock lent to branches
+// GET /s/stock/csv?kind=xlsx-po&order=<id>                     one order, to send to the supplier
 
-const EXCEL_KINDS = ['xlsx', 'xlsx-hand', 'xlsx-order', 'xlsx-history', 'xlsx-borrowed'];
+const EXCEL_KINDS = ['xlsx', 'xlsx-hand', 'xlsx-order', 'xlsx-history', 'xlsx-borrowed', 'xlsx-po'];
 const isDate = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 const escapeHtml = (text: string) => text.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch] as string);
@@ -74,8 +76,22 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       const owner = data.owners.find((o) => o.id === ownerId);
       const company = owner?.name ?? (scope.all ? 'All workspaces' : 'My workspaces');
       const ruleOf = (id: string | null) => data.owners.find((o) => o.id === id)?.rule ?? DEFAULT_RULE;
-      const statuses = () => items.map((item) => stockStatus(item, byItem.get(item.id) ?? [], ruleOf(item.ownerId), today));
       const movements = data.movements.filter((m) => !ownerId || m.ownerId === ownerId);
+      // What is ordered and not yet arrived lowers what still needs ordering.
+      const onOrder = onOrderUnits(data.orders, data.movements);
+      const statuses = () => items.map((item) => stockStatus(item, byItem.get(item.id) ?? [], ruleOf(item.ownerId), today, onOrder.get(item.id) ?? 0));
+
+      if (kind === 'xlsx-po') {
+        const order = data.orders.find((o) => o.id === query.order);
+
+        if (!order) return plain('Order not found.', 404);
+        const company2 = data.owners.find((o) => o.id === order.ownerId)?.name ?? company;
+
+        return downloadPage(
+          `${order.number || 'order'}.xlsx`,
+          purchaseOrderWorkbook(order, orderProgress(order, data.movements).lines, new Map(data.items.map((i) => [i.id, i])), { title: 'Order', company: company2, generatedOn: today }),
+        );
+      }
 
       if (kind === 'xlsx-hand') {
         return downloadPage(`stock-in-hand-${today}.xlsx`, stockHandWorkbook(statuses(), today, { title: 'Stock in hand 库存', company, generatedOn: today }));
@@ -128,7 +144,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     } else {
       const rows = items
         .filter((item) => item.status !== 'DISCONTINUED')
-        .map((item) => stockStatus(item, byItem.get(item.id) ?? [], data.owners.find((o) => o.id === item.ownerId)?.rule ?? DEFAULT_RULE, today))
+        .map((item) => stockStatus(item, byItem.get(item.id) ?? [], data.owners.find((o) => o.id === item.ownerId)?.rule ?? DEFAULT_RULE, today, onOrderUnits(data.orders, data.movements).get(item.id) ?? 0))
         .filter((s) => s.suggestedCartons > 0);
 
       body = orderPlanCsv(rows);

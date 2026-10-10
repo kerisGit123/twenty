@@ -18,7 +18,7 @@ const requestId = () => `${Date.now().toString(36)}-${Math.random().toString(36)
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // Saves that are safe to send again: the server recognises the request id
 // (or the change is the same whatever the number of times).
-const RETRYABLE = ['record', 'settleBorrow', 'stockTake', 'setStatus', 'saveRule', 'deleteMovement', 'data'];
+const RETRYABLE = ['record', 'settleBorrow', 'stockTake', 'setStatus', 'saveRule', 'deleteMovement', 'data', 'saveOrder', 'receiveOrder', 'setOrderStatus'];
 
 export const stockAction = async (body: Record<string, unknown>): Promise<Result> => {
   const payload = { ...body, requestId: requestId() };

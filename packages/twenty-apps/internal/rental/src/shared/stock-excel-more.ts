@@ -14,6 +14,7 @@ import {
   unitPrice,
 } from 'src/shared/stock';
 import { CREAM, GROUP, HEAD, ORDER, PASAR, PASAR_LIGHT, TEAL, cell, dmy } from 'src/shared/stock-excel';
+import { type LineProgress, type StockOrder } from 'src/shared/stock-orders';
 import { BORROW_STATUSES, STOCK_GROUPS } from 'src/shared/stock-types';
 import { buildXlsx, type XlsxCell, type XlsxStyle } from 'src/shared/xlsx';
 
@@ -151,6 +152,54 @@ export const orderWorkbook = (statuses: StockStatus[], cartonsOf: (s: StockStatu
   rows.push(total);
 
   return buildXlsx({ name: 'Order', rows, merges, freeze: { rows: 6, cols: 2 }, heights: { 5: 30 }, widths: [9, 36, 22, 7, 12, 9, 11, 9, 9, 12, 13] });
+};
+
+// ---------------------------------------------------------------- One order (to send to the supplier)
+
+export const purchaseOrderWorkbook = (order: StockOrder, lines: LineProgress[], items: Map<string, StockItem>, heading: Heading) => {
+  const labels = ['Item code', 'Product name', 'Specification', 'Units / ctn', 'Order (ctn)', 'Order (units)', 'Unit price / ctn (RM)', 'Amount (RM)', 'Arrived (units)', 'Still to come (units)'];
+  const rows: XlsxCell[][] = [
+    [{ value: '订货单 ORDER', style: { bold: true, size: 14 } }],
+    [{ value: 'Our order no.:', style: { bold: true } }, { value: order.number }],
+    [{ value: '供应商 Supplier:', style: { bold: true } }, { value: order.supplier }],
+    [{ value: '日期 Order date:', style: { bold: true } }, { value: order.date ? dmy(order.date) : '' }],
+    [{ value: '公司名称 Company:', style: { bold: true } }, { value: heading.company }],
+    [{ value: "Supplier's PO no.:", style: { bold: true } }, { value: order.supplierRef || '(to be given by the supplier)' }],
+    [],
+    headerRow(labels, ORDER),
+  ];
+  let total = 0;
+  let totalCtn = 0;
+
+  for (const l of lines) {
+    const item = items.get(l.itemId);
+    const per = item?.unitsPerCarton || 1;
+    const ctn = l.orderedUnits / per;
+
+    total += ctn * l.cartonPrice;
+    totalCtn += ctn;
+    rows.push([
+      cell(item?.code ?? '', { align: 'center' }),
+      cell(item?.name ?? 'Item removed'),
+      cell(item?.specification ?? ''),
+      num(per),
+      num(ctn, { bold: true, fill: ORDER }),
+      num(l.orderedUnits),
+      money(l.cartonPrice),
+      money(ctn * l.cartonPrice, { bold: true }),
+      num(l.received, { color: GREEN_TEXT }),
+      cell(l.outstanding ? Math.round(l.outstanding * 100) / 100 : l.closed && l.received < l.orderedUnits ? 'not coming' : null, { align: 'right', color: l.outstanding ? AMBER : undefined, format: 'num' }),
+    ]);
+  }
+
+  const totalRow = labels.map(() => cell(null, { fill: HEAD }));
+
+  totalRow[1] = cell('TOTAL', { fill: HEAD, bold: true });
+  totalRow[4] = num(totalCtn, { fill: HEAD, bold: true });
+  totalRow[7] = money(total, { fill: HEAD, bold: true });
+  rows.push(totalRow);
+
+  return buildXlsx({ name: order.number || 'Order', rows, freeze: { rows: 8, cols: 2 }, heights: { 7: 30 }, widths: [9, 36, 22, 8, 9, 9, 12, 13, 11, 13] });
 };
 
 // ---------------------------------------------------------------- In / out history grid

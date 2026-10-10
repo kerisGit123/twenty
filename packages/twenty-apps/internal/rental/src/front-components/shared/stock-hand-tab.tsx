@@ -229,9 +229,10 @@ export const StockHandTab = ({
                         <span style={{ fontWeight: 600, color: 'var(--t-color-red11)' }}>{s.suggestedCartons} ctn</span>
                         <span style={{ color: c.text3, fontSize: 12 }}> · {rm(s.suggestedCost)}</span>
                       </>
-                    ) : (
+                    ) : s.onOrder ? null : (
                       <span style={{ color: c.text3 }}>—</span>
                     )}
+                    {s.onOrder ? <div style={{ fontSize: 12, color: 'var(--t-color-blue11)', fontWeight: 600 }}>{cartonsAndUnits(s.onOrder, s.item)} on order</div> : null}
                   </td>
                   <td style={cell}>
                     <Expiry s={s} today={today} />

@@ -3,13 +3,40 @@ import { type CoreApiClient } from 'twenty-client-sdk/core';
 import { queryAll } from 'src/logic-functions/utils/query-all';
 import { inScope, type Scope } from 'src/logic-functions/utils/scope';
 import { DEFAULT_RULE, type StockItem, type StockMovement, type StockRule } from 'src/shared/stock';
+import { parseOrderLines, type StockOrder } from 'src/shared/stock-orders';
 
 // Stock items, their movements and each workspace's reorder rule, limited to
 // the caller's workspaces.
 
 export type StockOwner = { id: string; name: string; rule: StockRule };
 
-export type StockData = { items: StockItem[]; movements: StockMovement[]; owners: StockOwner[] };
+export type StockData = { items: StockItem[]; movements: StockMovement[]; owners: StockOwner[]; orders: StockOrder[] };
+
+type OrderNode = {
+  id: string;
+  orderNumber?: string | null;
+  supplier?: string | null;
+  orderDate?: string | null;
+  status?: string | null;
+  supplierRef?: string | null;
+  notes?: string | null;
+  ownerId?: string | null;
+  lines?: unknown;
+};
+
+export const ORDER_FIELDS = { id: true, orderNumber: true, supplier: true, orderDate: true, status: true, supplierRef: true, notes: true, ownerId: true, lines: true };
+
+export const toStockOrder = (node: OrderNode): StockOrder => ({
+  id: node.id,
+  number: node.orderNumber ?? '',
+  supplier: node.supplier ?? '',
+  date: node.orderDate ?? '',
+  status: node.status ?? 'DRAFT',
+  supplierRef: node.supplierRef ?? '',
+  notes: node.notes ?? '',
+  ownerId: node.ownerId ?? null,
+  lines: parseOrderLines(node.lines),
+});
 
 type ItemNode = {
   id: string;
@@ -42,6 +69,7 @@ type MovementNode = {
   borrowStatus?: string | null;
   borrowId?: string | null;
   batchId?: string | null;
+  orderId?: string | null;
   ownerId?: string | null;
 };
 
@@ -95,6 +123,7 @@ const MOVEMENT_FIELDS = {
   borrowStatus: true,
   borrowId: true,
   batchId: true,
+  orderId: true,
   ownerId: true,
 };
 
@@ -112,6 +141,7 @@ export const toStockMovement = (node: MovementNode): StockMovement => ({
   borrowStatus: node.borrowStatus ?? null,
   borrowId: node.borrowId ?? null,
   batchId: node.batchId ?? null,
+  orderId: node.orderId ?? null,
   ownerId: node.ownerId ?? null,
 });
 
@@ -124,15 +154,17 @@ export const loadMovementsOf = async (client: CoreApiClient, itemIds: string[]) 
     : [];
 
 export const loadStockData = async (client: CoreApiClient, scope: Scope): Promise<StockData> => {
-  const [items, movements, owners] = await Promise.all([
+  const [items, movements, owners, orders] = await Promise.all([
     queryAll<ItemNode>(client, 'stockItems', { orderBy: [{ code: 'AscNullsLast' }] }, ITEM_FIELDS),
     queryAll<MovementNode>(client, 'stockMovements', { orderBy: [{ movementDate: 'AscNullsLast' }] }, MOVEMENT_FIELDS),
     queryAll<OwnerNode>(client, 'owners', { orderBy: [{ name: 'AscNullsLast' }] }, { id: true, name: true, stockReorderBelowMonths: true, stockOrderUpToMonths: true }),
+    queryAll<OrderNode>(client, 'stockOrders', { orderBy: [{ orderDate: 'DescNullsLast' }] }, ORDER_FIELDS),
   ]);
 
   return {
     items: items.map(toStockItem).filter((item) => inScope(scope, item.ownerId)),
     movements: movements.map(toStockMovement).filter((m) => m.itemId && m.date && inScope(scope, m.ownerId)),
+    orders: orders.map(toStockOrder).filter((o) => inScope(scope, o.ownerId)),
     owners: owners
       .filter((owner) => inScope(scope, owner.id))
       .map((owner) => ({

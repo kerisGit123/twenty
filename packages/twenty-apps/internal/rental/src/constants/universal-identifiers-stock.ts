@@ -63,3 +63,22 @@ export const STOCK_PAGE_LAYOUT_ID = 'ac1c1d00-96f1-4060-ad6f-8e5e2b831864';
 export const STOCK_TAB_ID = 'd0bc155c-9271-4f24-93de-8a55abe021a5';
 export const STOCK_WIDGET_ID = '3c465e53-05b9-4160-9e8d-318b9347201c';
 export const STOCK_NAV_ITEM_ID = '50771dff-97a1-4810-8d05-a52b411c52a9';
+
+// Orders to suppliers (drafts we send; the supplier raises the real PO).
+export const STOCK_ORDER_OBJECT_ID = '7d4afaa2-aa93-4814-8fc9-fd63264c0aa3';
+export const STOCK_ORDER_NAME_FIELD_ID = '240c9d07-85a5-4155-b526-897a718ad0a5';
+export const STOCK_ORDER_NUMBER_FIELD_ID = '240022c5-d886-489a-a2c6-006a04ac07b4';
+export const STOCK_ORDER_SUPPLIER_FIELD_ID = '06240660-3ac5-47e1-ba35-6380b531baab';
+export const STOCK_ORDER_DATE_FIELD_ID = '06476323-b403-4c12-83a6-873b60afd67d';
+export const STOCK_ORDER_STATUS_FIELD_ID = '01c63ec1-e1da-42f4-abb1-89feedc31f32';
+export const STOCK_ORDER_SUPPLIER_REF_FIELD_ID = 'fa2e6320-0d59-44ab-a329-13de3ece3c3c';
+export const STOCK_ORDER_NOTES_FIELD_ID = '39eba8ea-67d9-4c6d-b7dd-8c22f8db2f12';
+export const STOCK_ORDER_LINES_FIELD_ID = '0e76eb5b-78cf-4d4c-8406-3e9392abd20b';
+export const STOCK_ORDER_OWNER_FIELD_ID = 'c94a1ff1-4fa0-4641-85e3-491b145355a4';
+export const OWNER_STOCK_ORDERS_FIELD_ID = 'e97a9035-3c51-4eb7-ae2a-19b223f1e7a8';
+export const STOCK_ORDER_STATUS_OPTION_IDS = [
+  '14a80a47-5cc5-4af3-82c9-473d5d65f271', 'be80a9b9-53e2-4cf6-9223-9b4295959e0d', '32fba954-c27c-4765-aee0-45d29b90a8f6',
+  '288231f8-0519-4eed-99bc-93c4f887c2e9', '4aaed22a-023a-4730-844c-753c0f2f1e3a',
+];
+// A purchase line received against an order.
+export const STOCK_MOVEMENT_ORDER_ID_FIELD_ID = 'ff51e870-29d8-47e5-b6aa-623af32aa1ba';

@@ -7,6 +7,8 @@ import { ItemDetailSheet } from 'src/front-components/shared/stock-detail';
 import { StockHandTab } from 'src/front-components/shared/stock-hand-tab';
 import { MonthTab } from 'src/front-components/shared/stock-month-tab';
 import { OrderTab } from 'src/front-components/shared/stock-order-tab';
+import { OrdersTab } from 'src/front-components/shared/stock-orders-tab';
+import { onOrderUnits } from 'src/shared/stock-orders';
 import { BorrowTab } from 'src/front-components/shared/stock-borrow-tab';
 import { HistoryTab } from 'src/front-components/shared/stock-history-tab';
 import { c, control, primary } from 'src/front-components/shared/stock-ui';
@@ -18,7 +20,7 @@ import { balanceOf, DEFAULT_RULE, groupMovements, type StockItem, type StockMove
 // monthly restock sheet, the forecast and order plan, and stock lent to
 // other branches.
 
-type Tab = 'stock' | 'movements' | 'month' | 'order' | 'borrowed';
+type Tab = 'stock' | 'movements' | 'month' | 'order' | 'orders' | 'borrowed';
 
 type Open =
   | { kind: 'item'; item: StockItem | null }
@@ -35,6 +37,7 @@ const TABS: Array<{ key: Tab; label: string }> = [
   { key: 'movements', label: 'In / out history' },
   { key: 'month', label: 'Monthly sheet' },
   { key: 'order', label: 'Forecast & order' },
+  { key: 'orders', label: 'Orders' },
   { key: 'borrowed', label: 'Borrowed' },
 ];
 
@@ -80,7 +83,13 @@ export const StockPage = () => {
   const byItem = useMemo(() => groupMovements(movements), [movements]);
   const balances = useMemo(() => new Map(items.map((i) => [i.id, balanceOf(byItem.get(i.id) ?? [])])), [items, byItem]);
   const ruleOf = useCallback((ownerOf: string | null) => data?.owners.find((o) => o.id === ownerOf)?.rule ?? DEFAULT_RULE, [data]);
-  const statuses = useMemo(() => items.map((i) => stockStatus(i, byItem.get(i.id) ?? [], ruleOf(i.ownerId), today)), [items, byItem, ruleOf, today]);
+  const orders = useMemo(() => (data?.orders ?? []).filter((o) => !ownerId || o.ownerId === ownerId), [data, ownerId]);
+  // Units ordered from suppliers and not yet arrived, per item.
+  const onOrder = useMemo(() => onOrderUnits(orders, movements), [orders, movements]);
+  const statuses = useMemo(
+    () => items.map((i) => stockStatus(i, byItem.get(i.id) ?? [], ruleOf(i.ownerId), today, onOrder.get(i.id) ?? 0)),
+    [items, byItem, ruleOf, today, onOrder],
+  );
   const owner = data?.owners.find((o) => o.id === ownerId) ?? null;
   const activeItems = items.filter((i) => i.status !== 'DISCONTINUED');
 
@@ -216,8 +225,13 @@ export const StockPage = () => {
                 ownerId={ownerId}
                 onEditRule={owner ? () => setOpen({ kind: 'rule' }) : null}
                 onOrder={(lines) => setOpen({ kind: 'record', type: 'PURCHASE', lines })}
+                onSaved={() => {
+                  refresh();
+                  setTab('orders');
+                }}
               />
             ) : null}
+            {tab === 'orders' ? <OrdersTab orders={orders} items={items} movements={movements} today={today} ownerId={ownerId} onChanged={refresh} /> : null}
             {tab === 'borrowed' ? <BorrowTab items={items} movements={movements} today={today} ownerId={ownerId} onSettle={(borrow) => setOpen({ kind: 'settle', borrow })} onLend={() => setOpen({ kind: 'record', type: 'BORROW' })} /> : null}
           </>
         ) : null}

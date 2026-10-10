@@ -2,6 +2,7 @@ import { type CSSProperties, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 
 import { readValue } from 'src/front-components/shared/read-value';
+import { stockAction } from 'src/front-components/shared/stock-forms';
 import { LastsBar } from 'src/front-components/shared/stock-hand-tab';
 import { c, control, ExcelButton, input, monthLabel, primary, qty, rm, small, withOwner } from 'src/front-components/shared/stock-ui';
 import { cartonsAndUnits, type StockStatus, unitPrice } from 'src/shared/stock';
@@ -20,18 +21,33 @@ export const OrderTab = ({
   ownerId,
   onEditRule,
   onOrder,
+  onSaved,
 }: {
   statuses: StockStatus[];
   ruleText: string;
   ownerId: string;
   onEditRule: (() => void) | null;
   onOrder: (lines: Array<{ itemId: string; units: number }>) => void;
+  onSaved: () => void;
 }) => {
   const [showAll, setShowAll] = useState(false);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const active = statuses.filter((s) => s.item.status !== 'DISCONTINUED');
   const cartons = (s: StockStatus) => (edits[s.item.id] !== undefined ? Number(edits[s.item.id].replace(/[^0-9.]/g, '')) || 0 : s.suggestedCartons);
-  const rows = active.filter((s) => showAll || s.flag === 'ORDER' || s.flag === 'LOW' || cartons(s) > 0);
+  const rows = active.filter((s) => showAll || s.flag === 'ORDER' || s.flag === 'ON_ORDER' || s.flag === 'LOW' || cartons(s) > 0);
+  const [saving, setSaving] = useState(false);
+
+  // The plan becomes draft orders (one per supplier); they count as on order.
+  const saveOrder = async () => {
+    setSaving(true);
+    const result = await stockAction({ action: 'saveOrder', lines: ordered.map((s) => ({ itemId: s.item.id, cartons: cartons(s) })) });
+
+    setSaving(false);
+    if (result.success) {
+      setEdits({});
+      onSaved();
+    }
+  };
   const ordered = active.filter((s) => cartons(s) > 0);
   const total = ordered.reduce((sum, s) => sum + cartons(s) * s.item.cartonPrice, 0);
   const totalCartons = ordered.reduce((sum, s) => sum + cartons(s), 0);
@@ -89,6 +105,7 @@ export const OrderTab = ({
               <th style={head}>In hand</th>
               <th style={{ ...head, textAlign: 'left' }}>Lasts</th>
               <th style={head}>Need next month</th>
+              <th style={head}>On order</th>
               <th style={head}>Suggested</th>
               <th style={{ ...head, background: 'var(--t-color-blue3)', color: 'var(--t-color-blue11)' }}>Order (ctn)</th>
               <th style={head}>Ctn price</th>
@@ -98,7 +115,7 @@ export const OrderTab = ({
           <tbody>
             {blocks.length ? null : (
               <tr>
-                <td colSpan={9} style={{ ...cell, textAlign: 'center', color: c.text3, padding: 32, whiteSpace: 'normal' }}>
+                <td colSpan={10} style={{ ...cell, textAlign: 'center', color: c.text3, padding: 32, whiteSpace: 'normal' }}>
                   Nothing is below the re-order level. Use “Show all items” to order something anyway.
                 </td>
               </tr>
@@ -108,7 +125,7 @@ export const OrderTab = ({
 
               return [
                 <tr key={`s-${block.name}`}>
-                  <td colSpan={9} style={{ ...cell, background: 'var(--t-color-gray2)', fontWeight: 600, fontSize: 12 }}>
+                  <td colSpan={10} style={{ ...cell, background: 'var(--t-color-gray2)', fontWeight: 600, fontSize: 12 }}>
                     {block.name}
                     <span style={{ fontWeight: 400, color: c.text3 }}>
                       {' '}
@@ -141,6 +158,7 @@ export const OrderTab = ({
                           <span style={{ color: c.text3 }}>—</span>
                         )}
                       </td>
+                      <td style={{ ...right, color: s.onOrder ? 'var(--t-color-blue11)' : c.text3, fontWeight: s.onOrder ? 600 : 400 }}>{s.onOrder ? cartonsAndUnits(s.onOrder, s.item) : '—'}</td>
                       <td style={{ ...right, color: c.text3 }}>{s.suggestedCartons ? `${s.suggestedCartons} ctn` : '—'}</td>
                       <td style={{ ...right, background: ORDER_BG }}>
                         <input
@@ -167,17 +185,20 @@ export const OrderTab = ({
           Order total <b style={{ fontSize: 15 }}>{rm(total)}</b> <span style={{ color: c.text3 }}>({totalCartons} ctn)</span>
         </span>
         <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 12, color: c.text3 }}>When the goods arrive, check them against the delivery and record them:</span>
         <button
           onClick={() => onOrder(ordered.map((s) => ({ itemId: s.item.id, units: cartons(s) * s.item.unitsPerCarton })))}
           disabled={!ordered.length}
-          style={{ ...primary, opacity: ordered.length ? 1 : 0.5 }}
+          style={{ ...small, height: 34, opacity: ordered.length ? 1 : 0.5 }}
+          title="Goods that came without an order: record them straight into stock"
         >
-          Goods arrived: record as purchase
+          Record as purchase (no order)
+        </button>
+        <button onClick={saveOrder} disabled={!ordered.length || saving} style={{ ...primary, opacity: ordered.length && !saving ? 1 : 0.5 }} title="Save as a draft order per supplier; it then counts as on order">
+          {saving ? 'Saving…' : 'Save as order'}
         </button>
       </div>
       <span style={{ fontSize: 12, color: c.text3 }}>
-        Need next month = average of the last 3 months with take-outs. Suggested = enough for the “order enough for” months, in whole cartons. Type your own number to change an order.
+        Need next month = average of the last 3 months with take-outs. Suggested = enough for the “order enough for” months, in whole cartons, minus what is already on order. Type your own number to change it, then “Save as order”; receive it on the Orders tab.
       </span>
     </>
   );

@@ -129,6 +129,7 @@ export const FLAG: Record<string, { label: string; color: string }> = {
   ORDER: { label: 'Order now', color: 'red' },
   LOW: { label: 'Low', color: 'orange' },
   OK: { label: 'OK', color: 'green' },
+  ON_ORDER: { label: 'On order', color: 'blue' },
   NO_USE: { label: 'Not used', color: 'gray' },
   EMPTY: { label: 'Empty', color: 'gray' },
 };

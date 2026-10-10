@@ -33,6 +33,17 @@ export const BORROW_STATUSES: Array<{ value: string; label: string; color: strin
   { value: 'PAID', label: 'Paid', color: 'blue' },
 ];
 
+// Our order to a supplier. Draft and Sent are open; receiving moves it on.
+export const ORDER_STATUSES: Array<{ value: string; label: string; color: string }> = [
+  { value: 'DRAFT', label: 'Draft', color: 'gray' },
+  { value: 'SENT', label: 'Sent to supplier', color: 'blue' },
+  { value: 'PARTLY_RECEIVED', label: 'Partly received', color: 'orange' },
+  { value: 'RECEIVED', label: 'Received', color: 'green' },
+  { value: 'CANCELLED', label: 'Cancelled', color: 'red' },
+];
+
+export const OPEN_ORDER_STATUSES = ['DRAFT', 'SENT', 'PARTLY_RECEIVED'];
+
 export const movementType = (value: string) => STOCK_MOVEMENT_TYPES.find((t) => t.value === value);
 export const isIn = (type: string) => movementType(type)?.direction === 'IN';
 export const stockGroupLabel = (value: string | null | undefined) => STOCK_GROUPS.find((g) => g.value === value)?.label ?? 'Other';

@@ -3,6 +3,7 @@ import { defineObject, FieldType, NumberDataType } from 'twenty-sdk/define';
 import {
   STOCK_BORROW_STATUS_OPTION_IDS,
   STOCK_MOVEMENT_BATCH_ID_FIELD_ID,
+  STOCK_MOVEMENT_ORDER_ID_FIELD_ID,
   STOCK_MOVEMENT_BORROW_ID_FIELD_ID,
   STOCK_MOVEMENT_BORROW_STATUS_FIELD_ID,
   STOCK_MOVEMENT_DATE_FIELD_ID,
@@ -90,6 +91,15 @@ export default defineObject({
       label: 'Saved together',
       description: 'Lines saved in one go share this (a retried save is recognised by it).',
       icon: 'IconStack2',
+      isNullable: true,
+    },
+    {
+      universalIdentifier: STOCK_MOVEMENT_ORDER_ID_FIELD_ID,
+      type: FieldType.TEXT,
+      name: 'orderId',
+      label: 'Received against order',
+      description: 'The stock order this purchase line was received for.',
+      icon: 'IconShoppingCart',
       isNullable: true,
     },
   ],
