@@ -1,6 +1,6 @@
 import { type CSSProperties, useState } from 'react';
 
-import { c, Chip, control, primary, rm, small } from 'src/front-components/shared/stock-ui';
+import { c, Chip, control, ExcelButton, primary, rm, small, withOwner } from 'src/front-components/shared/stock-ui';
 import { MONTHS } from 'src/shared/months';
 import { cartonsAndUnits, type StockItem, type StockMovement, unitPrice } from 'src/shared/stock';
 import { BORROW_STATUSES } from 'src/shared/stock-types';
@@ -22,12 +22,14 @@ export const BorrowTab = ({
   items,
   movements,
   today,
+  ownerId,
   onSettle,
   onLend,
 }: {
   items: StockItem[];
   movements: StockMovement[];
   today: string;
+  ownerId: string;
   onSettle: (borrow: StockMovement) => void;
   onLend: () => void;
 }) => {
@@ -89,6 +91,7 @@ export const BorrowTab = ({
           {new Set(outstanding.map((m) => m.party || 'Unknown branch')).size} branch{new Set(outstanding.map((m) => m.party)).size === 1 ? '' : 'es'}
           {oldest ? ` · oldest ${daysSince(oldest, today)} days` : ''}
         </span>
+        <ExcelButton query={withOwner({ kind: 'xlsx-borrowed' }, ownerId)} title="Lendings as an Excel file" />
         <button onClick={onLend} style={primary}>
           + Lend to branch
         </button>

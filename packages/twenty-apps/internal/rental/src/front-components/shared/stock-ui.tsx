@@ -1,4 +1,5 @@
 import { type CSSProperties, type ReactNode } from 'react';
+import { RestApiClient } from 'twenty-client-sdk/rest';
 
 import { MONTHS } from 'src/shared/months';
 import { type StockItem } from 'src/shared/stock';
@@ -108,6 +109,21 @@ export const ItemCell = ({ item }: { item: StockItem }) => (
     </div>
   </>
 );
+
+// Downloads a Stock tab as an Excel file (opens a small page that saves it).
+export const ExcelButton = ({ query, title }: { query: Record<string, string>; title?: string }) => (
+  <a
+    href={new RestApiClient().resolveUrl('/s/stock/csv', { query })}
+    target="_blank"
+    rel="noreferrer"
+    title={title ?? 'Download as an Excel file'}
+    style={{ ...control, display: 'inline-flex', alignItems: 'center', textDecoration: 'none', fontWeight: 600, color: 'var(--t-color-green11)', whiteSpace: 'nowrap' }}
+  >
+    ⬇ Excel
+  </a>
+);
+
+export const withOwner = (query: Record<string, string>, ownerId: string) => (ownerId ? { ...query, owner: ownerId } : query);
 
 export const FLAG: Record<string, { label: string; color: string }> = {
   ORDER: { label: 'Order now', color: 'red' },

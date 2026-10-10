@@ -3,7 +3,7 @@ import { RestApiClient } from 'twenty-client-sdk/rest';
 
 import { readValue } from 'src/front-components/shared/read-value';
 import { LastsBar } from 'src/front-components/shared/stock-hand-tab';
-import { c, control, input, monthLabel, primary, qty, rm, small } from 'src/front-components/shared/stock-ui';
+import { c, control, ExcelButton, input, monthLabel, primary, qty, rm, small, withOwner } from 'src/front-components/shared/stock-ui';
 import { cartonsAndUnits, type StockStatus, unitPrice } from 'src/shared/stock';
 
 // Forecast & order: what each item will need next month, which ones fall
@@ -61,6 +61,10 @@ export const OrderTab = ({
             Reset
           </button>
         ) : null}
+        <ExcelButton
+          query={withOwner({ kind: 'xlsx-order', orders: Object.keys(edits).map((id) => `${id}:${Number(edits[id].replace(/[^0-9.]/g, '')) || 0}`).join(',') }, ownerId)}
+          title="The order (your cartons) as a purchase-order Excel file"
+        />
         <a href={csv} target="_blank" rel="noreferrer" style={{ ...control, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
           ⬇ CSV
         </a>

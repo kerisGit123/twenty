@@ -6,12 +6,20 @@ import { appClient } from 'src/logic-functions/utils/app-client';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { inScope, resolveScope } from 'src/logic-functions/utils/scope';
 import { loadStockData } from 'src/logic-functions/utils/stock-data';
-import { DEFAULT_RULE, groupMovements, monthSheet, monthSheetCsv, orderPlanCsv, stockStatus } from 'src/shared/stock';
+import { DEFAULT_RULE, groupMovements, historySheet, monthSheet, monthSheetCsv, orderPlanCsv, stockStatus } from 'src/shared/stock';
+import { borrowWorkbook, historyWorkbook, orderWorkbook, stockHandWorkbook } from 'src/shared/stock-excel-more';
 import { stockMonthFileName, stockMonthWorkbook } from 'src/shared/stock-excel';
 
 // GET /s/stock/csv?kind=month&month=2026-05&owner=<workspace>  the monthly restock sheet
 // GET /s/stock/csv?kind=order&owner=<workspace>                the order plan (items to re-order)
 // GET /s/stock/csv?kind=xlsx&month=2026-05&owner=<workspace>  the restock sheet as Excel, like the paper 订货单
+// GET /s/stock/csv?kind=xlsx-hand&owner=                       stock in hand
+// GET /s/stock/csv?kind=xlsx-order&owner=&orders=<id:ctn,...>  the order (cartons as edited on the page)
+// GET /s/stock/csv?kind=xlsx-history&from=&to=&owner=          the in/out grid for a period
+// GET /s/stock/csv?kind=xlsx-borrowed&owner=                   stock lent to branches
+
+const EXCEL_KINDS = ['xlsx', 'xlsx-hand', 'xlsx-order', 'xlsx-history', 'xlsx-borrowed'];
+const isDate = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 const escapeHtml = (text: string) => text.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch] as string);
 
@@ -42,11 +50,12 @@ const plain = (body: string, status: number) => new Response(body, { status, hea
 
 const handler = async (event: RoutePayload, context?: { workspaceMemberId?: string | null }): Promise<Response> => {
   const query = event.queryStringParameters ?? {};
-  const kind = query.kind === 'order' ? 'order' : query.kind === 'xlsx' ? 'xlsx' : 'month';
+  const kind = query.kind === 'order' ? 'order' : EXCEL_KINDS.includes(query.kind ?? '') ? (query.kind as string) : 'month';
   const ownerId = query.owner ?? '';
   const month = query.month ?? todayIso().slice(0, 7);
 
-  if (kind !== 'order' && !/^\d{4}-\d{2}$/.test(month)) return plain('month must be like 2026-05.', 400);
+  if ((kind === 'month' || kind === 'xlsx') && !/^\d{4}-\d{2}$/.test(month)) return plain('month must be like 2026-05.', 400);
+  if (kind === 'xlsx-history' && (!isDate(query.from) || !isDate(query.to) || query.from > query.to)) return plain('from and to must be dates, from first.', 400);
 
   try {
     const client = appClient();
@@ -60,6 +69,44 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     const today = todayIso();
     let body: string;
     let name: string;
+
+    if (kind !== 'xlsx' && kind.startsWith('xlsx')) {
+      const owner = data.owners.find((o) => o.id === ownerId);
+      const company = owner?.name ?? (scope.all ? 'All workspaces' : 'My workspaces');
+      const ruleOf = (id: string | null) => data.owners.find((o) => o.id === id)?.rule ?? DEFAULT_RULE;
+      const statuses = () => items.map((item) => stockStatus(item, byItem.get(item.id) ?? [], ruleOf(item.ownerId), today));
+      const movements = data.movements.filter((m) => !ownerId || m.ownerId === ownerId);
+
+      if (kind === 'xlsx-hand') {
+        return downloadPage(`stock-in-hand-${today}.xlsx`, stockHandWorkbook(statuses(), today, { title: 'Stock in hand 库存', company, generatedOn: today }));
+      }
+      if (kind === 'xlsx-order') {
+        // The cartons typed on the page; items not listed keep the suggestion.
+        const edited = new Map(
+          (query.orders ?? '')
+            .split(',')
+            .map((pair) => pair.split(':'))
+            .filter(([id, ctn]) => id && ctn !== undefined)
+            .map(([id, ctn]) => [id, Math.max(0, Number(ctn) || 0)] as const),
+        );
+
+        return downloadPage(
+          `stock-order-${today}.xlsx`,
+          orderWorkbook(statuses(), (st) => edited.get(st.item.id) ?? st.suggestedCartons, { title: '订货单 Purchase order', company, generatedOn: today }),
+        );
+      }
+      if (kind === 'xlsx-history') {
+        const from = query.from as string;
+        const to = query.to as string;
+
+        return downloadPage(
+          `stock-in-out-${from}-to-${to}.xlsx`,
+          historyWorkbook(historySheet(items, byItem, from, to), { title: 'Stock in / out 进出记录', company, generatedOn: today, period: `${from} to ${to}` }),
+        );
+      }
+
+      return downloadPage(`stock-borrowed-${today}.xlsx`, borrowWorkbook(items, movements, today, { title: 'Stock lent to branches 借出', company, generatedOn: today }));
+    }
 
     if (kind === 'xlsx') {
       const owner = data.owners.find((o) => o.id === ownerId);

@@ -202,11 +202,12 @@ export const StockPage = () => {
               <StockHandTab
                 statuses={statuses}
                 today={today}
+                ownerId={ownerId}
                 onRecord={(type, itemId) => setOpen({ kind: 'record', type, itemId })}
                 onOpen={(item) => setOpen({ kind: 'detail', itemId: item.id })}
               />
             ) : null}
-            {tab === 'movements' ? <HistoryTab items={items} movements={movements} movementsByItem={byItem} today={today} onChanged={refresh} /> : null}
+            {tab === 'movements' ? <HistoryTab items={items} movements={movements} movementsByItem={byItem} today={today} ownerId={ownerId} onChanged={refresh} /> : null}
             {tab === 'month' ? <MonthTab items={items} movementsByItem={byItem} ownerId={ownerId} today={today} /> : null}
             {tab === 'order' ? (
               <OrderTab
@@ -217,7 +218,7 @@ export const StockPage = () => {
                 onOrder={(lines) => setOpen({ kind: 'record', type: 'PURCHASE', lines })}
               />
             ) : null}
-            {tab === 'borrowed' ? <BorrowTab items={items} movements={movements} today={today} onSettle={(borrow) => setOpen({ kind: 'settle', borrow })} onLend={() => setOpen({ kind: 'record', type: 'BORROW' })} /> : null}
+            {tab === 'borrowed' ? <BorrowTab items={items} movements={movements} today={today} ownerId={ownerId} onSettle={(borrow) => setOpen({ kind: 'settle', borrow })} onLend={() => setOpen({ kind: 'record', type: 'BORROW' })} /> : null}
           </>
         ) : null}
       </div>

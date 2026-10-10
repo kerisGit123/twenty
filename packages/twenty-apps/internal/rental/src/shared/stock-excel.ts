@@ -7,19 +7,19 @@ import { DEFAULT_RULE, monthSheet, type StockItem, type StockMovement, type Stoc
 import { STOCK_GROUPS } from 'src/shared/stock-types';
 import { buildXlsx, type XlsxCell, type XlsxStyle } from 'src/shared/xlsx';
 
-const TEAL = '1F5F5B';
-const BROWN = '7B3F00';
-const HEAD = 'D9EEF0';
-const PASAR = 'B4C6E7';
-const PASAR_LIGHT = 'D9E1F2';
-const CREAM = 'FFF2CC';
-const ORDER = 'E2EFDA';
-const GROUP = 'EDEDED';
+export const TEAL = '1F5F5B';
+export const BROWN = '7B3F00';
+export const HEAD = 'D9EEF0';
+export const PASAR = 'B4C6E7';
+export const PASAR_LIGHT = 'D9E1F2';
+export const CREAM = 'FFF2CC';
+export const ORDER = 'E2EFDA';
+export const GROUP = 'EDEDED';
 
 const s = (style: XlsxStyle): XlsxStyle => ({ border: true, ...style });
-const cell = (value: string | number | null, style: XlsxStyle = {}): XlsxCell => ({ value, style: s(style) });
+export const cell = (value: string | number | null, style: XlsxStyle = {}): XlsxCell => ({ value, style: s(style) });
 
-const dmy = (iso: string) => `${Number(iso.slice(8, 10))}/${Number(iso.slice(5, 7))}/${iso.slice(2, 4)}`;
+export const dmy = (iso: string) => `${Number(iso.slice(8, 10))}/${Number(iso.slice(5, 7))}/${iso.slice(2, 4)}`;
 
 const nextMonthStart = (month: string) => {
   const date = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1));

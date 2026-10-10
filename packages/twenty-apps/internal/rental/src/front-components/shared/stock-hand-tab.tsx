@@ -1,7 +1,7 @@
 import { type CSSProperties, useState } from 'react';
 
 import { readValue } from 'src/front-components/shared/read-value';
-import { c, control, input, monthLabel, qty, rm, small } from 'src/front-components/shared/stock-ui';
+import { c, control, ExcelButton, input, monthLabel, qty, rm, small, withOwner } from 'src/front-components/shared/stock-ui';
 import { cartonsAndUnits, expiryState, type StockItem, type StockStatus } from 'src/shared/stock';
 import { STOCK_GROUPS } from 'src/shared/stock-types';
 import { MONTHS } from 'src/shared/months';
@@ -75,11 +75,13 @@ const Tile = ({ label, value, note, color, active, onClick }: { label: string; v
 export const StockHandTab = ({
   statuses,
   today,
+  ownerId,
   onRecord,
   onOpen,
 }: {
   statuses: StockStatus[];
   today: string;
+  ownerId: string;
   onRecord: (type: string, itemId: string) => void;
   onOpen: (item: StockItem) => void;
 }) => {
@@ -151,6 +153,7 @@ export const StockHandTab = ({
             </button>
           ) : null}
         </span>
+        <ExcelButton query={withOwner({ kind: 'xlsx-hand' }, ownerId)} title="Stock in hand as an Excel file" />
       </div>
 
       <div style={{ overflow: 'auto', border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg, maxHeight: 'calc(100cqh - 250px)', minHeight: 240 }}>

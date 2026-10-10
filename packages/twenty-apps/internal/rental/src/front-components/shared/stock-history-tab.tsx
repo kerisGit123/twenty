@@ -3,7 +3,7 @@ import { type CSSProperties, useMemo, useState } from 'react';
 import { type DateRange, DateRangePicker, presetRange } from 'src/front-components/shared/date-range-picker';
 import { readValue } from 'src/front-components/shared/read-value';
 import { MovementsTab } from 'src/front-components/shared/stock-tabs';
-import { c, control, dayMonth, input, qty } from 'src/front-components/shared/stock-ui';
+import { c, control, dayMonth, ExcelButton, input, qty, withOwner } from 'src/front-components/shared/stock-ui';
 import { cartonsAndUnits, historySheet, type StockItem, type StockMovement } from 'src/shared/stock';
 import { STOCK_GROUPS } from 'src/shared/stock-types';
 
@@ -20,7 +20,21 @@ const DAY_BG = 'var(--t-color-gray1)';
 const GREEN = 'var(--t-color-green11)';
 const BLUE = 'var(--t-color-blue11)';
 
-export const HistoryTab = ({ items, movements, movementsByItem, today, onChanged }: { items: StockItem[]; movements: StockMovement[]; movementsByItem: Map<string, StockMovement[]>; today: string; onChanged: () => void }) => {
+export const HistoryTab = ({
+  items,
+  movements,
+  movementsByItem,
+  today,
+  ownerId,
+  onChanged,
+}: {
+  items: StockItem[];
+  movements: StockMovement[];
+  movementsByItem: Map<string, StockMovement[]>;
+  today: string;
+  ownerId: string;
+  onChanged: () => void;
+}) => {
   const [view, setView] = useState<'sheet' | 'list'>('sheet');
   const [range, setRange] = useState<DateRange>(() => presetRange('thisMonth', today));
   const [query, setQuery] = useState('');
@@ -66,6 +80,7 @@ export const HistoryTab = ({ items, movements, movementsByItem, today, onChanged
         <span style={{ fontSize: 12, color: c.text3 }}>
           <span style={{ color: GREEN, fontWeight: 600 }}>+ IN</span> · <span style={{ color: BLUE, fontWeight: 600 }}>− OUT</span> · {sheet.dates.length} day{sheet.dates.length === 1 ? '' : 's'} with movement
         </span>
+        <ExcelButton query={withOwner({ kind: 'xlsx-history', from: range.from, to: range.to }, ownerId)} title="This period's IN / OUT grid as an Excel file" />
       </div>
 
       <div style={{ overflow: 'auto', border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg, maxHeight: 'calc(100cqh - 230px)', minHeight: 240 }}>
