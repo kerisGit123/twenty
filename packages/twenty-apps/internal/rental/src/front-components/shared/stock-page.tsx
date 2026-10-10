@@ -8,6 +8,7 @@ import { StockHandTab } from 'src/front-components/shared/stock-hand-tab';
 import { MonthTab } from 'src/front-components/shared/stock-month-tab';
 import { OrderTab } from 'src/front-components/shared/stock-order-tab';
 import { OrdersTab } from 'src/front-components/shared/stock-orders-tab';
+import { MonthEndTab } from 'src/front-components/shared/stock-monthend-tab';
 import { onOrderUnits } from 'src/shared/stock-orders';
 import { BorrowTab } from 'src/front-components/shared/stock-borrow-tab';
 import { HistoryTab } from 'src/front-components/shared/stock-history-tab';
@@ -20,14 +21,14 @@ import { balanceOf, DEFAULT_RULE, groupMovements, type StockItem, type StockMove
 // monthly restock sheet, the forecast and order plan, and stock lent to
 // other branches.
 
-type Tab = 'stock' | 'movements' | 'month' | 'order' | 'orders' | 'borrowed';
+type Tab = 'stock' | 'movements' | 'month' | 'order' | 'orders' | 'borrowed' | 'monthend';
 
 type Open =
   | { kind: 'item'; item: StockItem | null }
   | { kind: 'detail'; itemId: string }
   | { kind: 'record'; type: string; itemId?: string; lines?: Array<{ itemId: string; units: number }> }
   | { kind: 'settle'; borrow: StockMovement }
-  | { kind: 'take' }
+  | { kind: 'take'; date?: string }
   | { kind: 'rule' }
   | { kind: 'writeOff'; item: StockItem; message: string }
   | null;
@@ -39,6 +40,7 @@ const TABS: Array<{ key: Tab; label: string }> = [
   { key: 'order', label: 'Forecast & order' },
   { key: 'orders', label: 'Orders' },
   { key: 'borrowed', label: 'Borrowed' },
+  { key: 'monthend', label: 'Month end' },
 ];
 
 export const StockPage = () => {
@@ -144,7 +146,13 @@ export const StockPage = () => {
 
       return item ? <SettleSheet borrow={open.borrow} item={item} items={activeItems} today={today} onClose={() => setOpen(null)} onDone={done} /> : null;
     }
-    if (open.kind === 'take') return <StockTakeSheet items={activeItems} balances={balances} today={today} onClose={() => setOpen(null)} onDone={done} />;
+    if (open.kind === 'take') {
+      // Counting as at a date: the balance expected then.
+      const at = open.date;
+      const expected = at ? new Map(items.map((i) => [i.id, balanceOf((byItem.get(i.id) ?? []).filter((m) => m.date <= at))])) : balances;
+
+      return <StockTakeSheet items={activeItems} balances={expected} today={today} initialDate={at} onClose={() => setOpen(null)} onDone={done} />;
+    }
     if (open.kind === 'writeOff') return <WriteOffSheet item={open.item} message={open.message} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'rule' && owner) return <RuleSheet owner={owner} onClose={() => setOpen(null)} onDone={done} />;
 
@@ -232,6 +240,9 @@ export const StockPage = () => {
               />
             ) : null}
             {tab === 'orders' ? <OrdersTab orders={orders} items={items} movements={movements} today={today} ownerId={ownerId} onChanged={refresh} /> : null}
+            {tab === 'monthend' ? (
+              <MonthEndTab items={items} movementsByItem={byItem} owner={owner} today={today} onStockTake={(date) => setOpen({ kind: 'take', date })} onChanged={refresh} />
+            ) : null}
             {tab === 'borrowed' ? <BorrowTab items={items} movements={movements} today={today} ownerId={ownerId} onSettle={(borrow) => setOpen({ kind: 'settle', borrow })} onLend={() => setOpen({ kind: 'record', type: 'BORROW' })} /> : null}
           </>
         ) : null}

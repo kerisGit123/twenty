@@ -322,6 +322,65 @@ export const historySheet = (items: StockItem[], movementsByItem: Map<string, St
   return { dates: [...dates].sort(), inDates, outDates, ins, rows };
 };
 
+export type MonthEndRow = {
+  month: string; // YYYY-MM
+  openingValue: number;
+  purchasedValue: number;
+  otherInValue: number; // returns, exchanges, stock-take surplus
+  usedValue: number; // taken out
+  otherOutValue: number; // lent, waste, stock-take shortfall
+  closingValue: number;
+  closingUnits: number;
+  itemsWithStock: number;
+  movements: number;
+  counted: boolean; // a stock take was saved in the month
+};
+
+const nextMonth = (month: string) => new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1)).toISOString().slice(0, 7);
+
+// One row per month from the first movement to `lastMonth`, valued at each
+// item's current unit price (carton price ÷ units).
+export const monthEndRows = (items: StockItem[], movementsByItem: Map<string, StockMovement[]>, lastMonth: string): MonthEndRow[] => {
+  const all = items.flatMap((item) => movementsByItem.get(item.id) ?? []);
+  const first = all.reduce<string | null>((min, m) => (!min || m.date < min ? m.date : min), null);
+
+  if (!first) return [];
+  const rows: MonthEndRow[] = [];
+
+  for (let month = first.slice(0, 7); month <= lastMonth; month = nextMonth(month)) {
+    const start = `${month}-01`;
+    const end = `${nextMonth(month)}-01`;
+    const row: MonthEndRow = { month, openingValue: 0, purchasedValue: 0, otherInValue: 0, usedValue: 0, otherOutValue: 0, closingValue: 0, closingUnits: 0, itemsWithStock: 0, movements: 0, counted: false };
+
+    for (const item of items) {
+      const list = movementsByItem.get(item.id) ?? [];
+      const price = unitPrice(item);
+      const opening = balanceOf(list, start);
+      const closing = balanceOf(list, end);
+
+      row.openingValue += Math.max(opening, 0) * price;
+      row.closingValue += Math.max(closing, 0) * price;
+      row.closingUnits += Math.max(closing, 0);
+      if (closing > 0) row.itemsWithStock += 1;
+      for (const m of list) {
+        if (m.date < start || m.date >= end) continue;
+        row.movements += 1;
+        const value = m.quantity * price;
+
+        if (m.type === 'PURCHASE') row.purchasedValue += value;
+        else if (m.type === 'TAKE') row.usedValue += value;
+        else if (isIn(m.type)) row.otherInValue += value;
+        else row.otherOutValue += value;
+        if (m.type === 'ADJUST_IN' || m.type === 'ADJUST_OUT') row.counted = true;
+      }
+    }
+    for (const key of ['openingValue', 'purchasedValue', 'otherInValue', 'usedValue', 'otherOutValue', 'closingValue', 'closingUnits'] as const) row[key] = round(row[key], 2);
+    rows.push(row);
+  }
+
+  return rows;
+};
+
 export const groupMovements = (movements: StockMovement[]) => {
   const map = new Map<string, StockMovement[]>();
 

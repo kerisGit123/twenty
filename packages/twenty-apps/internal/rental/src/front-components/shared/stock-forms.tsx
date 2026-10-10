@@ -18,7 +18,7 @@ const requestId = () => `${Date.now().toString(36)}-${Math.random().toString(36)
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // Saves that are safe to send again: the server recognises the request id
 // (or the change is the same whatever the number of times).
-const RETRYABLE = ['record', 'settleBorrow', 'stockTake', 'setStatus', 'saveRule', 'deleteMovement', 'data', 'saveOrder', 'receiveOrder', 'setOrderStatus'];
+const RETRYABLE = ['record', 'settleBorrow', 'stockTake', 'setStatus', 'saveRule', 'deleteMovement', 'data', 'saveOrder', 'receiveOrder', 'setOrderStatus', 'closeMonth', 'reopenMonth'];
 
 export const stockAction = async (body: Record<string, unknown>): Promise<Result> => {
   const payload = { ...body, requestId: requestId() };
@@ -451,8 +451,22 @@ export const SettleSheet = ({ borrow, item, items, today, onClose, onDone }: { b
 
 // ---------------------------------------------------------------- Stock take
 
-export const StockTakeSheet = ({ items, balances, today, onClose, onDone }: { items: StockItem[]; balances: Map<string, number>; today: string; onClose: () => void; onDone: () => void }) => {
-  const [date, setDate] = useState(today);
+export const StockTakeSheet = ({
+  items,
+  balances,
+  today,
+  initialDate,
+  onClose,
+  onDone,
+}: {
+  items: StockItem[];
+  balances: Map<string, number>;
+  today: string;
+  initialDate?: string;
+  onClose: () => void;
+  onDone: () => void;
+}) => {
+  const [date, setDate] = useState(initialDate ?? today);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false);
   const entered = Object.keys(counts);

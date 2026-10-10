@@ -82,3 +82,6 @@ export const STOCK_ORDER_STATUS_OPTION_IDS = [
 ];
 // A purchase line received against an order.
 export const STOCK_MOVEMENT_ORDER_ID_FIELD_ID = 'ff51e870-29d8-47e5-b6aa-623af32aa1ba';
+
+// Month end: stock is locked up to and including this date (a closed month's last day).
+export const OWNER_STOCK_LOCKED_THROUGH_FIELD_ID = '256cc06d-2b82-4d3c-9fb9-606476a3a0d9';

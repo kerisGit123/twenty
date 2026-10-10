@@ -8,7 +8,8 @@ import { parseOrderLines, type StockOrder } from 'src/shared/stock-orders';
 // Stock items, their movements and each workspace's reorder rule, limited to
 // the caller's workspaces.
 
-export type StockOwner = { id: string; name: string; rule: StockRule };
+// lockedThrough: the last day of the latest closed month (stock before it is locked).
+export type StockOwner = { id: string; name: string; rule: StockRule; lockedThrough: string | null };
 
 export type StockData = { items: StockItem[]; movements: StockMovement[]; owners: StockOwner[]; orders: StockOrder[] };
 
@@ -73,7 +74,7 @@ type MovementNode = {
   ownerId?: string | null;
 };
 
-type OwnerNode = { id: string; name?: string | null; stockReorderBelowMonths?: number | null; stockOrderUpToMonths?: number | null };
+type OwnerNode = { id: string; name?: string | null; stockReorderBelowMonths?: number | null; stockOrderUpToMonths?: number | null; stockLockedThrough?: string | null };
 
 export const toStockItem = (node: ItemNode): StockItem => ({
   id: node.id,
@@ -157,7 +158,7 @@ export const loadStockData = async (client: CoreApiClient, scope: Scope): Promis
   const [items, movements, owners, orders] = await Promise.all([
     queryAll<ItemNode>(client, 'stockItems', { orderBy: [{ code: 'AscNullsLast' }] }, ITEM_FIELDS),
     queryAll<MovementNode>(client, 'stockMovements', { orderBy: [{ movementDate: 'AscNullsLast' }] }, MOVEMENT_FIELDS),
-    queryAll<OwnerNode>(client, 'owners', { orderBy: [{ name: 'AscNullsLast' }] }, { id: true, name: true, stockReorderBelowMonths: true, stockOrderUpToMonths: true }),
+    queryAll<OwnerNode>(client, 'owners', { orderBy: [{ name: 'AscNullsLast' }] }, { id: true, name: true, stockReorderBelowMonths: true, stockOrderUpToMonths: true, stockLockedThrough: true }),
     queryAll<OrderNode>(client, 'stockOrders', { orderBy: [{ orderDate: 'DescNullsLast' }] }, ORDER_FIELDS),
   ]);
 
@@ -174,6 +175,7 @@ export const loadStockData = async (client: CoreApiClient, scope: Scope): Promis
           reorderBelow: owner.stockReorderBelowMonths ?? DEFAULT_RULE.reorderBelow,
           orderUpTo: owner.stockOrderUpToMonths ?? DEFAULT_RULE.orderUpTo,
         },
+        lockedThrough: owner.stockLockedThrough ?? null,
       })),
   };
 };

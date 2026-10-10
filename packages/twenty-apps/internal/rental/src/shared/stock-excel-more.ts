@@ -4,6 +4,7 @@
 
 import {
   type Delivery,
+  type MonthEndRow,
   type HistoryRow,
   type StockItem,
   type StockMovement,
@@ -152,6 +153,34 @@ export const orderWorkbook = (statuses: StockStatus[], cartonsOf: (s: StockStatu
   rows.push(total);
 
   return buildXlsx({ name: 'Order', rows, merges, freeze: { rows: 6, cols: 2 }, heights: { 5: 30 }, widths: [9, 36, 22, 7, 12, 9, 11, 9, 9, 12, 13] });
+};
+
+// ---------------------------------------------------------------- Month end
+
+export const monthEndWorkbook = (rows: MonthEndRow[], lockedThrough: string | null, heading: Heading) => {
+  const labels = ['Month', 'Opening (RM)', '+ Purchased (RM)', '+ Other in (RM)', '− Used (RM)', '− Lent / waste / count (RM)', 'Closing (RM)', 'Stock take', 'Status'];
+  const out: XlsxCell[][] = [...titleBlock(heading), headerRow(labels)];
+  const monthEnd = (month: string) => new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
+
+  for (const r of rows) {
+    const closed = !!lockedThrough && monthEnd(r.month) <= lockedThrough;
+
+    out.push([
+      cell(r.month, { bold: true, align: 'center' }),
+      money(r.openingValue),
+      money(r.purchasedValue, { color: GREEN_TEXT }),
+      money(r.otherInValue, { color: GREEN_TEXT }),
+      money(r.usedValue, { color: BLUE_TEXT }),
+      money(r.otherOutValue, { color: BLUE_TEXT }),
+      money(r.closingValue, { bold: true, fill: CREAM }),
+      cell(r.counted ? 'counted' : 'not counted', { color: r.counted ? GREEN_TEXT : '808080' }),
+      cell(closed ? 'CLOSED' : 'open', { bold: closed }),
+    ]);
+  }
+  out.push([]);
+  out.push([{ value: 'Values at each item’s carton price ÷ units. Opening = the previous month’s closing.', style: { italic: true, color: '808080' } }]);
+
+  return buildXlsx({ name: 'Month end', rows: out, freeze: { rows: 6, cols: 1 }, heights: { 5: 30 }, widths: [10, 14, 15, 14, 14, 17, 15, 12, 10] });
 };
 
 // ---------------------------------------------------------------- One order (to send to the supplier)

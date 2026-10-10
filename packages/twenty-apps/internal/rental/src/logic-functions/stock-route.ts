@@ -147,6 +147,31 @@ const saveOrderFields = async (client: CoreApiClient, order: StockOrder, data: R
   await client.mutation({ updateStockOrder: { __args: { id: order.id, data: data as never }, id: true } });
 };
 
+// ---------------------------------------------------------------- month-end lock
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const monthName = (iso: string) => `${MONTH_NAMES[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
+const monthEnd = (month: string) => new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
+
+// The last day of each workspace's latest closed month.
+const loadLocks = async (client: CoreApiClient, ownerIds: Array<string | null>) => {
+  const ids = [...new Set(ownerIds.filter(Boolean) as string[])];
+  const rows = ids.length
+    ? await queryAll<{ id: string; stockLockedThrough?: string | null }>(client, 'owners', { filter: { id: { in: ids } } }, { id: true, stockLockedThrough: true })
+    : [];
+
+  return new Map(rows.map((r) => [r.id, r.stockLockedThrough ?? null]));
+};
+
+// A message when the date falls in a closed month, else null.
+const lockedMessage = (locks: Map<string, string | null>, ownerId: string | null, date: string) => {
+  const through = ownerId ? locks.get(ownerId) : null;
+
+  return through && date <= through
+    ? `${monthName(date)} is closed (stock is locked up to ${through}). Reopen the month on the Month end tab first, or use a later date.`
+    : null;
+};
+
 const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json) => Promise<Response>> = {
   data: async (client, scope) => json({ success: true, data: await loadStockData(client, scope), today: todayIso() }),
 
@@ -188,13 +213,17 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       return json({ success: true, id: existing.id, message: 'Item saved.' });
     }
 
-    const { createStockItem } = await client.mutation({ createStockItem: { __args: { data: { ...data, ownerId, status: 'ACTIVE' as never } }, id: true } });
     const opening = num(body.openingUnits);
+    const openingDate = isDate(body.openingDate) ? body.openingDate : todayIso();
+    const openingLocked = opening > 0 ? lockedMessage(await loadLocks(client, [ownerId]), ownerId, openingDate) : null;
+
+    if (openingLocked) return fail(openingLocked);
+    const { createStockItem } = await client.mutation({ createStockItem: { __args: { data: { ...data, ownerId, status: 'ACTIVE' as never } }, id: true } });
     const created = createStockItem?.id ? await loadItem(client, createStockItem.id) : null;
 
     if (created && opening > 0) {
       await createMovement(client, created, {
-        date: isDate(body.openingDate) ? body.openingDate : todayIso(),
+        date: openingDate,
         type: 'ADJUST_IN',
         quantity: opening,
         unitCost: unitPrice(created),
@@ -220,7 +249,11 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
         return json({ success: false, needsWriteOff: true, balance, message: `${cartonsAndUnits(balance, item)} is still in stock. Use it up first, or write it off as waste.` }, 409);
       }
       if (balance > 0) {
-        await createMovement(client, item, { date: isDate(body.date) ? body.date : todayIso(), type: 'WASTE', quantity: balance, notes: 'Written off when discontinued' });
+        const writeOffDate = isDate(body.date) ? body.date : todayIso();
+        const locked = lockedMessage(await loadLocks(client, [item.ownerId]), item.ownerId, writeOffDate);
+
+        if (locked) return fail(locked);
+        await createMovement(client, item, { date: writeOffDate, type: 'WASTE', quantity: balance, notes: 'Written off when discontinued' });
       }
     }
 
@@ -250,6 +283,13 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       if (!item) return fail('One of the items no longer exists.', 404);
       if (!inScope(scope, item.ownerId)) return json({ ...NOT_ALLOWED }, 403);
       if (item.status === 'DISCONTINUED' && type === 'PURCHASE') return fail(`${item.name} is discontinued. Reactivate it before buying more.`);
+    }
+    const locks = await loadLocks(client, [...items.values()].map((i) => i.ownerId));
+
+    for (const item of items.values()) {
+      const locked = lockedMessage(locks, item.ownerId, body.date as string);
+
+      if (locked) return fail(locked);
     }
 
     await createMovements(
@@ -299,6 +339,9 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
     if (!item) return fail('The item no longer exists.', 404);
     const party = borrow.party ?? '';
+    const settleLocked = how !== 'PAID' ? lockedMessage(await loadLocks(client, [item.ownerId]), item.ownerId, date) : null;
+
+    if (settleLocked) return fail(settleLocked);
 
     if (how === 'RETURNED') {
       const quantity = num(body.quantity ?? borrow.quantity);
@@ -353,6 +396,13 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const items = await loadItems(client, counts.map((entry) => text(entry.itemId, 64)));
 
     if ([...items.values()].some((item) => !inScope(scope, item.ownerId))) return json({ ...NOT_ALLOWED }, 403);
+    const takeLocks = await loadLocks(client, [...items.values()].map((i) => i.ownerId));
+
+    for (const item of items.values()) {
+      const locked = lockedMessage(takeLocks, item.ownerId, date);
+
+      if (locked) return fail(locked);
+    }
     const movements = groupMovements(await loadMovementsOf(client, [...items.keys()]));
     const adjustments: Array<{ item: StockItem; data: MovementInput }> = [];
 
@@ -380,11 +430,14 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
   deleteMovement: async (client, scope, body) => {
     const id = text(body.movementId, 64);
-    const { stockMovements } = await client.query({ stockMovements: { __args: { filter: { id: { eq: id } }, first: 1 }, edges: { node: { id: true, ownerId: true } } } });
+    const { stockMovements } = await client.query({ stockMovements: { __args: { filter: { id: { eq: id } }, first: 1 }, edges: { node: { id: true, ownerId: true, movementDate: true } } } });
     const movement = stockMovements?.edges?.[0]?.node;
 
     if (!movement) return fail('Movement not found.', 404);
     if (!inScope(scope, movement.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    const removeLocked = lockedMessage(await loadLocks(client, [movement.ownerId ?? null]), movement.ownerId ?? null, movement.movementDate ?? '');
+
+    if (removeLocked) return fail(removeLocked);
     // Soft delete: it can be restored from the deleted records.
     await client.mutation({ deleteStockMovement: { __args: { id }, id: true } });
 
@@ -475,6 +528,9 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     if (!inScope(scope, order.ownerId)) return json({ ...NOT_ALLOWED }, 403);
     if (order.status === 'CANCELLED' || order.status === 'RECEIVED') return fail('This order is already finished.');
     if (!isDate(body.date)) return fail('Pick the date the goods arrived.');
+    const receiveLocked = lockedMessage(await loadLocks(client, [order.ownerId]), order.ownerId, body.date);
+
+    if (receiveLocked) return fail(receiveLocked);
     const requestId = text(body.requestId, 64);
 
     if (await alreadySaved(client, requestId)) return json({ success: true, message: 'Already saved.' });
@@ -569,6 +625,41 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     }
 
     return fail('Unknown status.');
+  },
+
+  closeMonth: async (client, scope, body) => {
+    const ownerId = text(body.ownerId, 64);
+    const month = text(body.month, 7);
+
+    if (!ownerId) return fail('Pick a workspace first: each workspace closes its own months.');
+    if (!inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!/^\d{4}-\d{2}$/.test(month)) return fail('Pick a month.');
+    const end = monthEnd(month);
+
+    if (end >= todayIso()) return fail(`${monthName(end)} isn't over yet. Close it from the 1st of next month.`);
+    const locks = await loadLocks(client, [ownerId]);
+    const through = locks.get(ownerId);
+
+    if (through && through >= end) return json({ success: true, message: `${monthName(end)} is already closed.` });
+    await client.mutation({ updateOwner: { __args: { id: ownerId, data: { stockLockedThrough: end } }, id: true } });
+
+    return json({ success: true, message: `Closed up to ${monthName(end)}. Stock IN/OUT on or before ${end} is now locked.` });
+  },
+
+  reopenMonth: async (client, scope, body) => {
+    const ownerId = text(body.ownerId, 64);
+
+    if (!ownerId) return fail('Pick a workspace first.');
+    if (!inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    const through = (await loadLocks(client, [ownerId])).get(ownerId);
+
+    if (!through) return json({ success: true, message: 'No month is closed.' });
+    // Step back one month: the latest closed month opens again.
+    const previous = monthEnd(`${through.slice(0, 4)}-${through.slice(5, 7)}`.replace(/^(\d{4})-(\d{2})$/, (_, y, m) => (m === '01' ? `${Number(y) - 1}-12` : `${y}-${String(Number(m) - 1).padStart(2, '0')}`)));
+
+    await client.mutation({ updateOwner: { __args: { id: ownerId, data: { stockLockedThrough: previous } }, id: true } });
+
+    return json({ success: true, message: `${monthName(through)} is open again. Close it again when the corrections are done.` });
   },
 
   saveRule: async (client, scope, body) => {
