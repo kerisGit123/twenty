@@ -5,7 +5,7 @@ import { Sheet } from 'src/front-components/shared/sheet';
 import { stockAction } from 'src/front-components/shared/stock-forms';
 import { c, control, Field, input, primary, rm, select, small } from 'src/front-components/shared/stock-ui';
 import type { StockOwner } from 'src/logic-functions/utils/stock-data';
-import { type StockItem, toCartons } from 'src/shared/stock';
+import { cartonsToCover, type StockItem, type StockStatus, toCartons } from 'src/shared/stock';
 import type { StockOrder } from 'src/shared/stock-orders';
 
 // A new order, or a change to a draft order: pick the supplier, then the
@@ -22,6 +22,7 @@ export const OrderSheet = ({
   order,
   items,
   owners,
+  statuses,
   defaultOwnerId,
   today,
   onClose,
@@ -29,6 +30,7 @@ export const OrderSheet = ({
 }: {
   order: StockOrder | null;
   items: StockItem[];
+  statuses: StockStatus[];
   owners: StockOwner[];
   defaultOwnerId: string;
   today: string;
@@ -48,6 +50,8 @@ export const OrderSheet = ({
       : [{ key: 1, itemId: '', cartons: '' }],
   );
   const [busy, setBusy] = useState(false);
+  const [months, setMonths] = useState('1');
+  const [loaded, setLoaded] = useState('');
   // Only this supplier's products (and, when changing an order, what is already on it).
   const onOrder = new Set(order?.lines.map((l) => l.itemId) ?? []);
   const choosable = active.filter((i) => (i.ownerId === ownerId && supplierOf(i) === supplier) || onOrder.has(i.id));
@@ -55,6 +59,29 @@ export const OrderSheet = ({
   const estimate = filled.reduce((sum, l) => sum + toNumber(l.cartons) * (byId.get(l.itemId)?.cartonPrice ?? 0), 0);
   const ready = filled.length > 0 && !lines.some((l) => l.itemId && !(toNumber(l.cartons) > 0)) && isFullDate(date) && !!supplier;
   const setLine = (key: number, patch: Partial<DraftLine>) => setLines(lines.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+
+  // Add every product of this supplier that stock in hand + on order does not cover
+  // for the chosen number of months of next month's use, in whole cartons.
+  const loadNeeded = () => {
+    const want = toNumber(months) > 0 ? toNumber(months) : 1;
+    const next = [...lines.filter((l) => l.itemId)];
+    let count = 0;
+
+    for (const s of statuses) {
+      if (s.item.status === 'DISCONTINUED' || s.item.ownerId !== ownerId || supplierOf(s.item) !== supplier) continue;
+      const own = order?.lines.find((l) => l.itemId === s.item.id)?.orderedUnits ?? 0;
+      const cartons = cartonsToCover(s, want, own);
+
+      if (cartons <= 0) continue;
+      count += 1;
+      const at = next.findIndex((l) => l.itemId === s.item.id);
+
+      if (at >= 0) next[at] = { ...next[at], cartons: String(cartons) };
+      else next.push({ key: Math.max(0, ...next.map((x) => x.key), ...lines.map((x) => x.key)) + 1, itemId: s.item.id, cartons: String(cartons) });
+    }
+    setLines(next.length ? next : [{ key: 1, itemId: '', cartons: '' }]);
+    setLoaded(count ? `Loaded ${count} product${count === 1 ? '' : 's'} for ${want} month${want === 1 ? '' : 's'} of use. Change any quantity.` : `Nothing to load: stock in hand and on order already cover ${want} month${want === 1 ? '' : 's'} for this supplier.`);
+  };
 
   const save = async () => {
     setBusy(true);
@@ -117,6 +144,19 @@ export const OrderSheet = ({
         <Field label="Ordered on">
           <input type="date" value={date} onChange={(e) => setDate(readValue(e))} style={{ ...input, width: 170, borderColor: isFullDate(date) ? undefined : 'var(--t-color-red9)' }} />
         </Field>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 10, border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg2 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
+            <span>Load what needs ordering: cover</span>
+            <input value={months} onChange={(e) => setMonths(readValue(e))} inputMode="decimal" style={{ ...input, width: 56, height: 30, textAlign: 'right' }} />
+            <span>month(s) of next month&apos;s use</span>
+            <button onClick={loadNeeded} style={{ ...small, height: 30, fontWeight: 600 }}>
+              Load products
+            </button>
+          </div>
+          <span style={{ fontSize: 12, color: loaded.startsWith('Nothing') ? 'var(--t-color-amber11)' : c.text3 }}>
+            {loaded || 'Whole cartons: next month’s need ÷ units per carton, rounded up, less what is in hand and on order. Example: 16 bag a month, 8 per carton → 2 ctn.'}
+          </span>
+        </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: `1px solid ${c.border}`, paddingTop: 10 }}>
           {lines.map((l) => {
             const item = byId.get(l.itemId);

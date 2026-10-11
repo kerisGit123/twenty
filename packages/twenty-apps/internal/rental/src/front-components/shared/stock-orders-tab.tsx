@@ -4,7 +4,7 @@ import { readValue } from 'src/front-components/shared/read-value';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { stockAction } from 'src/front-components/shared/stock-forms';
 import { c, Chip, control, ExcelButton, input, PriceNote, primary, rm, shortDate, small, withOwner } from 'src/front-components/shared/stock-ui';
-import { cartonsAndUnits, type StockItem, type StockMovement, toCartons } from 'src/shared/stock';
+import { cartonsAndUnits, type StockItem, type StockMovement, type StockStatus, toCartons } from 'src/shared/stock';
 import { normalizePhone, orderAttention, orderWhatsappText } from 'src/shared/stock-orders';
 import { OrderSheet } from 'src/front-components/shared/stock-order-sheet';
 import type { StockOwner } from 'src/logic-functions/utils/stock-data';
@@ -254,6 +254,7 @@ export const OrdersTab = ({
   lastPaid,
   ownerName,
   owners,
+  statuses,
   leadDaysOf,
   today,
   ownerId,
@@ -265,6 +266,7 @@ export const OrdersTab = ({
   lastPaid: Map<string, number>;
   ownerName: (ownerId: string | null) => string;
   owners: StockOwner[];
+  statuses: StockStatus[];
   leadDaysOf: (ownerId: string | null) => number;
   today: string;
   ownerId: string;
@@ -311,6 +313,7 @@ export const OrdersTab = ({
           order={editing}
           items={items}
           owners={owners}
+          statuses={statuses}
           defaultOwnerId={ownerId}
           today={today}
           onClose={() => setEditing(undefined)}

@@ -159,7 +159,16 @@ export const OrderTab = ({
                         )}
                       </td>
                       <td style={{ ...right, color: s.onOrder ? 'var(--t-color-blue11)' : c.text3, fontWeight: s.onOrder ? 600 : 400 }}>{s.onOrder ? cartonsAndUnits(s.onOrder, s.item) : '—'}</td>
-                      <td style={{ ...right, color: c.text3 }}>{s.suggestedCartons ? `${s.suggestedCartons} ctn` : '—'}</td>
+                      <td
+                        style={{ ...right, color: c.text3 }}
+                        title={
+                          s.suggestedCartons
+                            ? `${qty(s.forecast)} ${s.item.unit} a month × ${s.coverMonths} months = ${qty(s.forecast * s.coverMonths)}; minus ${qty(Math.max(s.balance, 0))} in hand and ${qty(s.onOrder)} on order = ${qty(s.shortUnits)} ${s.item.unit}; ÷ ${s.item.unitsPerCarton} per carton, rounded up = ${s.suggestedCartons} ctn`
+                            : 'Nothing to suggest: enough in hand or already on order'
+                        }
+                      >
+                        {s.suggestedCartons ? `${s.suggestedCartons} ctn` : '—'}
+                      </td>
                       <td style={{ ...right, background: ORDER_BG }}>
                         <input
                           value={edits[s.item.id] ?? (s.suggestedCartons ? String(s.suggestedCartons) : '')}
@@ -198,7 +207,7 @@ export const OrderTab = ({
         </button>
       </div>
       <span style={{ fontSize: 12, color: c.text3 }}>
-        Need next month = average of the last 3 months with take-outs. Suggested = enough for the “order enough for” months, in whole cartons, minus what is already on order. Type your own number to change it, then “Save as order”; receive it on the Orders tab.
+        Need next month = average of the last 3 months with take-outs. Suggested = next month’s need × the “order enough for” months (set with “Change rule”), minus what is in hand and already on order, rounded up to whole cartons. Example: needs 16 bag a month, rule 2.5 months → 40 bag, none in hand → 40 ÷ 8 per carton = 5 ctn. Hover a suggestion to see its sum. Type your own number to change it, then “Save as order”; receive it on the Orders tab.
       </span>
     </>
   );

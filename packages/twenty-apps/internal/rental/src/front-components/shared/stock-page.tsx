@@ -316,7 +316,7 @@ export const StockPage = () => {
                 onChanged={refresh}
               />
             ) : null}
-            {tab === 'orders' ? <OrdersTab orders={orders} items={items} movements={movements} lastPaid={lastPaid} ownerName={ownerName} owners={data.owners} leadDaysOf={(id) => ruleOf(id).leadDays ?? 0} today={today} ownerId={ownerId} onChanged={refresh} /> : null}
+            {tab === 'orders' ? <OrdersTab orders={orders} items={items} movements={movements} lastPaid={lastPaid} ownerName={ownerName} owners={data.owners} statuses={statuses} leadDaysOf={(id) => ruleOf(id).leadDays ?? 0} today={today} ownerId={ownerId} onChanged={refresh} /> : null}
             {tab === 'monthend' ? (
               <MonthEndTab items={items} movementsByItem={byItem} owner={owner} canClose={!!owner?.canManage} today={today} onStockTake={(date) => setOpen({ kind: 'take', date })} onChanged={refresh} />
             ) : null}

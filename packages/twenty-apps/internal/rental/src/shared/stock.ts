@@ -247,6 +247,8 @@ export type StockStatus = {
   monthsLeft: number | null; // null when nothing is being used
   reorderBelow: number;
   flag: StockFlag;
+  coverMonths: number; // months of use the suggestion brings the item up to
+  shortUnits: number; // units short of that (before rounding up to cartons)
   suggestedUnits: number;
   suggestedCartons: number;
   suggestedCost: number;
@@ -300,6 +302,8 @@ export const stockStatus = (item: StockItem, movements: StockMovement[], rule: S
     monthsLeft,
     reorderBelow,
     flag,
+    coverMonths: round(Math.max(rule.orderUpTo + lead, reorderBelow), 2),
+    shortUnits: round(shortBy, 2),
     suggestedUnits: suggestedCartons * per,
     suggestedCartons,
     suggestedCost: round(suggestedCartons * item.cartonPrice, 2),
@@ -309,6 +313,18 @@ export const stockStatus = (item: StockItem, movements: StockMovement[], rule: S
     ),
     onOrder: round(onOrder),
   };
+};
+
+// Whole cartons to order so that stock in hand plus what is already on order
+// covers `months` of next month's use. E.g. use 16 a month, 8 per carton,
+// nothing in hand: 16 / 8 = 2 cartons. `ownUnits` is a draft being changed:
+// its own quantity must not count as already ordered.
+export const cartonsToCover = (s: Pick<StockStatus, 'item' | 'balance' | 'onOrder' | 'forecast'>, months: number, ownUnits = 0) => {
+  const per = s.item.unitsPerCarton || 1;
+  const have = Math.max(s.balance, 0) + Math.max(0, s.onOrder - ownUnits);
+  const short = s.forecast * months - have;
+
+  return short > 0 ? Math.ceil(round(short / per, 4)) : 0;
 };
 
 export type MonthRow = {
