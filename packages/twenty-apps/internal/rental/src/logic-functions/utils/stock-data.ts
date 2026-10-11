@@ -3,6 +3,7 @@ import { type CoreApiClient } from 'twenty-client-sdk/core';
 import { queryAll } from 'src/logic-functions/utils/query-all';
 import { canManage, inScope, type Scope } from 'src/logic-functions/utils/scope';
 import { averageUnitCost, DEFAULT_RULE, type StockItem, type StockMovement, type StockRule } from 'src/shared/stock';
+import { parseRequestLines, type StockRequest } from 'src/shared/stock-requests';
 import { parseOrderLines, type StockOrder } from 'src/shared/stock-orders';
 
 // Stock items, their movements and each workspace's reorder rule, limited to
@@ -12,7 +13,42 @@ import { parseOrderLines, type StockOrder } from 'src/shared/stock-orders';
 // canManage: may edit items, remove lines, close months (admins and the workspace's hosts).
 export type StockOwner = { id: string; name: string; rule: StockRule; lockedThrough: string | null; canManage: boolean };
 
-export type StockData = { items: StockItem[]; movements: StockMovement[]; owners: StockOwner[]; orders: StockOrder[] };
+export type StockData = { items: StockItem[]; movements: StockMovement[]; owners: StockOwner[]; orders: StockOrder[]; requests: StockRequest[] };
+
+type RequestNode = {
+  id: string;
+  requestNumber?: string | null;
+  branch?: string | null;
+  requestDate?: string | null;
+  status?: string | null;
+  notes?: string | null;
+  requestedBy?: string | null;
+  issuedOn?: string | null;
+  issuedBy?: string | null;
+  receivedOn?: string | null;
+  receivedBy?: string | null;
+  ownerId?: string | null;
+  lines?: unknown;
+};
+
+export const REQUEST_FIELDS = { id: true, requestNumber: true, branch: true, requestDate: true, status: true, notes: true, requestedBy: true, issuedOn: true, issuedBy: true, receivedOn: true, receivedBy: true, ownerId: true, lines: true };
+
+export const toStockRequest = (node: RequestNode): StockRequest => ({
+  id: node.id,
+  number: node.requestNumber ?? '',
+  branch: node.branch ?? '',
+  date: node.requestDate ?? '',
+  status: node.status ?? 'REQUESTED',
+  // "req:<id>" lines are retry markers, not notes.
+  notes: (node.notes ?? '').split('\n').filter((line) => !line.startsWith('req:')).join('\n'),
+  requestedBy: node.requestedBy ?? '',
+  issuedOn: node.issuedOn ?? null,
+  issuedBy: node.issuedBy ?? '',
+  receivedOn: node.receivedOn ?? null,
+  receivedBy: node.receivedBy ?? '',
+  ownerId: node.ownerId ?? null,
+  lines: parseRequestLines(node.lines),
+});
 
 type OrderNode = {
   id: string;
@@ -162,11 +198,12 @@ export const loadMovementsOf = async (client: CoreApiClient, itemIds: string[]) 
     : [];
 
 export const loadStockData = async (client: CoreApiClient, scope: Scope): Promise<StockData> => {
-  const [items, movements, owners, orders] = await Promise.all([
+  const [items, movements, owners, orders, requests] = await Promise.all([
     queryAll<ItemNode>(client, 'stockItems', { orderBy: [{ code: 'AscNullsLast' }] }, ITEM_FIELDS),
     queryAll<MovementNode>(client, 'stockMovements', { orderBy: [{ movementDate: 'AscNullsLast' }] }, MOVEMENT_FIELDS),
     queryAll<OwnerNode>(client, 'owners', { orderBy: [{ name: 'AscNullsLast' }] }, { id: true, name: true, stockReorderBelowMonths: true, stockOrderUpToMonths: true, stockLockedThrough: true, stockLeadDays: true }),
     queryAll<OrderNode>(client, 'stockOrders', { orderBy: [{ orderDate: 'DescNullsLast' }] }, ORDER_FIELDS),
+    queryAll<RequestNode>(client, 'stockRequests', { orderBy: [{ requestDate: 'DescNullsLast' }] }, REQUEST_FIELDS),
   ]);
 
   const allMovements = movements.map(toStockMovement);
@@ -181,6 +218,7 @@ export const loadStockData = async (client: CoreApiClient, scope: Scope): Promis
       .map((item) => ({ ...item, avgUnitCost: averageUnitCost(byItem.get(item.id) ?? []) })),
     movements: movements.map(toStockMovement).filter((m) => m.itemId && m.date && inScope(scope, m.ownerId)),
     orders: orders.map(toStockOrder).filter((o) => inScope(scope, o.ownerId)),
+    requests: requests.map(toStockRequest).filter((r) => inScope(scope, r.ownerId)),
     owners: owners
       .filter((owner) => inScope(scope, owner.id))
       .map((owner) => ({

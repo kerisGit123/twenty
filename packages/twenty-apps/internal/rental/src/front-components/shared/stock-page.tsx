@@ -12,9 +12,11 @@ import { OrdersTab } from 'src/front-components/shared/stock-orders-tab';
 import { MonthEndTab } from 'src/front-components/shared/stock-monthend-tab';
 import { ExpiredSheet, QuickSheet } from 'src/front-components/shared/stock-quick';
 import { onOrderUnits } from 'src/shared/stock-orders';
+import { requestCounts, type StockRequest } from 'src/shared/stock-requests';
 import { BorrowTab } from 'src/front-components/shared/stock-borrow-tab';
 import { HistoryTab } from 'src/front-components/shared/stock-history-tab';
 import { ImportSheet } from 'src/front-components/shared/stock-import-sheet';
+import { IssueSheet, ReceiveRequestSheet, RequestSheet, RequestsTab, SettleRequestSheet } from 'src/front-components/shared/stock-requests-tab';
 import { c, control, primary } from 'src/front-components/shared/stock-ui';
 import type { StockData } from 'src/logic-functions/utils/stock-data';
 import { todayIso } from 'src/logic-functions/utils/dates';
@@ -24,7 +26,7 @@ import { balanceOf, DEFAULT_RULE, groupMovements, type StockItem, type StockMove
 // monthly restock sheet, the forecast and order plan, and stock lent to
 // other branches.
 
-type Tab = 'stock' | 'movements' | 'month' | 'order' | 'orders' | 'borrowed' | 'monthend';
+type Tab = 'stock' | 'movements' | 'month' | 'order' | 'orders' | 'requests' | 'borrowed' | 'monthend';
 
 type Open =
   | { kind: 'item'; item: StockItem | null }
@@ -34,6 +36,10 @@ type Open =
   | { kind: 'take'; date?: string }
   | { kind: 'quick' }
   | { kind: 'import' }
+  | { kind: 'request'; request: StockRequest | null }
+  | { kind: 'issue'; request: StockRequest }
+  | { kind: 'receiveRequest'; request: StockRequest }
+  | { kind: 'settleRequest'; request: StockRequest }
   | { kind: 'expired' }
   | { kind: 'rule' }
   | { kind: 'writeOff'; item: StockItem; message: string }
@@ -45,6 +51,7 @@ const TABS: Array<{ key: Tab; label: string }> = [
   { key: 'month', label: 'Monthly sheet' },
   { key: 'order', label: 'Forecast & order' },
   { key: 'orders', label: 'Orders' },
+  { key: 'requests', label: 'Branch requests' },
   { key: 'borrowed', label: 'Borrowed' },
   { key: 'monthend', label: 'Month end' },
 ];
@@ -92,6 +99,12 @@ export const StockPage = () => {
   const balances = useMemo(() => new Map(items.map((i) => [i.id, balanceOf(byItem.get(i.id) ?? [])])), [items, byItem]);
   const ruleOf = useCallback((ownerOf: string | null) => data?.owners.find((o) => o.id === ownerOf)?.rule ?? DEFAULT_RULE, [data]);
   const orders = useMemo(() => (data?.orders ?? []).filter((o) => !ownerId || o.ownerId === ownerId), [data, ownerId]);
+  const requests = useMemo(() => (data?.requests ?? []).filter((r) => !ownerId || r.ownerId === ownerId), [data, ownerId]);
+  const requestCount = useMemo(() => {
+    const n = requestCounts(requests);
+
+    return n.toIssue + n.toConfirm + n.short;
+  }, [requests]);
   // Units ordered from suppliers and not yet arrived, per item.
   const onOrder = useMemo(() => onOrderUnits(orders, movements), [orders, movements]);
   const statuses = useMemo(
@@ -157,6 +170,12 @@ export const StockPage = () => {
 
       return item ? <SettleSheet borrow={open.borrow} item={item} items={activeItems} today={today} onClose={() => setOpen(null)} onDone={done} /> : null;
     }
+    if (open.kind === 'request') {
+      return <RequestSheet request={open.request} items={activeItems} balances={balances} owners={data.owners} defaultOwnerId={ownerId} onClose={() => setOpen(null)} onDone={done} />;
+    }
+    if (open.kind === 'issue') return <IssueSheet request={open.request} items={items} balances={balances} today={today} onClose={() => setOpen(null)} onDone={done} />;
+    if (open.kind === 'receiveRequest') return <ReceiveRequestSheet request={open.request} items={items} today={today} onClose={() => setOpen(null)} onDone={done} />;
+    if (open.kind === 'settleRequest') return <SettleRequestSheet request={open.request} items={items} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'import') return <ImportSheet owners={data.owners.filter((o) => o.canManage)} defaultOwnerId={ownerId} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'quick') return <QuickSheet items={activeItems} balances={balances} movements={movements} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'expired') {
@@ -229,6 +248,7 @@ export const StockPage = () => {
               }}
             >
               {t.label}
+              {t.key === 'requests' && requestCount ? ` (${requestCount})` : ''}
               {t.key === 'borrowed' && movements.some((m) => m.type === 'BORROW' && (m.borrowStatus ?? 'OUTSTANDING') === 'OUTSTANDING') ? ' •' : ''}
             </button>
           ))}
@@ -264,6 +284,19 @@ export const StockPage = () => {
                   refresh();
                   setTab('orders');
                 }}
+              />
+            ) : null}
+            {tab === 'requests' ? (
+              <RequestsTab
+                requests={requests}
+                items={items}
+                mayManage={mayManage}
+                onNew={() => setOpen({ kind: 'request', request: null })}
+                onEdit={(request) => setOpen({ kind: 'request', request })}
+                onIssue={(request) => setOpen({ kind: 'issue', request })}
+                onReceive={(request) => setOpen({ kind: 'receiveRequest', request })}
+                onSettle={(request) => setOpen({ kind: 'settleRequest', request })}
+                onChanged={refresh}
               />
             ) : null}
             {tab === 'orders' ? <OrdersTab orders={orders} items={items} movements={movements} today={today} ownerId={ownerId} onChanged={refresh} /> : null}

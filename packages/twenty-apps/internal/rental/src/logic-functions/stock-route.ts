@@ -7,7 +7,8 @@ import { appClient } from 'src/logic-functions/utils/app-client';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { canManage, inScope, NOT_ALLOWED, resolveScope, type Scope } from 'src/logic-functions/utils/scope';
 import { queryAll } from 'src/logic-functions/utils/query-all';
-import { ITEM_FIELDS, loadItemMovements, loadMovementsOf, loadStockData, ORDER_FIELDS, toStockItem, toStockMovement, toStockOrder } from 'src/logic-functions/utils/stock-data';
+import { ITEM_FIELDS, loadItemMovements, loadMovementsOf, loadStockData, ORDER_FIELDS, REQUEST_FIELDS, toStockItem, toStockMovement, toStockOrder, toStockRequest } from 'src/logic-functions/utils/stock-data';
+import { shortUnits, type StockRequest, unresolvedShort } from 'src/shared/stock-requests';
 import { orderProgress, orderStatusFor, type OrderLine, type StockOrder } from 'src/shared/stock-orders';
 import { balanceOf, cartonsAndUnits, groupMovements, type StockItem, unitPrice } from 'src/shared/stock';
 import { stockAlerts } from 'src/shared/stock-alerts';
@@ -20,6 +21,11 @@ import { movementType, STOCK_GROUPS, WASTE_REASONS } from 'src/shared/stock-type
 //   data                         items, movements, workspace rules
 //   alerts                       per workspace: items to order, expired, expiring soon, late orders
 //   readCounts    { ownerId?, fileBase64 }          counts from a filled-in count sheet (Excel)
+//   saveRequest   { id?, branch, notes, lines: [{ itemId, units }] }   a branch asks for stock
+//   issueRequest  { id, date, lines: [{ itemId, issuedUnits }] }     the warehouse sends it (take-outs)
+//   receiveRequest { id, date, lines: [{ itemId, receivedUnits }] }  the branch counts what arrived
+//   resolveShort  { id, how: RETURN | WRITE_OFF, date }              settle a shortage (host / admin)
+//   cancelRequest { id }
 //   importExcel   { ownerId, fileBase64, apply?, mode, openingDate | closingDate, includeOrder, includeTakes, updateDetails }
 //   saveItem      item fields (+ openingUnits on a new item)
 //   setStatus     { itemId, status, writeOff? }    discontinue / reactivate
@@ -230,6 +236,26 @@ const nextOrderNumber = async (client: CoreApiClient, year: string) => {
 
 const saveOrderFields = async (client: CoreApiClient, order: StockOrder, data: Record<string, unknown>) => {
   await client.mutation({ updateStockOrder: { __args: { id: order.id, data: data as never }, id: true } });
+};
+
+
+// ---------------------------------------------------------------- branch requests
+
+const loadRequest = async (client: CoreApiClient, requestId: string): Promise<StockRequest | null> => {
+  const { stockRequests } = (await client.query({ stockRequests: { __args: { filter: { id: { eq: requestId } }, first: 1 }, edges: { node: REQUEST_FIELDS } } } as never)) as {
+    stockRequests?: { edges?: Array<{ node: Parameters<typeof toStockRequest>[0] }> };
+  };
+  const node = stockRequests?.edges?.[0]?.node;
+
+  return node ? toStockRequest(node) : null;
+};
+
+// REQ-2026-0001: the next number this year.
+const nextRequestNumber = async (client: CoreApiClient, year: string) => {
+  const rows = await queryAll<{ requestNumber?: string | null }>(client, 'stockRequests', { filter: { requestNumber: { like: `REQ-${year}-%` } } }, { requestNumber: true });
+  const highest = rows.reduce((max, r) => Math.max(max, Number((r.requestNumber ?? '').split('-')[2]) || 0), 0);
+
+  return `REQ-${year}-${String(highest + 1).padStart(4, '0')}`;
 };
 
 // ---------------------------------------------------------------- month-end lock
@@ -483,6 +509,204 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     if (!found) return fail('This is not a count sheet. It needs the "Item code", "Counted (ctn)" and "Counted (loose units)" columns: download the count sheet from the Stock take screen.');
 
     return json({ success: true, counts, unmatched, message: counts.length ? 'Read ' + counts.length + ' counted product' + (counts.length === 1 ? '' : 's') + (unmatched.length ? ', ' + unmatched.length + ' not recognised' : '') + '. Check them, then save.' : 'No counts found: fill in the "Counted" columns first.' });
+  },
+
+  // ---- branch requests: ask → issue (take-out) → confirm what arrived → resolve a shortage
+
+  saveRequest: async (client, scope, body) => {
+    const merged = new Map<string, number>();
+
+    for (const l of Array.isArray(body.lines) ? (body.lines as Json[]) : []) {
+      const itemId = text(l.itemId, 64);
+
+      if (itemId && num(l.units) > 0) merged.set(itemId, Math.round(((merged.get(itemId) ?? 0) + num(l.units)) * 100) / 100);
+    }
+    if (!merged.size) return fail('Put at least one item on the request.');
+    const items = await loadItems(client, [...merged.keys()]);
+    let ownerId: string | null = null;
+
+    for (const itemId of merged.keys()) {
+      const item = items.get(itemId);
+
+      if (!item) return fail('One of the items no longer exists.', 404);
+      if (!inScope(scope, item.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+      if (ownerId && item.ownerId !== ownerId) return fail('A request is for one workspace: remove the items that belong to another.');
+      ownerId = item.ownerId;
+    }
+    const lines = [...merged].map(([itemId, requestedUnits]) => ({ itemId, requestedUnits }));
+    const branch = text(body.branch, 80) || 'Wawa';
+    const notes = text(body.notes, 500);
+
+    if (body.id) {
+      const request = await loadRequest(client, text(body.id, 64));
+
+      if (!request) return fail('Request not found.', 404);
+      if (!inScope(scope, request.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+      if (request.status !== 'REQUESTED') return fail('Only a request that has not been issued can be changed.');
+      await client.mutation({ updateStockRequest: { __args: { id: request.id, data: { lines: lines as never, branch, notes, name: request.number + ' · ' + branch } }, id: true } });
+
+      return json({ success: true, message: request.number + ' updated.' });
+    }
+    const requestId = text(body.requestId, 64);
+
+    if (requestId) {
+      const { stockRequests } = await client.query({ stockRequests: { __args: { filter: { notes: { like: '%req:' + requestId + '%' } }, first: 1 }, edges: { node: { id: true } } } });
+
+      if (stockRequests?.edges?.length) return json({ success: true, message: 'Request already saved.' });
+    }
+    const date = todayIso();
+    const number = await nextRequestNumber(client, date.slice(0, 4));
+
+    await client.mutation({
+      createStockRequest: {
+        __args: {
+          data: {
+            name: number + ' · ' + branch,
+            requestNumber: number,
+            branch,
+            requestDate: date,
+            status: 'REQUESTED' as never,
+            lines: lines as never,
+            notes: [notes, requestId ? 'req:' + requestId : ''].filter(Boolean).join('\n'),
+            requestedBy: actorOf.get(client) ?? '',
+            ownerId,
+          },
+        },
+        id: true,
+      },
+    });
+
+    return json({ success: true, message: number + ' saved. The warehouse issues it from the Branch requests tab.' });
+  },
+
+  // The warehouse sends the stock: each line becomes a take-out to the branch.
+  issueRequest: async (client, scope, body) => {
+    const request = await loadRequest(client, text(body.id, 64));
+
+    if (!request) return fail('Request not found.', 404);
+    if (!inScope(scope, request.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (request.status !== 'REQUESTED') return fail('This request was already issued or cancelled. Reload the page.');
+    const date = isDate(body.date) ? body.date : todayIso();
+    const given = new Map((Array.isArray(body.lines) ? (body.lines as Json[]) : []).map((l) => [text(l.itemId, 64), num(l.issuedUnits)]));
+    const lines = request.lines.map((l) => {
+      const units = given.has(l.itemId) ? (given.get(l.itemId) as number) : l.requestedUnits;
+
+      return { ...l, issuedUnits: Number.isFinite(units) && units > 0 ? Math.round(units * 100) / 100 : 0 };
+    });
+
+    if (!lines.some((l) => (l.issuedUnits ?? 0) > 0)) return fail('Issue at least one item, or cancel the request.');
+    const items = await loadItems(client, lines.map((l) => l.itemId));
+
+    if ([...items.values()].some((item) => !inScope(scope, item.ownerId))) return json({ ...NOT_ALLOWED }, 403);
+    const locked = lockedMessage(await loadLocks(client, [request.ownerId]), request.ownerId, date);
+
+    if (locked) return fail(locked);
+    const requestId = text(body.requestId, 64);
+
+    // A retried save: the take-outs exist already, only the status may be missing.
+    if (!(await alreadySaved(client, requestId))) {
+      await createMovements(
+        client,
+        lines
+          .filter((l) => (l.issuedUnits ?? 0) > 0 && items.has(l.itemId))
+          .map((l) => ({ item: items.get(l.itemId) as StockItem, data: { date, type: 'TAKE', quantity: l.issuedUnits as number, party: request.branch, reference: request.number, notes: 'Branch request', batchId: requestId || null } })),
+      );
+    }
+    await client.mutation({ updateStockRequest: { __args: { id: request.id, data: { status: 'ISSUED' as never, lines: lines as never, issuedOn: date, issuedBy: actorOf.get(client) ?? '' } }, id: true } });
+    const count = lines.filter((l) => (l.issuedUnits ?? 0) > 0).length;
+
+    return json({ success: true, message: 'Issued ' + count + ' item' + (count === 1 ? '' : 's') + ' to ' + request.branch + '. They confirm what arrived on the Branch requests tab.' });
+  },
+
+  // The branch counts what arrived. Less than issued makes the request "short".
+  receiveRequest: async (client, scope, body) => {
+    const request = await loadRequest(client, text(body.id, 64));
+
+    if (!request) return fail('Request not found.', 404);
+    if (!inScope(scope, request.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (request.status !== 'ISSUED') return fail('This delivery was already confirmed, or has not been issued yet. Reload the page.');
+    const items = await loadItems(client, request.lines.map((l) => l.itemId));
+    const got = new Map((Array.isArray(body.lines) ? (body.lines as Json[]) : []).map((l) => [text(l.itemId, 64), num(l.receivedUnits)]));
+    const lines: typeof request.lines = [];
+
+    for (const l of request.lines) {
+      if (!((l.issuedUnits ?? 0) > 0)) {
+        lines.push(l);
+        continue;
+      }
+      const units = got.has(l.itemId) ? (got.get(l.itemId) as number) : (l.issuedUnits as number);
+
+      if (!(Number.isFinite(units) && units >= 0)) return fail('Type how many arrived (0 if none).');
+      if (units > (l.issuedUnits as number) + 0.001) return fail((items.get(l.itemId)?.name ?? 'An item') + ': more arrived than was issued (' + l.issuedUnits + '). Ask the warehouse to correct what they issued.');
+      lines.push({ ...l, receivedUnits: Math.round(units * 100) / 100 });
+    }
+    const short = lines.filter((l) => shortUnits(l) > 0);
+
+    await client.mutation({
+      updateStockRequest: { __args: { id: request.id, data: { status: (short.length ? 'SHORT' : 'RECEIVED') as never, lines: lines as never, receivedOn: isDate(body.date) ? body.date : todayIso(), receivedBy: actorOf.get(client) ?? '' } }, id: true },
+    });
+
+    return json({
+      success: true,
+      message: short.length ? 'Saved: ' + short.length + ' item' + (short.length === 1 ? ' is' : 's are') + ' short. A manager puts them back in stock or writes them off.' : 'Delivery confirmed: everything arrived.',
+    });
+  },
+
+  // A manager settles a shortage: back into stock, or written off as lost.
+  resolveShort: async (client, scope, body) => {
+    const request = await loadRequest(client, text(body.id, 64));
+
+    if (!request) return fail('Request not found.', 404);
+    if (!inScope(scope, request.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!canManage(scope, request.ownerId)) return fail("Only an admin or this workspace's host can settle a short delivery.", 403);
+    if (request.status !== 'SHORT') return fail('Nothing short to settle on this request.');
+    const how = body.how === 'WRITE_OFF' ? 'WRITE_OFF' : 'RETURN';
+    const date = isDate(body.date) ? body.date : todayIso();
+    const locked = lockedMessage(await loadLocks(client, [request.ownerId]), request.ownerId, date);
+
+    if (locked) return fail(locked);
+    const pending = unresolvedShort(request);
+    const items = await loadItems(client, pending.map((l) => l.itemId));
+    const requestId = text(body.requestId, 64);
+
+    if (!(await alreadySaved(client, requestId))) {
+      await createMovements(
+        client,
+        pending
+          .filter((l) => items.has(l.itemId))
+          .flatMap((l) => {
+            const item = items.get(l.itemId) as StockItem;
+            const units = shortUnits(l);
+            const common = { date, quantity: units, party: request.branch, reference: request.number, batchId: requestId || null };
+
+            // The short units are not at the branch, so they come back into the warehouse count.
+            if (how === 'RETURN') return [{ item, data: { ...common, type: 'RETURN', notes: 'Short delivery ' + request.number + ': not received by ' + request.branch + ', put back in stock' } }];
+
+            // Lost on the way: they already left the warehouse when issued, so the count must not
+            // drop twice. Bring them back, then write the same units off, so the loss is on record.
+            return [
+              { item, data: { ...common, type: 'RETURN', notes: 'Short delivery ' + request.number + ': not received by ' + request.branch + ' (undoes that part of the take-out)' } },
+              { item, data: { ...common, type: 'WASTE', reason: 'LOST', notes: 'Short delivery ' + request.number + ': lost on the way to ' + request.branch } },
+            ];
+          }),
+      );
+    }
+    const lines = request.lines.map((l) => (shortUnits(l) > 0 && !l.resolved ? { ...l, resolved: (how === 'RETURN' ? 'RETURNED' : 'WRITTEN_OFF') as 'RETURNED' | 'WRITTEN_OFF' } : l));
+
+    await client.mutation({ updateStockRequest: { __args: { id: request.id, data: { status: 'RECEIVED' as never, lines: lines as never } }, id: true } });
+
+    return json({ success: true, message: how === 'RETURN' ? 'Put back in stock.' : 'Written off as lost. The warehouse count stays as it is (the stock left when it was issued); the loss shows under "Where the loss went".' });
+  },
+
+  cancelRequest: async (client, scope, body) => {
+    const request = await loadRequest(client, text(body.id, 64));
+
+    if (!request) return fail('Request not found.', 404);
+    if (!inScope(scope, request.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (request.status !== 'REQUESTED') return fail('Only a request that has not been issued can be cancelled.');
+    await client.mutation({ updateStockRequest: { __args: { id: request.id, data: { status: 'CANCELLED' as never } }, id: true } });
+
+    return json({ success: true, message: request.number + ' cancelled.' });
   },
 
   saveItem: async (client, scope, body) => {

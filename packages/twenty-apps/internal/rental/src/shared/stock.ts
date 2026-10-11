@@ -191,7 +191,7 @@ export const expiringStock = (movements: StockMovement[], balance: number, today
   return { units: round(units), earliest };
 };
 
-const REASON_CODES = ['EXPIRED', 'DAMAGED', 'STAFF_MEAL', 'SAMPLE', 'WRONG_ORDER', 'OTHER', 'DISCONTINUED', 'COUNT'];
+const REASON_CODES = ['EXPIRED', 'DAMAGED', 'STAFF_MEAL', 'SAMPLE', 'WRONG_ORDER', 'OTHER', 'DISCONTINUED', 'COUNT', 'LOST'];
 
 // Why a movement lost stock, or null when it is not waste or a count shortfall.
 // Older lines have no reason: it is read from the words typed with them.

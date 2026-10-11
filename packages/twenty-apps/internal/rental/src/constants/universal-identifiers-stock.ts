@@ -94,3 +94,25 @@ export const OWNER_STOCK_LEAD_DAYS_FIELD_ID = '9a522971-3269-44bd-a296-bc2b84a1f
 
 // Why stock was thrown away (waste) or went missing (count short).
 export const STOCK_MOVEMENT_REASON_FIELD_ID = 'aa255e79-0d42-4204-a958-91c54c7419b1';
+
+// Branch requests: the retail branch (Wawa) asks the warehouse for stock; the
+// warehouse issues it (a take-out), the branch confirms what arrived, and a
+// short delivery is resolved (put back in stock, or written off as lost).
+export const STOCK_REQUEST_OBJECT_ID = 'ab2a1d12-20b4-4a0e-9894-73aa5809b90b';
+export const STOCK_REQUEST_NAME_FIELD_ID = 'dbb1e7b6-9102-49d6-80f9-8fff3f1eafed';
+export const STOCK_REQUEST_NUMBER_FIELD_ID = '41f75ca8-2f31-4b10-96af-90b0586936c4';
+export const STOCK_REQUEST_BRANCH_FIELD_ID = '13ef23d5-7a64-48bf-a2c3-596bc547d019';
+export const STOCK_REQUEST_DATE_FIELD_ID = 'f62690ae-3e79-45a4-bd3a-582265c9c241';
+export const STOCK_REQUEST_STATUS_FIELD_ID = '3854355c-72d0-4141-8a42-b0a919faef3d';
+export const STOCK_REQUEST_LINES_FIELD_ID = '9d406ce4-0282-411b-83d5-cc5f5b17e950';
+export const STOCK_REQUEST_NOTES_FIELD_ID = '8e338223-45a1-41a1-a39f-c1f731826962';
+export const STOCK_REQUEST_REQUESTED_BY_FIELD_ID = '2a7ca807-20e5-488a-b264-62aa39bc2f66';
+export const STOCK_REQUEST_ISSUED_ON_FIELD_ID = '0ccee9cb-20b1-4a88-84fb-956958127e32';
+export const STOCK_REQUEST_ISSUED_BY_FIELD_ID = 'cf390bec-f936-4212-90e5-920fca9bbed2';
+export const STOCK_REQUEST_RECEIVED_ON_FIELD_ID = '3bf585d0-dbe3-4842-a05a-7af6589f63e4';
+export const STOCK_REQUEST_RECEIVED_BY_FIELD_ID = '80715df1-46cc-4b30-9011-b797a6f457a6';
+export const STOCK_REQUEST_OWNER_FIELD_ID = 'dd118d3c-e356-4246-a403-641f9f5802de';
+export const OWNER_STOCK_REQUESTS_FIELD_ID = 'e9d81f24-6b45-45bb-be86-f7cf51dfd8bb';
+export const STOCK_REQUEST_STATUS_OPTION_IDS = [
+  '724a718a-d701-4294-a70a-a85054acb12a', 'da63739a-3316-472a-be61-df5f4e8fc76f', '53ce7710-455e-4499-9c84-56789730e8db', 'cf81b72d-922c-4626-a8e6-9541d1f35f25', 'f727b460-cde3-4d27-b2ac-3ec70263f19c',
+];

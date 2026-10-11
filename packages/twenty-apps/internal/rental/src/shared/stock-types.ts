@@ -63,6 +63,20 @@ export const WASTE_REASONS: Array<{ value: string; label: string; color: string;
   { value: 'OTHER', label: 'Other', color: 'gray', pick: true },
   { value: 'DISCONTINUED', label: 'Discontinued item', color: 'gray', pick: false },
   { value: 'COUNT', label: 'Count short', color: 'amber', pick: false },
+  { value: 'LOST', label: 'Lost on the way to a branch', color: 'red', pick: false },
 ];
 
 export const wasteReasonLabel = (value: string | null | undefined) => WASTE_REASONS.find((r) => r.value === value)?.label ?? '';
+
+// A branch request: Requested (waiting for the warehouse), Issued (stock left
+// the warehouse, the branch has not confirmed yet), Received, Short (the
+// branch got less than was issued: to resolve) or Cancelled.
+export const REQUEST_STATUSES: Array<{ value: string; label: string; color: string }> = [
+  { value: 'REQUESTED', label: 'Requested', color: 'blue' },
+  { value: 'ISSUED', label: 'Issued · to confirm', color: 'orange' },
+  { value: 'RECEIVED', label: 'Received', color: 'green' },
+  { value: 'SHORT', label: 'Short · to resolve', color: 'red' },
+  { value: 'CANCELLED', label: 'Cancelled', color: 'gray' },
+];
+
+export const OPEN_REQUEST_STATUSES = ['REQUESTED', 'ISSUED', 'SHORT'];

@@ -18,7 +18,7 @@ const requestId = () => `${Date.now().toString(36)}-${Math.random().toString(36)
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // Saves that are safe to send again: the server recognises the request id
 // (or the change is the same whatever the number of times).
-const RETRYABLE = ['alerts', 'importExcel', 'readCounts', 'record', 'settleBorrow', 'stockTake', 'setStatus', 'saveRule', 'deleteMovement', 'data', 'saveOrder', 'receiveOrder', 'setOrderStatus', 'closeMonth', 'reopenMonth'];
+const RETRYABLE = ['saveRequest', 'issueRequest', 'resolveShort', 'alerts', 'importExcel', 'readCounts', 'record', 'settleBorrow', 'stockTake', 'setStatus', 'saveRule', 'deleteMovement', 'data', 'saveOrder', 'receiveOrder', 'setOrderStatus', 'closeMonth', 'reopenMonth'];
 
 export const stockAction = async (body: Record<string, unknown>): Promise<Result> => {
   const payload = { ...body, requestId: requestId() };
@@ -74,7 +74,7 @@ const Buttons = ({ onClose, onSave, busy, ready, label }: { onClose: () => void;
 );
 
 // Cartons + loose units, stored as units.
-const QtyInput = ({ item, units, onChange }: { item: StockItem | undefined; units: number; onChange: (units: number) => void }) => {
+export const QtyInput = ({ item, units, onChange }: { item: StockItem | undefined; units: number; onChange: (units: number) => void }) => {
   const per = item?.unitsPerCarton || 1;
   const [ctn, setCtn] = useState(per > 1 ? String(Math.floor(units / per) || '') : '');
   const [loose, setLoose] = useState(per > 1 ? String(Math.round((units % per) * 100) / 100 || '') : String(units || ''));

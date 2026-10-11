@@ -577,10 +577,10 @@ export const Today = () => {
 
   const stockView = (() => {
     const mine = (stock ?? []).filter((a) => scope.matches(a.ownerId));
-    const sum = (key: 'orderNow' | 'expiredItems' | 'expiredValue' | 'expiringItems' | 'waiting' | 'late') => mine.reduce((s, a) => s + (a[key] ?? 0), 0);
+    const sum = (key: 'orderNow' | 'expiredItems' | 'expiredValue' | 'expiringItems' | 'waiting' | 'late' | 'requestsToIssue' | 'awaitingReceipt' | 'requestsShort') => mine.reduce((s, a) => s + (a[key] ?? 0), 0);
 
     return mine.length
-      ? { orderNow: sum('orderNow'), expiredItems: sum('expiredItems'), expiredValue: sum('expiredValue'), expiringItems: sum('expiringItems'), waiting: sum('waiting'), late: sum('late') }
+      ? { orderNow: sum('orderNow'), expiredItems: sum('expiredItems'), expiredValue: sum('expiredValue'), expiringItems: sum('expiringItems'), waiting: sum('waiting'), late: sum('late'), toIssue: sum('requestsToIssue'), toConfirm: sum('awaitingReceipt'), short: sum('requestsShort') }
       : null;
   })();
 
@@ -658,12 +658,15 @@ export const Today = () => {
                   [
                     stockView.expiredItems ? `${stockView.expiredItems} expired (${rm(stockView.expiredValue)})` : '',
                     stockView.expiringItems ? `${stockView.expiringItems} expire within 30 days` : '',
+                    stockView.toIssue ? `${stockView.toIssue} branch request${stockView.toIssue === 1 ? '' : 's'} to issue` : '',
+                    stockView.toConfirm ? `${stockView.toConfirm} delivered, not confirmed` : '',
+                    stockView.short ? `${stockView.short} short delivery` : '',
                     stockView.late ? `${stockView.late} deliver${stockView.late === 1 ? 'y' : 'ies'} late` : stockView.waiting ? `${stockView.waiting} on order` : '',
                   ]
                     .filter(Boolean)
                     .join(' · ') || 'nothing expiring'
                 }
-                color={stockView.expiredItems || stockView.late ? 'red' : stockView.orderNow || stockView.expiringItems ? 'amber' : 'green'}
+                color={stockView.expiredItems || stockView.late || stockView.short ? 'red' : stockView.orderNow || stockView.expiringItems || stockView.toIssue || stockView.toConfirm ? 'amber' : 'green'}
                 onClick={() => openPage('Stock')}
               />
             ) : null}
