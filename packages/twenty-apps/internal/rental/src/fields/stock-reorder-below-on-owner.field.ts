@@ -11,6 +11,6 @@ export default defineField({
   label: 'Stock: re-order below (months)',
   description: 'Flag a stock item when what is left lasts less than this.',
   icon: 'IconAlarm',
-  defaultValue: 1.5,
+  defaultValue: 2,
   universalSettings: { dataType: NumberDataType.FLOAT, decimals: 1 },
 });

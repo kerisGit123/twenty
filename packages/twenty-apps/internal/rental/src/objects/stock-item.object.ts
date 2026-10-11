@@ -78,7 +78,7 @@ export default defineObject({
       type: FieldType.NUMBER,
       name: 'reorderBelowMonths',
       label: 'Re-order below (months)',
-      description: "Empty = the workspace's rule (1.5 months unless changed).",
+      description: "Empty = the workspace's rule (2 months unless changed).",
       icon: 'IconAlarm',
       isNullable: true,
       universalSettings: { dataType: NumberDataType.FLOAT, decimals: 1 },

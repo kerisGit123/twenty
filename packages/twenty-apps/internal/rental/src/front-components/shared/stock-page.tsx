@@ -213,7 +213,7 @@ export const StockPage = () => {
   const rule = owner?.rule ?? DEFAULT_RULE;
   const ruleText = owner
     ? `Rule for ${owner.name}: re-order when stock lasts under ${rule.reorderBelow} months; order enough for ${rule.orderUpTo} months${rule.leadDays ? `; delivery takes ${rule.leadDays} days` : ''}.`
-    : 'Each workspace uses its own re-order rule (default: under 1.5 months, order enough for 2.5). Pick a workspace to change it.';
+    : 'Each workspace uses its own re-order rule (default: under 2 months, order enough for 2.5). Pick a workspace to change it.';
 
   return (
     <div style={{ fontFamily: c.font, color: c.text, background: c.bg, height: '100%', overflowY: 'auto', containerType: 'size', boxSizing: 'border-box', position: 'relative' }}>

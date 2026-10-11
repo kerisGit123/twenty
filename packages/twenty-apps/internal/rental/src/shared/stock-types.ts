@@ -49,7 +49,7 @@ export const isIn = (type: string) => movementType(type)?.direction === 'IN';
 export const stockGroupLabel = (value: string | null | undefined) => STOCK_GROUPS.find((g) => g.value === value)?.label ?? 'Other';
 
 // Defaults for the reorder rule (each workspace can change them).
-export const DEFAULT_REORDER_BELOW_MONTHS = 1.5;
+export const DEFAULT_REORDER_BELOW_MONTHS = 2; // the WeDrink sheet's "x < 2"
 export const DEFAULT_ORDER_UP_TO_MONTHS = 2.5;
 
 // Why stock was thrown away. pick: the ones a person chooses; the rest are

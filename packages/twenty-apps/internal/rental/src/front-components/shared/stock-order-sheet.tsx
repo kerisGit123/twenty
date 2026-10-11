@@ -44,14 +44,25 @@ export const OrderSheet = ({
   const [supplier, setSupplier] = useState(order?.supplier || suppliersOf(ownerId)[0] || '');
   const [date, setDate] = useState(order?.date || today);
   const [notes, setNotes] = useState(order?.notes ?? '');
+  // Products of one supplier that stock in hand + on order do not cover for `want` months, in whole cartons.
+  const neededLines = (forOwner: string, forSupplier: string, want: number): DraftLine[] =>
+    statuses
+      .filter((s) => s.item.status !== 'DISCONTINUED' && s.item.ownerId === forOwner && supplierOf(s.item) === forSupplier)
+      .map((s) => ({ itemId: s.item.id, cartons: cartonsToCover(s, want, order?.lines.find((l) => l.itemId === s.item.id)?.orderedUnits ?? 0) }))
+      .filter((x) => x.cartons > 0)
+      .map((x, index) => ({ key: index + 1, itemId: x.itemId, cartons: String(x.cartons) }));
+  // A new order starts with what needs ordering (one month of use); a draft keeps its own lines.
+  const startLines = !order ? neededLines(ownerId, supplier, 1) : [];
   const [lines, setLines] = useState<DraftLine[]>(
     order?.lines.length
       ? order.lines.map((l, index) => ({ key: index + 1, itemId: l.itemId, cartons: String(toCartons(l.orderedUnits, byId.get(l.itemId) ?? { unitsPerCarton: 1 })) }))
-      : [{ key: 1, itemId: '', cartons: '' }],
+      : startLines.length
+        ? startLines
+        : [{ key: 1, itemId: '', cartons: '' }],
   );
   const [busy, setBusy] = useState(false);
   const [months, setMonths] = useState('1');
-  const [loaded, setLoaded] = useState('');
+  const [loaded, setLoaded] = useState(!order && startLines.length ? `Started with ${startLines.length} product${startLines.length === 1 ? '' : 's'} that need ordering (1 month of use). Change or remove any.` : '');
   // Only this supplier's products (and, when changing an order, what is already on it).
   const onOrder = new Set(order?.lines.map((l) => l.itemId) ?? []);
   const choosable = active.filter((i) => (i.ownerId === ownerId && supplierOf(i) === supplier) || onOrder.has(i.id));
@@ -109,9 +120,13 @@ export const OrderSheet = ({
                   onChange={(e) => {
                     const next = readValue(e);
 
+                    const first = suppliersOf(next)[0] ?? '';
+                    const fresh = neededLines(next, first, 1);
+
                     setOwnerId(next);
-                    setSupplier(suppliersOf(next)[0] ?? '');
-                    setLines([{ key: 1, itemId: '', cartons: '' }]);
+                    setSupplier(first);
+                    setLines(fresh.length ? fresh : [{ key: 1, itemId: '', cartons: '' }]);
+                    setLoaded(fresh.length ? `Started with ${fresh.length} product${fresh.length === 1 ? '' : 's'} that need ordering (1 month of use).` : '');
                   }}
                   style={select}
                 >
@@ -127,8 +142,12 @@ export const OrderSheet = ({
               <select
                 value={supplier}
                 onChange={(e) => {
-                  setSupplier(readValue(e));
-                  setLines([{ key: 1, itemId: '', cartons: '' }]);
+                  const next = readValue(e);
+                  const fresh = neededLines(ownerId, next, 1);
+
+                  setSupplier(next);
+                  setLines(fresh.length ? fresh : [{ key: 1, itemId: '', cartons: '' }]);
+                  setLoaded(fresh.length ? `Started with ${fresh.length} product${fresh.length === 1 ? '' : 's'} that need ordering (1 month of use).` : 'Nothing needs ordering for this supplier right now: add products by hand.');
                 }}
                 style={select}
               >
