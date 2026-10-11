@@ -17,6 +17,7 @@ import {
 } from 'src/shared/stock';
 import { BROWN, CREAM, GROUP, HEAD, ORDER, PASAR, PASAR_LIGHT, TEAL, cell, dmy } from 'src/shared/stock-excel';
 import { type LineProgress, type StockOrder } from 'src/shared/stock-orders';
+import { type StockRequest } from 'src/shared/stock-requests';
 import { BORROW_STATUSES, STOCK_GROUPS, WASTE_REASONS } from 'src/shared/stock-types';
 import { buildXlsx, type XlsxCell, type XlsxStyle } from 'src/shared/xlsx';
 
@@ -49,6 +50,46 @@ const titleBlock = (h: Heading): XlsxCell[][] => [
 const groupRow = (label: string, width: number): XlsxCell[] => [cell(label, { fill: GROUP, bold: true }), ...Array.from({ length: width - 1 }, () => cell(null, { fill: GROUP }))];
 
 const FLAG_LABEL: Record<string, string> = { ORDER: 'Order now', LOW: 'Low', OK: 'OK', NO_USE: 'Not used', EMPTY: 'Out of stock' };
+
+// ---------------------------------------------------------------- Delivery note for a branch request
+
+export const deliveryNoteWorkbook = (request: StockRequest, items: Map<string, StockItem>, heading: { company: string; generatedOn: string }) => {
+  const labels = ['Item code', 'Product name', 'Specification', 'Units / ctn', 'To send (ctn + units)', 'Units', 'Received\n(ctn)', 'Received\n(loose units)', 'Remarks'];
+  const rows: XlsxCell[][] = [
+    [{ value: 'Delivery note 送货单', style: { bold: true, size: 14 } }],
+    [{ value: 'Request:', style: { bold: true } }, { value: request.number }, { value: '' }, { value: 'To:', style: { bold: true } }, { value: request.branch }],
+    [{ value: '公司名称 Company:', style: { bold: true } }, { value: heading.company }, { value: '' }, { value: 'Date:', style: { bold: true } }, { value: dmy(request.issuedOn ?? heading.generatedOn) }],
+    [{ value: request.status === 'REQUESTED' ? 'Picking list: quantities asked for, not issued yet.' : 'The branch counts what arrived in the green columns and signs below.', style: { italic: true, color: '808080' } }],
+    [],
+    headerRow(labels, PASAR),
+  ];
+  const input = { fill: PASAR_LIGHT, align: 'right' as const, format: 'num' as const };
+  let total = 0;
+
+  for (const line of request.lines) {
+    const item = items.get(line.itemId);
+    const units = line.issuedUnits ?? line.requestedUnits;
+
+    if (!(units > 0)) continue;
+    total += item ? (units / (item.unitsPerCarton || 1)) * item.cartonPrice : 0;
+    rows.push([
+      cell(item?.code ?? '', { align: 'center' }),
+      cell(item?.name ?? 'Item removed'),
+      cell(item?.specification ?? ''),
+      num(item?.unitsPerCarton ?? 1),
+      cell(item ? cartonsAndUnits(units, item) : String(units), { bold: true }),
+      num(units),
+      cell(null, input),
+      cell(null, input),
+      cell(null, { fill: PASAR_LIGHT }),
+    ]);
+  }
+  rows.push([]);
+  rows.push([{ value: 'Issued by: ______________________', style: { bold: true } }, { value: '' }, { value: '' }, { value: 'Received by: ______________________', style: { bold: true } }, { value: '' }, { value: 'Date: ____ / ____ / ________', style: { bold: true } }]);
+  rows.push([{ value: `Stock value at list price: RM ${(Math.round(total * 100) / 100).toLocaleString('en-MY', { minimumFractionDigits: 2 })}`, style: { italic: true, color: '808080' } }]);
+
+  return buildXlsx({ name: 'Delivery note', rows, freeze: { rows: 6, cols: 2 }, heights: { 5: 30 }, widths: [9, 40, 24, 8, 20, 9, 11, 13, 26] });
+};
 
 // ---------------------------------------------------------------- Count sheet (blind: no expected quantities)
 

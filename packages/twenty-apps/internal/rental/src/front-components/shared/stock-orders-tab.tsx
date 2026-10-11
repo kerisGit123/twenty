@@ -3,8 +3,9 @@ import { type CSSProperties, useMemo, useState } from 'react';
 import { readValue } from 'src/front-components/shared/read-value';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { stockAction } from 'src/front-components/shared/stock-forms';
-import { c, Chip, control, ExcelButton, input, primary, rm, shortDate, small, withOwner } from 'src/front-components/shared/stock-ui';
+import { c, Chip, control, ExcelButton, input, PriceNote, primary, rm, shortDate, small, withOwner } from 'src/front-components/shared/stock-ui';
 import { cartonsAndUnits, type StockItem, type StockMovement, toCartons } from 'src/shared/stock';
+import { normalizePhone, orderWhatsappText } from 'src/shared/stock-orders';
 import { type LineProgress, orderProgress, type StockOrder } from 'src/shared/stock-orders';
 import { ORDER_STATUSES } from 'src/shared/stock-types';
 
@@ -21,13 +22,31 @@ const isFullDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 // ---------------------------------------------------------------- Receive goods against an order
 
-const ReceiveSheet = ({ order, lines, items, today, onClose, onDone }: { order: StockOrder; lines: LineProgress[]; items: Map<string, StockItem>; today: string; onClose: () => void; onDone: () => void }) => {
+const ReceiveSheet = ({
+  order,
+  lines,
+  items,
+  lastPaid,
+  today,
+  onClose,
+  onDone,
+}: {
+  order: StockOrder;
+  lines: LineProgress[];
+  items: Map<string, StockItem>;
+  lastPaid: Map<string, number>;
+  today: string;
+  onClose: () => void;
+  onDone: () => void;
+}) => {
   const open = lines.filter((l) => l.outstanding > 0);
   const [date, setDate] = useState(today);
   const [reference, setReference] = useState(order.supplierRef);
   // Cartons received now, per line (starts at what is outstanding).
   const [got, setGot] = useState<Record<string, string>>(() => Object.fromEntries(open.map((l) => [l.itemId, String(toCartons(l.outstanding, items.get(l.itemId) ?? { unitsPerCarton: 1 }))])));
   const [expiry, setExpiry] = useState<Record<string, string>>({});
+  // Price per carton on the invoice, when it differs from the order's.
+  const [price, setPrice] = useState<Record<string, string>>({});
   const [notComing, setNotComing] = useState<Record<string, boolean>>({});
   const [addExpense, setAddExpense] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -42,7 +61,7 @@ const ReceiveSheet = ({ order, lines, items, today, onClose, onDone }: { order: 
       date,
       reference,
       addExpense,
-      lines: open.map((l) => ({ itemId: l.itemId, units: unitsOf(l), expiryDate: expiry[l.itemId] || undefined, close: Boolean(notComing[l.itemId]) })),
+      lines: open.map((l) => ({ itemId: l.itemId, units: unitsOf(l), expiryDate: expiry[l.itemId] || undefined, close: Boolean(notComing[l.itemId]), cartonPrice: price[l.itemId] ? toNumber(price[l.itemId]) : undefined })),
     });
 
     setBusy(false);
@@ -75,6 +94,7 @@ const ReceiveSheet = ({ order, lines, items, today, onClose, onDone }: { order: 
                 <th style={head}>Item</th>
                 <th style={{ ...head, textAlign: 'right' }}>Still to come</th>
                 <th style={{ ...head, textAlign: 'right' }}>Arrived (ctn)</th>
+                <th style={{ ...head, textAlign: 'right' }}>Price / ctn</th>
                 <th style={head}>Expiry</th>
                 <th style={head} />
               </tr>
@@ -100,6 +120,22 @@ const ReceiveSheet = ({ order, lines, items, today, onClose, onDone }: { order: 
                         style={{ ...input, width: 70, textAlign: 'right', fontWeight: 600, borderColor: short ? 'var(--t-color-amber9)' : undefined }}
                       />
                       {short && unitsOf(l) > 0 ? <div style={{ fontSize: 11, color: 'var(--t-color-amber11)' }}>short: rest stays on order</div> : null}
+                    </td>
+                    <td style={right}>
+                      <input
+                        value={price[l.itemId] ?? ''}
+                        onChange={(e) => setPrice({ ...price, [l.itemId]: readValue(e) })}
+                        disabled={notComing[l.itemId]}
+                        inputMode="decimal"
+                        placeholder={l.cartonPrice.toFixed(2)}
+                        title="What the invoice says per carton (empty = the price on the order)"
+                        style={{ ...input, width: 84, textAlign: 'right' }}
+                      />
+                      {item && !notComing[l.itemId] ? (
+                        <div style={{ textAlign: 'right' }}>
+                          <PriceNote price={(price[l.itemId] ? toNumber(price[l.itemId]) : l.cartonPrice) / (item.unitsPerCarton || 1)} last={lastPaid.get(item.id)} unit={item.unit || 'unit'} />
+                        </div>
+                      ) : null}
                     </td>
                     <td style={cell}>
                       <input type="date" value={expiry[l.itemId] ?? ''} onChange={(e) => setExpiry({ ...expiry, [l.itemId]: readValue(e) })} style={{ ...input, width: 140 }} />
@@ -139,14 +175,99 @@ const ReceiveSheet = ({ order, lines, items, today, onClose, onDone }: { order: 
   );
 };
 
+
+// ---------------------------------------------------------------- Send the draft order to the supplier on WhatsApp
+
+const WhatsAppSheet = ({ order, items, company, phoneGuess, onClose, onDone }: { order: StockOrder; items: Map<string, StockItem>; company: string; phoneGuess: string; onClose: () => void; onDone: () => void }) => {
+  const [phone, setPhone] = useState(phoneGuess);
+  const [message, setMessage] = useState(() => orderWhatsappText(order, items, company));
+  const [markSent, setMarkSent] = useState(order.status === 'DRAFT');
+  const e164 = normalizePhone(phone);
+  const link = e164 ? `https://wa.me/${e164.replace('+', '')}?text=${encodeURIComponent(message)}` : null;
+
+  // Opening WhatsApp is the link itself; this saves the number and the status alongside.
+  const afterOpen = async () => {
+    if (e164 && e164 !== order.supplierPhone) await stockAction({ action: 'setOrderPhone', orderId: order.id, phone: e164 });
+    if (markSent && order.status === 'DRAFT') await stockAction({ action: 'setOrderStatus', orderId: order.id, status: 'SENT' });
+    onDone();
+  };
+
+  return (
+    <Sheet width={560} onClose={onClose}>
+      <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: c.font, color: c.text, overflowY: 'auto', height: '100%', boxSizing: 'border-box' }}>
+        <span style={{ fontSize: 16, fontWeight: 600 }}>
+          Send {order.number} to {order.supplier || 'the supplier'}
+        </span>
+        <span style={{ fontSize: 13, color: c.text2 }}>WhatsApp opens with this message typed in. You press send there. Edit the message first if you like.</span>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: c.text3 }}>
+          Supplier&apos;s WhatsApp number
+          <input value={phone} onChange={(e) => setPhone(readValue(e))} placeholder="e.g. 012-345 6789 or +60 12 345 6789" style={{ ...input, borderColor: phone && !e164 ? 'var(--t-color-red9)' : undefined }} />
+          <span style={{ color: e164 ? 'var(--t-color-green11)' : c.text3 }}>{e164 ? `Will open ${e164}. Remembered for the next order to ${order.supplier || 'this supplier'}.` : phone ? 'Not a usable number yet.' : 'Type it once: it is remembered.'}</span>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: c.text3 }}>
+          Message
+          <textarea value={message} onChange={(e) => setMessage(readValue(e))} rows={14} style={{ ...input, height: 'auto', padding: 10, fontFamily: c.font, lineHeight: 1.45 }} />
+        </label>
+        {order.status === 'DRAFT' ? (
+          <button
+            onClick={() => setMarkSent(!markSent)}
+            style={{ ...small, height: 30, alignSelf: 'flex-start', fontWeight: 600, color: markSent ? 'var(--t-color-green11)' : c.text3, borderColor: markSent ? 'var(--t-color-green9)' : c.border2 }}
+          >
+            {markSent ? '✓ Also mark the order as sent' : 'Leave the order as a draft'}
+          </button>
+        ) : null}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={control}>
+            Cancel
+          </button>
+          {link ? (
+            <a
+              href={link}
+              target="_blank"
+              rel="noreferrer"
+              onClick={afterOpen}
+              style={{ ...primary, display: 'inline-flex', alignItems: 'center', textDecoration: 'none', background: '#25D366', borderColor: '#25D366' }}
+            >
+              Open WhatsApp
+            </a>
+          ) : (
+            <button disabled style={{ ...primary, opacity: 0.5 }}>
+              Open WhatsApp
+            </button>
+          )}
+        </div>
+      </div>
+    </Sheet>
+  );
+};
+
 // ---------------------------------------------------------------- Orders list
 
 type Show = 'OPEN' | 'DONE' | 'ALL';
 
-export const OrdersTab = ({ orders, items, movements, today, ownerId, onChanged }: { orders: StockOrder[]; items: StockItem[]; movements: StockMovement[]; today: string; ownerId: string; onChanged: () => void }) => {
+export const OrdersTab = ({
+  orders,
+  items,
+  movements,
+  lastPaid,
+  ownerName,
+  today,
+  ownerId,
+  onChanged,
+}: {
+  orders: StockOrder[];
+  items: StockItem[];
+  movements: StockMovement[];
+  lastPaid: Map<string, number>;
+  ownerName: (ownerId: string | null) => string;
+  today: string;
+  ownerId: string;
+  onChanged: () => void;
+}) => {
   const [show, setShow] = useState<Show>('OPEN');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [receiving, setReceiving] = useState<StockOrder | null>(null);
+  const [sending, setSending] = useState<StockOrder | null>(null);
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const isOpen = (o: StockOrder) => ['DRAFT', 'SENT', 'PARTLY_RECEIVED'].includes(o.status);
   const list = orders.filter((o) => show === 'ALL' || (show === 'OPEN' ? isOpen(o) : !isOpen(o)));
@@ -166,10 +287,24 @@ export const OrdersTab = ({ orders, items, movements, today, ownerId, onChanged 
           order={receiving}
           lines={progressOf(receiving).lines}
           items={byId}
+          lastPaid={lastPaid}
           today={today}
           onClose={() => setReceiving(null)}
           onDone={() => {
             setReceiving(null);
+            onChanged();
+          }}
+        />
+      ) : null}
+      {sending ? (
+        <WhatsAppSheet
+          order={sending}
+          items={byId}
+          company={ownerName(sending.ownerId)}
+          phoneGuess={sending.supplierPhone || orders.find((o) => o.supplier === sending.supplier && o.supplierPhone)?.supplierPhone || ''}
+          onClose={() => setSending(null)}
+          onDone={() => {
+            setSending(null);
             onChanged();
           }}
         />
@@ -263,6 +398,11 @@ export const OrdersTab = ({ orders, items, movements, today, ownerId, onChanged 
               {isOpen(o) ? (
                 <button onClick={() => setReceiving(o)} style={primary}>
                   Receive goods
+                </button>
+              ) : null}
+              {o.status === 'DRAFT' || o.status === 'SENT' ? (
+                <button onClick={() => setSending(o)} style={{ ...control, fontWeight: 600, color: 'var(--t-color-green11)' }} title="Send this order to the supplier on WhatsApp">
+                  Send on WhatsApp
                 </button>
               ) : null}
               {o.status === 'DRAFT' ? (

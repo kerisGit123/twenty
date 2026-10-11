@@ -57,12 +57,13 @@ type OrderNode = {
   orderDate?: string | null;
   status?: string | null;
   supplierRef?: string | null;
+  supplierPhone?: string | null;
   notes?: string | null;
   ownerId?: string | null;
   lines?: unknown;
 };
 
-export const ORDER_FIELDS = { id: true, orderNumber: true, supplier: true, orderDate: true, status: true, supplierRef: true, notes: true, ownerId: true, lines: true };
+export const ORDER_FIELDS = { id: true, orderNumber: true, supplier: true, orderDate: true, status: true, supplierRef: true, supplierPhone: true, notes: true, ownerId: true, lines: true };
 
 export const toStockOrder = (node: OrderNode): StockOrder => ({
   id: node.id,
@@ -71,6 +72,7 @@ export const toStockOrder = (node: OrderNode): StockOrder => ({
   date: node.orderDate ?? '',
   status: node.status ?? 'DRAFT',
   supplierRef: node.supplierRef ?? '',
+  supplierPhone: node.supplierPhone ?? '',
   notes: node.notes ?? '',
   ownerId: node.ownerId ?? null,
   lines: parseOrderLines(node.lines),

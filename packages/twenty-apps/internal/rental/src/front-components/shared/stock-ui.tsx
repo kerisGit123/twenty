@@ -1,3 +1,4 @@
+import { PRICE_RISE_WARN_PCT, priceChangePct } from 'src/shared/stock';
 import { WASTE_REASONS } from 'src/shared/stock-types';
 import { type CSSProperties, type ReactNode } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
@@ -123,6 +124,19 @@ export const ExcelButton = ({ query, title }: { query: Record<string, string>; t
     ⬇ Excel
   </a>
 );
+
+// "▲ 8% vs last delivery (RM 58.75 → 63.45)": shown when a price differs from the last one paid.
+export const PriceNote = ({ price, last, unit }: { price: number; last: number | null | undefined; unit: string }) => {
+  const pct = priceChangePct(price, last);
+
+  if (pct === null || last === null || last === undefined || Math.abs(pct) < PRICE_RISE_WARN_PCT) return null;
+
+  return (
+    <span style={{ fontSize: 12, fontWeight: 600, color: pct > 0 ? 'var(--t-color-red11)' : 'var(--t-color-green11)' }}>
+      {pct > 0 ? '▲' : '▼'} {Math.abs(pct)}% vs last delivery (RM {last.toFixed(2)} → {price.toFixed(2)} / {unit})
+    </span>
+  );
+};
 
 // Why stock was wasted: tap one.
 export const ReasonPicker = ({ value, onChange }: { value: string; onChange: (value: string) => void }) => (

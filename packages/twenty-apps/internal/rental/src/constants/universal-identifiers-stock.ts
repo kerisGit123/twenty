@@ -116,3 +116,6 @@ export const OWNER_STOCK_REQUESTS_FIELD_ID = 'e9d81f24-6b45-45bb-be86-f7cf51dfd8
 export const STOCK_REQUEST_STATUS_OPTION_IDS = [
   '724a718a-d701-4294-a70a-a85054acb12a', 'da63739a-3316-472a-be61-df5f4e8fc76f', '53ce7710-455e-4499-9c84-56789730e8db', 'cf81b72d-922c-4626-a8e6-9541d1f35f25', 'f727b460-cde3-4d27-b2ac-3ec70263f19c',
 ];
+
+// The supplier's WhatsApp number, saved on the order so the next one is pre-filled.
+export const STOCK_ORDER_SUPPLIER_PHONE_FIELD_ID = '28003296-ee10-4a14-a3c8-3682b780a598';

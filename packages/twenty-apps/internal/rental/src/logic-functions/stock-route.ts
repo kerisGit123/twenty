@@ -9,6 +9,7 @@ import { canManage, inScope, NOT_ALLOWED, resolveScope, type Scope } from 'src/l
 import { queryAll } from 'src/logic-functions/utils/query-all';
 import { ITEM_FIELDS, loadItemMovements, loadMovementsOf, loadStockData, ORDER_FIELDS, REQUEST_FIELDS, toStockItem, toStockMovement, toStockOrder, toStockRequest } from 'src/logic-functions/utils/stock-data';
 import { shortUnits, type StockRequest, unresolvedShort } from 'src/shared/stock-requests';
+import { normalizePhone } from 'src/shared/stock-orders';
 import { orderProgress, orderStatusFor, type OrderLine, type StockOrder } from 'src/shared/stock-orders';
 import { balanceOf, cartonsAndUnits, groupMovements, type StockItem, unitPrice } from 'src/shared/stock';
 import { stockAlerts } from 'src/shared/stock-alerts';
@@ -26,6 +27,7 @@ import { movementType, STOCK_GROUPS, WASTE_REASONS } from 'src/shared/stock-type
 //   receiveRequest { id, date, lines: [{ itemId, receivedUnits }] }  the branch counts what arrived
 //   resolveShort  { id, how: RETURN | WRITE_OFF, date }              settle a shortage (host / admin)
 //   cancelRequest { id }
+//   setOrderPhone { orderId, phone }                                 the supplier's WhatsApp number
 //   importExcel   { ownerId, fileBase64, apply?, mode, openingDate | closingDate, includeOrder, includeTakes, updateDetails }
 //   saveItem      item fields (+ openingUnits on a new item)
 //   setStatus     { itemId, status, writeOff? }    discontinue / reactivate
@@ -1099,6 +1101,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       units: num(l.units),
       expiryDate: isDate(l.expiryDate) ? l.expiryDate : null,
       close: l.close === true,
+      cartonPrice: num(l.cartonPrice) > 0 ? num(l.cartonPrice) : null, // what the invoice says, when it differs from the order
     }));
     const ordered = new Map(order.lines.map((l) => [l.itemId, l]));
 
@@ -1121,7 +1124,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
               type: 'PURCHASE',
               quantity: l.units,
               party: order.supplier,
-              unitCost: (ordered.get(l.itemId)?.cartonPrice ?? item.cartonPrice) / (item.unitsPerCarton || 1),
+              unitCost: (l.cartonPrice ?? ordered.get(l.itemId)?.cartonPrice ?? item.cartonPrice) / (item.unitsPerCarton || 1),
               expiryDate: l.expiryDate,
               reference,
               notes: `Order ${order.number}`,
@@ -1141,7 +1144,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
           .map((l) => {
             const item = items.get(l.itemId) as StockItem;
 
-            return { item, units: l.units, unitCost: (ordered.get(l.itemId)?.cartonPrice ?? item.cartonPrice) / (item.unitsPerCarton || 1) };
+            return { item, units: l.units, unitCost: (l.cartonPrice ?? ordered.get(l.itemId)?.cartonPrice ?? item.cartonPrice) / (item.unitsPerCarton || 1) };
           }),
         { date: body.date as string, supplier: order.supplier, reference },
       );
@@ -1163,6 +1166,20 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       success: true,
       message: status === 'RECEIVED' ? `${order.number} is complete.` : `Received. ${order.number} still has items to come.`,
     });
+  },
+
+  // The supplier's WhatsApp number, saved on the order (and pre-filled next time).
+  setOrderPhone: async (client, scope, body) => {
+    const order = await loadOrder(client, text(body.orderId, 64));
+
+    if (!order) return fail('Order not found.', 404);
+    if (!inScope(scope, order.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    const phone = normalizePhone(text(body.phone, 40));
+
+    if (!phone) return fail('That does not look like a phone number. Use the supplier\'s WhatsApp number, e.g. 012-345 6789 or +60 12 345 6789.');
+    await saveOrderFields(client, order, { supplierPhone: phone });
+
+    return json({ success: true, phone, message: 'Saved ' + phone + ' for ' + order.supplier + '.' });
   },
 
   setOrderStatus: async (client, scope, body) => {

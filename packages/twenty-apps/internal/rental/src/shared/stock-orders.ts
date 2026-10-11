@@ -1,7 +1,7 @@
 // Orders to suppliers: what was ordered, what has arrived (purchase lines
 // received against the order), and what is still outstanding.
 
-import { type StockMovement } from 'src/shared/stock';
+import { cartonsAndUnits, type StockItem, type StockMovement } from 'src/shared/stock';
 import { OPEN_ORDER_STATUSES } from 'src/shared/stock-types';
 
 export type OrderLine = {
@@ -18,6 +18,7 @@ export type StockOrder = {
   date: string;
   status: string; // DRAFT | SENT | PARTLY_RECEIVED | RECEIVED | CANCELLED
   supplierRef: string;
+  supplierPhone: string; // the supplier's WhatsApp number (E.164), pre-filled on the next order
   notes: string;
   ownerId: string | null;
   lines: OrderLine[];
@@ -81,3 +82,40 @@ export const onOrderUnits = (orders: StockOrder[], movements: StockMovement[]) =
 
 export const orderTotal = (order: StockOrder, unitsPerCarton: (itemId: string) => number) =>
   order.lines.reduce((sum, l) => sum + (l.orderedUnits / (unitsPerCarton(l.itemId) || 1)) * l.cartonPrice, 0);
+
+// "012-345 6789", "+60 12 345 6789" or "60123456789" -> "+60123456789" (Malaysia
+// when there is no country code). Null when it is not a usable number.
+export const normalizePhone = (raw: string): string | null => {
+  const v = raw.replace(/[^\d+]/g, '');
+
+  if (!v) return null;
+  const e164 = v.startsWith('+') ? v : v.startsWith('00') ? `+${v.slice(2)}` : v.startsWith('0') ? `+60${v.slice(1)}` : v.startsWith('60') ? `+${v}` : `+60${v}`;
+
+  return /^\+\d{8,15}$/.test(e164) ? e164 : null;
+};
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const niceDate = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : iso);
+
+// The message that goes to the supplier: the draft order in plain words.
+// (Our order is a draft: the supplier raises the real PO / invoice.)
+export const orderWhatsappText = (order: StockOrder, items: Map<string, StockItem>, company: string) => {
+  const lines = order.lines
+    .filter((l) => l.orderedUnits > 0)
+    .map((l, index) => {
+      const item = items.get(l.itemId);
+
+      return `${index + 1}. ${item ? `${item.code ? `${item.code} ` : ''}${item.name}` : 'Item'}: ${item ? cartonsAndUnits(l.orderedUnits, item) : l.orderedUnits}`;
+    });
+  const total = order.lines.reduce((sum, l) => sum + (l.orderedUnits / (items.get(l.itemId)?.unitsPerCarton || 1)) * l.cartonPrice, 0);
+
+  return [
+    `Hi ${order.supplier || 'there'},`,
+    `Order ${order.number} from ${company || 'us'}, ${niceDate(order.date)}:`,
+    '',
+    ...lines,
+    '',
+    `About RM ${total.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} at your current prices.`,
+    'Please confirm what you can deliver and when, and send us your PO / invoice. Thank you!',
+  ].join('\n');
+};

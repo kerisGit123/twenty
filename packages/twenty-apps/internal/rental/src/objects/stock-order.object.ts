@@ -10,6 +10,7 @@ import {
   STOCK_ORDER_STATUS_FIELD_ID,
   STOCK_ORDER_STATUS_OPTION_IDS,
   STOCK_ORDER_SUPPLIER_FIELD_ID,
+  STOCK_ORDER_SUPPLIER_PHONE_FIELD_ID,
   STOCK_ORDER_SUPPLIER_REF_FIELD_ID,
 } from 'src/constants/universal-identifiers-stock';
 import { ORDER_STATUSES } from 'src/shared/stock-types';
@@ -60,6 +61,7 @@ export default defineObject({
       icon: 'IconList',
       isNullable: true,
     },
+    { universalIdentifier: STOCK_ORDER_SUPPLIER_PHONE_FIELD_ID, type: FieldType.TEXT, name: 'supplierPhone', label: "Supplier's WhatsApp", description: 'International format, e.g. +60123456789', icon: 'IconBrandWhatsapp', isNullable: true },
     { universalIdentifier: STOCK_ORDER_NOTES_FIELD_ID, type: FieldType.TEXT, name: 'notes', label: 'Notes', icon: 'IconNotes', isNullable: true },
   ],
 });

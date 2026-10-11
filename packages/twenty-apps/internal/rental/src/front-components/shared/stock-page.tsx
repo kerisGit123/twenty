@@ -20,7 +20,7 @@ import { IssueSheet, ReceiveRequestSheet, RequestSheet, RequestsTab, SettleReque
 import { c, control, primary } from 'src/front-components/shared/stock-ui';
 import type { StockData } from 'src/logic-functions/utils/stock-data';
 import { todayIso } from 'src/logic-functions/utils/dates';
-import { balanceOf, DEFAULT_RULE, groupMovements, type StockItem, type StockMovement, stockStatus } from 'src/shared/stock';
+import { balanceOf, DEFAULT_RULE, groupMovements, lastPaidPerUnit, type StockItem, type StockMovement, stockStatus } from 'src/shared/stock';
 
 // Stock: an F&B warehouse (iPeak) — what's in hand, every IN and OUT, the
 // monthly restock sheet, the forecast and order plan, and stock lent to
@@ -96,6 +96,19 @@ export const StockPage = () => {
   const items = useMemo(() => (data?.items ?? []).filter((i) => !ownerId || i.ownerId === ownerId), [data, ownerId]);
   const movements = useMemo(() => (data?.movements ?? []).filter((m) => !ownerId || m.ownerId === ownerId), [data, ownerId]);
   const byItem = useMemo(() => groupMovements(movements), [movements]);
+  // What each item cost per unit on its latest delivery (for price-rise warnings).
+  const lastPaid = useMemo(() => {
+    const map = new Map<string, number>();
+
+    for (const [itemId, list] of byItem) {
+      const paid = lastPaidPerUnit(list);
+
+      if (paid !== null) map.set(itemId, paid);
+    }
+
+    return map;
+  }, [byItem]);
+  const ownerName = useCallback((id: string | null) => data?.owners.find((o) => o.id === id)?.name ?? '', [data]);
   const balances = useMemo(() => new Map(items.map((i) => [i.id, balanceOf(byItem.get(i.id) ?? [])])), [items, byItem]);
   const ruleOf = useCallback((ownerOf: string | null) => data?.owners.find((o) => o.id === ownerOf)?.rule ?? DEFAULT_RULE, [data]);
   const orders = useMemo(() => (data?.orders ?? []).filter((o) => !ownerId || o.ownerId === ownerId), [data, ownerId]);
@@ -159,6 +172,7 @@ export const StockPage = () => {
           initialItemId={open.itemId}
           initialLines={open.lines}
           initialReference={open.lines ? `Order ${today}` : undefined}
+          lastPaid={lastPaid}
           today={today}
           onClose={() => setOpen(null)}
           onDone={done}
@@ -299,7 +313,7 @@ export const StockPage = () => {
                 onChanged={refresh}
               />
             ) : null}
-            {tab === 'orders' ? <OrdersTab orders={orders} items={items} movements={movements} today={today} ownerId={ownerId} onChanged={refresh} /> : null}
+            {tab === 'orders' ? <OrdersTab orders={orders} items={items} movements={movements} lastPaid={lastPaid} ownerName={ownerName} today={today} ownerId={ownerId} onChanged={refresh} /> : null}
             {tab === 'monthend' ? (
               <MonthEndTab items={items} movementsByItem={byItem} owner={owner} canClose={!!owner?.canManage} today={today} onStockTake={(date) => setOpen({ kind: 'take', date })} onChanged={refresh} />
             ) : null}

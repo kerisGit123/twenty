@@ -4,7 +4,7 @@ import { enqueueSnackbar } from 'twenty-sdk/front-component';
 
 import { readValue } from 'src/front-components/shared/read-value';
 import { Sheet } from 'src/front-components/shared/sheet';
-import { c, control, Field, input, primary, qty, ReasonPicker, select, small } from 'src/front-components/shared/stock-ui';
+import { c, control, Field, input, PriceNote, primary, qty, ReasonPicker, select, small } from 'src/front-components/shared/stock-ui';
 import type { StockOwner } from 'src/logic-functions/utils/stock-data';
 import { cartonsAndUnits, type StockItem, type StockMovement, type StockRule, unitPrice } from 'src/shared/stock';
 import { STOCK_GROUPS, STOCK_MOVEMENT_TYPES } from 'src/shared/stock-types';
@@ -18,7 +18,7 @@ const requestId = () => `${Date.now().toString(36)}-${Math.random().toString(36)
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // Saves that are safe to send again: the server recognises the request id
 // (or the change is the same whatever the number of times).
-const RETRYABLE = ['saveRequest', 'issueRequest', 'resolveShort', 'alerts', 'importExcel', 'readCounts', 'record', 'settleBorrow', 'stockTake', 'setStatus', 'saveRule', 'deleteMovement', 'data', 'saveOrder', 'receiveOrder', 'setOrderStatus', 'closeMonth', 'reopenMonth'];
+const RETRYABLE = ['setOrderPhone', 'saveRequest', 'issueRequest', 'resolveShort', 'alerts', 'importExcel', 'readCounts', 'record', 'settleBorrow', 'stockTake', 'setStatus', 'saveRule', 'deleteMovement', 'data', 'saveOrder', 'receiveOrder', 'setOrderStatus', 'closeMonth', 'reopenMonth'];
 
 export const stockAction = async (body: Record<string, unknown>): Promise<Result> => {
   const payload = { ...body, requestId: requestId() };
@@ -220,12 +220,14 @@ export const RecordSheet = ({
   initialItemId,
   initialLines,
   initialReference,
+  lastPaid,
   today,
   onClose,
   onDone,
 }: {
   items: StockItem[];
   balances: Map<string, number>;
+  lastPaid?: Map<string, number>; // per unit, the last delivery's price
   initialType: string;
   initialItemId?: string;
   initialLines?: Array<{ itemId: string; units: number }>;
@@ -362,6 +364,7 @@ export const RecordSheet = ({
                     In stock: {cartonsAndUnits(left, item)}
                     {isOut && l.units > left ? ' (not enough)' : ''}
                   </span>
+                  {type === 'PURCHASE' && l.unitCost ? <PriceNote price={toNumber(l.unitCost)} last={lastPaid?.get(item.id)} unit={item.unit || 'unit'} /> : null}
                 </div>
               ) : null}
             </div>

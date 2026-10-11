@@ -3,7 +3,7 @@ import { type CSSProperties, Fragment, useMemo, useState } from 'react';
 import { readValue } from 'src/front-components/shared/read-value';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { QtyInput, stockAction } from 'src/front-components/shared/stock-forms';
-import { c, Chip, control, Field, input, primary, select, shortDate, small } from 'src/front-components/shared/stock-ui';
+import { c, Chip, control, ExcelButton, Field, input, primary, select, shortDate, small } from 'src/front-components/shared/stock-ui';
 import type { StockOwner } from 'src/logic-functions/utils/stock-data';
 import { cartonsAndUnits, type StockItem, toCartons } from 'src/shared/stock';
 import { isOpenRequest, requestCounts, type StockRequest, shortUnits, unresolvedShort } from 'src/shared/stock-requests';
@@ -157,6 +157,11 @@ export const RequestsTab = ({
                       {r.status === 'ISSUED' && r.issuedOn ? <div style={{ fontSize: 11, color: c.text3, marginTop: 3 }}>issued {shortDate(r.issuedOn)}</div> : null}
                     </td>
                     <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {r.status !== 'CANCELLED' ? (
+                        <>
+                          <ExcelButton query={{ kind: 'xlsx-request', request: r.id, ...(r.ownerId ? { owner: r.ownerId } : {}) }} title={r.status === 'REQUESTED' ? 'Picking list for the warehouse (Excel)' : 'Delivery note to print and sign (Excel)'} />{' '}
+                        </>
+                      ) : null}
                       {r.status === 'REQUESTED' ? (
                         <>
                           <button onClick={() => onIssue(r)} style={primary}>

@@ -214,6 +214,26 @@ export const wasteReasonOf = (m: Pick<StockMovement, 'type' | 'reason' | 'party'
   return null;
 };
 
+// What was paid per unit on the latest delivery with a cost (null when none).
+export const lastPaidPerUnit = (movements: StockMovement[]): number | null => {
+  let best: { date: string; cost: number } | null = null;
+
+  for (const m of movements) {
+    const cost = Number(m.unitCost);
+
+    if (m.type !== 'PURCHASE' || !(cost > 0)) continue;
+    if (!best || m.date >= best.date) best = { date: m.date, cost };
+  }
+
+  return best ? best.cost : null;
+};
+
+// A price this much above the last delivery is worth a look.
+export const PRICE_RISE_WARN_PCT = 5;
+
+// Percent change from the last price, one decimal (null when there is no last price).
+export const priceChangePct = (price: number, last: number | null | undefined) => (last && last > 0 && price > 0 ? Math.round(((price - last) / last) * 1000) / 10 : null);
+
 export type StockFlag = 'ORDER' | 'ON_ORDER' | 'LOW' | 'OK' | 'NO_USE' | 'EMPTY';
 
 export type StockStatus = {
