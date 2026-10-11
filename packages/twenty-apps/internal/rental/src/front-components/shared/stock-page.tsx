@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 
 import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
-import { ItemSheet, RecordSheet, RuleSheet, SettleSheet, stockAction, StockTakeSheet, WriteOffSheet } from 'src/front-components/shared/stock-forms';
+import { ItemSheet, RecordSheet, RuleSheet, SettleSheet, stockAction, WriteOffSheet } from 'src/front-components/shared/stock-forms';
+import { StockTakeSheet } from 'src/front-components/shared/stock-take-sheet';
 import { ItemDetailSheet } from 'src/front-components/shared/stock-detail';
 import { StockHandTab } from 'src/front-components/shared/stock-hand-tab';
 import { MonthTab } from 'src/front-components/shared/stock-month-tab';
@@ -166,7 +167,7 @@ export const StockPage = () => {
       const at = open.date;
       const expected = at ? new Map(items.map((i) => [i.id, balanceOf((byItem.get(i.id) ?? []).filter((m) => m.date <= at))])) : balances;
 
-      return <StockTakeSheet items={activeItems} balances={expected} today={today} initialDate={at} onClose={() => setOpen(null)} onDone={done} />;
+      return <StockTakeSheet items={activeItems} balances={expected} today={today} initialDate={at} ownerId={ownerId} onClose={() => setOpen(null)} onDone={done} />;
     }
     if (open.kind === 'writeOff') return <WriteOffSheet item={open.item} message={open.message} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'rule' && owner) return <RuleSheet owner={owner} onClose={() => setOpen(null)} onDone={done} />;

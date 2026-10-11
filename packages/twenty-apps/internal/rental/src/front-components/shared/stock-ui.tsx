@@ -1,3 +1,4 @@
+import { WASTE_REASONS } from 'src/shared/stock-types';
 import { type CSSProperties, type ReactNode } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 
@@ -121,6 +122,24 @@ export const ExcelButton = ({ query, title }: { query: Record<string, string>; t
   >
     ⬇ Excel
   </a>
+);
+
+// Why stock was wasted: tap one.
+export const ReasonPicker = ({ value, onChange }: { value: string; onChange: (value: string) => void }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <span style={{ fontSize: 12, color: c.text3 }}>Why was it wasted?</span>
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {WASTE_REASONS.filter((r) => r.pick).map((r) => (
+        <button
+          key={r.value}
+          onClick={() => onChange(r.value)}
+          style={{ ...control, height: 36, fontWeight: value === r.value ? 600 : 400, background: value === r.value ? 'var(--t-color-red2)' : c.bg, color: value === r.value ? 'var(--t-color-red11)' : c.text, borderColor: value === r.value ? 'var(--t-color-red9)' : c.border2 }}
+        >
+          {r.label}
+        </button>
+      ))}
+    </div>
+  </div>
 );
 
 export const withOwner = (query: Record<string, string>, ownerId: string) => (ownerId ? { ...query, owner: ownerId } : query);

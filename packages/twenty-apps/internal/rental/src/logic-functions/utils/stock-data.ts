@@ -73,6 +73,7 @@ type MovementNode = {
   batchId?: string | null;
   orderId?: string | null;
   recordedBy?: string | null;
+  reason?: string | null;
   ownerId?: string | null;
 };
 
@@ -128,6 +129,7 @@ const MOVEMENT_FIELDS = {
   batchId: true,
   orderId: true,
   recordedBy: true,
+  reason: true,
   ownerId: true,
 };
 
@@ -147,6 +149,7 @@ export const toStockMovement = (node: MovementNode): StockMovement => ({
   batchId: node.batchId ?? null,
   orderId: node.orderId ?? null,
   recordedBy: node.recordedBy ?? '',
+  reason: node.reason ?? '',
   ownerId: node.ownerId ?? null,
 });
 

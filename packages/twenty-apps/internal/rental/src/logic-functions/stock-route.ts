@@ -13,12 +13,13 @@ import { balanceOf, cartonsAndUnits, groupMovements, type StockItem, unitPrice }
 import { stockAlerts } from 'src/shared/stock-alerts';
 import { importChanges, importClosing, importComputedClosing, importDates, type ImportRow, type ImportSheet, pickStockSheet } from 'src/shared/stock-import';
 import { readXlsx } from 'src/logic-functions/utils/xlsx-read';
-import { movementType, STOCK_GROUPS } from 'src/shared/stock-types';
+import { movementType, STOCK_GROUPS, WASTE_REASONS } from 'src/shared/stock-types';
 
 // POST /s/stock { action, ... }: the Stock page's data and every change it
 // makes, checked against the caller's workspaces.
 //   data                         items, movements, workspace rules
-//   alerts                       per workspace: items to order, expired, late orders
+//   alerts                       per workspace: items to order, expired, expiring soon, late orders
+//   readCounts    { ownerId?, fileBase64 }          counts from a filled-in count sheet (Excel)
 //   importExcel   { ownerId, fileBase64, apply?, mode, openingDate | closingDate, includeOrder, includeTakes, updateDetails }
 //   saveItem      item fields (+ openingUnits on a new item)
 //   setStatus     { itemId, status, writeOff? }    discontinue / reactivate
@@ -155,6 +156,7 @@ type MovementInput = {
   borrowId?: string | null;
   batchId?: string | null;
   orderId?: string | null;
+  reason?: string | null;
 };
 
 // A save the page retried after a dropped connection: already done if any
@@ -181,6 +183,7 @@ const movementData = (item: StockItem, data: MovementInput, recordedBy = '') => 
           batchId: data.batchId ?? null,
           orderId: data.orderId ?? null,
           recordedBy: recordedBy || null,
+          reason: data.reason || null,
           itemId: item.id,
           ownerId: item.ownerId,
 });
@@ -423,6 +426,65 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     return json({ success: true, message: 'Imported: ' + parts.join(', ') + '.' });
   },
 
+  // A count sheet filled in at the shelf (Excel): counts per product, found by item code.
+  readCounts: async (client, scope, body) => {
+    const ownerId = text(body.ownerId, 64);
+
+    if (ownerId && !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    const base64 = typeof body.fileBase64 === 'string' ? body.fileBase64 : '';
+
+    if (!base64) return fail('Choose the filled-in count sheet first.');
+    if (base64.length > 12_000_000) return fail('That file is too big.');
+    let sheets: ReturnType<typeof readXlsx>;
+
+    try {
+      sheets = readXlsx(new Uint8Array(Buffer.from(base64, 'base64')));
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : 'Could not read that file.');
+    }
+    const clean = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
+    const data = await loadStockData(client, scope);
+    const items = data.items.filter((i) => i.status !== 'DISCONTINUED' && (!ownerId || i.ownerId === ownerId));
+    const byCode = new Map(items.filter((i) => i.code).map((i) => [i.code, i]));
+    const byName = new Map(items.map((i) => [i.name.toLowerCase(), i]));
+    const counts: Array<{ itemId: string; units: number }> = [];
+    const unmatched: string[] = [];
+    let found = false;
+
+    for (const sheet of sheets) {
+      const headerAt = sheet.rows.findIndex((row) => row.some((v) => /^item code/i.test(clean(v))) && row.some((v) => /counted ?\(ctn\)/i.test(clean(v))));
+
+      if (headerAt < 0) continue;
+      found = true;
+      const header = sheet.rows[headerAt];
+      const col = (pattern: RegExp) => header.findIndex((v) => pattern.test(clean(v)));
+      const [codeCol, nameCol, ctnCol, looseCol] = [col(/^item code/i), col(/^product name/i), col(/counted ?\(ctn\)/i), col(/counted ?\(loose/i)];
+      const numberOf = (v: unknown) => (v === null || v === undefined || clean(v) === '' ? null : Number(clean(v).replace(/[^0-9.-]/g, '')));
+
+      for (const row of sheet.rows.slice(headerAt + 1)) {
+        const cartons = ctnCol >= 0 ? numberOf(row[ctnCol]) : null;
+        const loose = looseCol >= 0 ? numberOf(row[looseCol]) : null;
+
+        if ((cartons === null || Number.isNaN(cartons)) && (loose === null || Number.isNaN(loose))) continue;
+        const code = clean(row[codeCol]);
+        const name = clean(row[nameCol]);
+        const item = (code ? byCode.get(code) : undefined) ?? byName.get(name.toLowerCase());
+
+        if (!item) {
+          unmatched.push(code || name || 'a row');
+          continue;
+        }
+        const units = Math.round(((cartons || 0) * item.unitsPerCarton + (loose || 0)) * 100) / 100;
+
+        if (units >= 0) counts.push({ itemId: item.id, units });
+      }
+      break;
+    }
+    if (!found) return fail('This is not a count sheet. It needs the "Item code", "Counted (ctn)" and "Counted (loose units)" columns: download the count sheet from the Stock take screen.');
+
+    return json({ success: true, counts, unmatched, message: counts.length ? 'Read ' + counts.length + ' counted product' + (counts.length === 1 ? '' : 's') + (unmatched.length ? ', ' + unmatched.length + ' not recognised' : '') + '. Check them, then save.' : 'No counts found: fill in the "Counted" columns first.' });
+  },
+
   saveItem: async (client, scope, body) => {
     const id = text(body.id, 64);
     const name = text(body.name, 200);
@@ -503,7 +565,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
         const locked = lockedMessage(await loadLocks(client, [item.ownerId]), item.ownerId, writeOffDate);
 
         if (locked) return fail(locked);
-        await createMovement(client, item, { date: writeOffDate, type: 'WASTE', quantity: balance, notes: 'Written off when discontinued' });
+        await createMovement(client, item, { date: writeOffDate, type: 'WASTE', reason: 'DISCONTINUED', quantity: balance, notes: 'Written off when discontinued' });
       }
     }
 
@@ -520,6 +582,9 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     if (!isDate(body.date)) return fail('Pick a date.');
     if (!lines.length) return fail('Add at least one item.');
     if (type === 'BORROW' && !text(body.party)) return fail('Say which branch borrowed it.');
+    const reason = type === 'WASTE' ? text(body.reason, 20) : '';
+
+    if (type === 'WASTE' && !WASTE_REASONS.some((r) => r.pick && r.value === reason)) return fail('Pick why it was wasted (expired, spilled, staff meal...).');
     const requestId = text(body.requestId, 64) || `srv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
     if (await alreadySaved(client, requestId)) return json({ success: true, message: 'Already saved.' });
@@ -559,6 +624,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
         expiryDate: isDate(line.expiryDate) ? line.expiryDate : null,
         reference: text(body.reference, 120),
         notes: text(body.notes, 500),
+            reason: reason || null,
             borrowStatus: type === 'BORROW' ? 'OUTSTANDING' : null,
             batchId: requestId || null,
           },
@@ -684,7 +750,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       if (diff === 0) continue;
       adjustments.push({
         item,
-        data: { date, type: diff > 0 ? 'ADJUST_IN' : 'ADJUST_OUT', quantity: Math.abs(diff), notes: `Stock take: counted ${counted}, expected ${expected}`, batchId: requestId || null },
+        data: { date, type: diff > 0 ? 'ADJUST_IN' : 'ADJUST_OUT', quantity: Math.abs(diff), notes: `Stock take: counted ${counted}, expected ${expected}`, batchId: requestId || null, reason: diff < 0 ? 'COUNT' : null },
       });
     }
 
@@ -973,7 +1039,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
   try {
     const client = appClient();
-    const [scope, actor] = await Promise.all([resolveScope(client, context?.workspaceMemberId), body.action === 'data' || body.action === 'alerts' || (body.action === 'importExcel' && body.apply !== true) ? '' : memberName(client, context?.workspaceMemberId)]);
+    const [scope, actor] = await Promise.all([resolveScope(client, context?.workspaceMemberId), body.action === 'data' || body.action === 'alerts' || body.action === 'readCounts' || (body.action === 'importExcel' && body.apply !== true) ? '' : memberName(client, context?.workspaceMemberId)]);
 
     if (actor) actorOf.set(client, actor);
 

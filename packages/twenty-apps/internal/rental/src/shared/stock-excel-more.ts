@@ -17,7 +17,7 @@ import {
 } from 'src/shared/stock';
 import { BROWN, CREAM, GROUP, HEAD, ORDER, PASAR, PASAR_LIGHT, TEAL, cell, dmy } from 'src/shared/stock-excel';
 import { type LineProgress, type StockOrder } from 'src/shared/stock-orders';
-import { BORROW_STATUSES, STOCK_GROUPS } from 'src/shared/stock-types';
+import { BORROW_STATUSES, STOCK_GROUPS, WASTE_REASONS } from 'src/shared/stock-types';
 import { buildXlsx, type XlsxCell, type XlsxStyle } from 'src/shared/xlsx';
 
 const RED = 'C00000';
@@ -49,6 +49,43 @@ const titleBlock = (h: Heading): XlsxCell[][] => [
 const groupRow = (label: string, width: number): XlsxCell[] => [cell(label, { fill: GROUP, bold: true }), ...Array.from({ length: width - 1 }, () => cell(null, { fill: GROUP }))];
 
 const FLAG_LABEL: Record<string, string> = { ORDER: 'Order now', LOW: 'Low', OK: 'OK', NO_USE: 'Not used', EMPTY: 'Out of stock' };
+
+// ---------------------------------------------------------------- Count sheet (blind: no expected quantities)
+
+export const countWorkbook = (items: StockItem[], heading: Heading) => {
+  const labels = ['Item code', 'Product name', 'Specification', 'Unit', 'Units / ctn', 'Counted\n(ctn)', 'Counted\n(loose units)', 'Notes (damaged, expiry...)'];
+  const rows: XlsxCell[][] = [
+    ...titleBlock(heading),
+    [{ value: 'Counted on:', style: { bold: true } }, { value: '____ / ____ / ________' }, { value: '' }, { value: 'Counted by:', style: { bold: true } }, { value: '______________________' }],
+    [{ value: 'Count each product on the shelf: whole cartons in "Counted (ctn)", loose units in "Counted (loose units)". Leave blank what you did not count; type 0 for nothing left.', style: { italic: true, color: '808080' } }],
+    [],
+    headerRow(labels, PASAR),
+  ];
+  const merges: Array<[number, number, number, number]> = [];
+  const input = { fill: PASAR_LIGHT, align: 'right' as const, format: 'num' as const };
+
+  for (const group of STOCK_GROUPS) {
+    const list = items.filter((i) => i.group === group.value && i.status !== 'DISCONTINUED').sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+
+    if (!list.length) continue;
+    rows.push(groupRow(`${group.label} · ${list.length} items`, labels.length));
+    merges.push([rows.length - 1, 0, rows.length - 1, labels.length - 1]);
+    for (const item of list) {
+      rows.push([
+        cell(item.code, { align: 'center' }),
+        cell(item.name),
+        cell(item.specification),
+        cell(item.unit, { align: 'center' }),
+        num(item.unitsPerCarton),
+        cell(null, input),
+        cell(null, input),
+        cell(null, { fill: PASAR_LIGHT }),
+      ]);
+    }
+  }
+
+  return buildXlsx({ name: 'Count sheet', rows, merges, freeze: { rows: 9, cols: 2 }, heights: { 8: 30 }, widths: [9, 40, 24, 7, 8, 11, 13, 30] });
+};
 
 // ---------------------------------------------------------------- Stock in hand
 
@@ -212,7 +249,8 @@ export const yearWorkbook = (rows: YearRow[], year: number, lastMonth: number, h
 // ---------------------------------------------------------------- Month end
 
 export const monthEndWorkbook = (rows: MonthEndRow[], lockedThrough: string | null, heading: Heading) => {
-  const labels = ['Month', 'Opening (RM)', '+ Purchased (RM)', '+ Other in (RM)', '− Used (RM)', '− Waste (RM)', '− Lent / count (RM)', 'Closing (RM)', 'Stock take', 'Status'];
+  const reasons = WASTE_REASONS.filter((r) => rows.some((x) => (x.reasons[r.value] ?? 0) > 0));
+  const labels = ['Month', 'Opening (RM)', '+ Purchased (RM)', '+ Other in (RM)', '− Used (RM)', '− Waste (RM)', '− Lent / count (RM)', 'Closing (RM)', 'Stock take', 'Status', ...reasons.map((r) => `Lost: ${r.label} (RM)`)];
   const out: XlsxCell[][] = [...titleBlock(heading), headerRow(labels)];
   const monthEnd = (month: string) => new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
 
@@ -230,12 +268,13 @@ export const monthEndWorkbook = (rows: MonthEndRow[], lockedThrough: string | nu
       money(r.closingValue, { bold: true, fill: CREAM }),
       cell(r.counted ? 'counted' : 'not counted', { color: r.counted ? GREEN_TEXT : '808080' }),
       cell(closed ? 'CLOSED' : 'open', { bold: closed }),
+      ...reasons.map((reason) => money(r.reasons[reason.value] ?? 0, { color: RED })),
     ]);
   }
   out.push([]);
   out.push([{ value: 'Values at each item’s carton price ÷ units. Opening = the previous month’s closing.', style: { italic: true, color: '808080' } }]);
 
-  return buildXlsx({ name: 'Month end', rows: out, freeze: { rows: 6, cols: 1 }, heights: { 5: 30 }, widths: [10, 14, 15, 14, 14, 13, 15, 15, 12, 10] });
+  return buildXlsx({ name: 'Month end', rows: out, freeze: { rows: 6, cols: 1 }, heights: { 5: 30 }, widths: [10, 14, 15, 14, 14, 13, 15, 15, 12, 10, ...reasons.map(() => 16)] });
 };
 
 // ---------------------------------------------------------------- One order (to send to the supplier)

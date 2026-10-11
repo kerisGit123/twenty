@@ -7,20 +7,21 @@ import { todayIso } from 'src/logic-functions/utils/dates';
 import { inScope, resolveScope } from 'src/logic-functions/utils/scope';
 import { loadStockData } from 'src/logic-functions/utils/stock-data';
 import { DEFAULT_RULE, groupMovements, historySheet, monthEndRows, monthSheet, monthSheetCsv, orderPlanCsv, stockStatus, yearGrid } from 'src/shared/stock';
-import { borrowWorkbook, historyWorkbook, monthEndWorkbook, orderWorkbook, purchaseOrderWorkbook, stockHandWorkbook, yearWorkbook } from 'src/shared/stock-excel-more';
+import { borrowWorkbook, countWorkbook, historyWorkbook, monthEndWorkbook, orderWorkbook, purchaseOrderWorkbook, stockHandWorkbook, yearWorkbook } from 'src/shared/stock-excel-more';
 import { onOrderUnits, orderProgress } from 'src/shared/stock-orders';
 import { stockMonthFileName, stockMonthWorkbook } from 'src/shared/stock-excel';
 
 // GET /s/stock/csv?kind=month&month=2026-05&owner=<workspace>  the monthly restock sheet
 // GET /s/stock/csv?kind=order&owner=<workspace>                the order plan (items to re-order)
 // GET /s/stock/csv?kind=xlsx&month=2026-05&owner=<workspace>  the restock sheet as Excel, like the paper 订货单
+// GET /s/stock/csv?kind=xlsx-count&owner=                      blank count sheet for a stock take (no expected quantities)
 // GET /s/stock/csv?kind=xlsx-hand&owner=                       stock in hand
 // GET /s/stock/csv?kind=xlsx-order&owner=&orders=<id:ctn,...>  the order (cartons as edited on the page)
 // GET /s/stock/csv?kind=xlsx-history&from=&to=&owner=          the in/out grid for a period
 // GET /s/stock/csv?kind=xlsx-borrowed&owner=                   stock lent to branches
 // GET /s/stock/csv?kind=xlsx-po&order=<id>                     one order, to send to the supplier
 
-const EXCEL_KINDS = ['xlsx', 'xlsx-hand', 'xlsx-order', 'xlsx-history', 'xlsx-borrowed', 'xlsx-po', 'xlsx-monthend', 'xlsx-year'];
+const EXCEL_KINDS = ['xlsx', 'xlsx-count', 'xlsx-hand', 'xlsx-order', 'xlsx-history', 'xlsx-borrowed', 'xlsx-po', 'xlsx-monthend', 'xlsx-year'];
 const isDate = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 const escapeHtml = (text: string) => text.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch] as string);
@@ -106,6 +107,9 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         );
       }
 
+      if (kind === 'xlsx-count') {
+        return downloadPage(`stock-count-sheet-${today}.xlsx`, countWorkbook(items, { title: 'Stock count sheet 盘点表', company, generatedOn: today }));
+      }
       if (kind === 'xlsx-hand') {
         return downloadPage(`stock-in-hand-${today}.xlsx`, stockHandWorkbook(statuses(), today, { title: 'Stock in hand 库存', company, generatedOn: today }));
       }

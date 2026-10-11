@@ -38,6 +38,7 @@ export type StockMovement = {
   batchId?: string | null; // lines saved together (one delivery)
   orderId?: string | null; // a purchase received against a stock order
   recordedBy?: string; // the team member who saved it
+  reason?: string; // why it was wasted (see WASTE_REASONS)
   ownerId: string | null;
 };
 
@@ -161,6 +162,56 @@ export const expiredStock = (movements: StockMovement[], balance: number, today:
   }
 
   return { units: round(units), earliest };
+};
+
+// Units still in stock that expire within `days` (not yet expired), oldest
+// stock assumed used first; same idea as expiredStock.
+export const expiringStock = (movements: StockMovement[], balance: number, today: string, days = 30) => {
+  const last = new Date(Date.parse(`${today}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+  let left = Math.max(balance, 0);
+  let units = 0;
+  let earliest: string | null = null;
+  const deliveries = movements
+    .map((m, index) => ({ m, index }))
+    .filter(({ m }) => isIn(m.type) && m.quantity > 0)
+    .sort((a, b) => b.m.date.localeCompare(a.m.date) || b.index - a.index)
+    .map(({ m }) => m);
+
+  for (const d of deliveries) {
+    if (left <= 0) break;
+    const part = Math.min(d.quantity, left);
+
+    if (d.expiryDate && d.expiryDate >= today && d.expiryDate <= last) {
+      units += part;
+      if (!earliest || d.expiryDate < earliest) earliest = d.expiryDate;
+    }
+    left -= part;
+  }
+
+  return { units: round(units), earliest };
+};
+
+const REASON_CODES = ['EXPIRED', 'DAMAGED', 'STAFF_MEAL', 'SAMPLE', 'WRONG_ORDER', 'OTHER', 'DISCONTINUED', 'COUNT'];
+
+// Why a movement lost stock, or null when it is not waste or a count shortfall.
+// Older lines have no reason: it is read from the words typed with them.
+export const wasteReasonOf = (m: Pick<StockMovement, 'type' | 'reason' | 'party' | 'notes'>): string | null => {
+  if (m.type === 'WASTE') {
+    if (m.reason && REASON_CODES.includes(m.reason)) return m.reason;
+    const words = `${m.party} ${m.notes}`;
+
+    if (/discontinu/i.test(words)) return 'DISCONTINUED';
+    if (/expire/i.test(words)) return 'EXPIRED';
+    if (/spill|damag|broke|drop|leak/i.test(words)) return 'DAMAGED';
+    if (/staff|meal/i.test(words)) return 'STAFF_MEAL';
+    if (/sample|promo|tasting/i.test(words)) return 'SAMPLE';
+    if (/wrong|return/i.test(words)) return 'WRONG_ORDER';
+
+    return 'OTHER';
+  }
+  if (m.type === 'ADJUST_OUT' && (m.reason === 'COUNT' || /^stock take/i.test(m.notes))) return 'COUNT';
+
+  return null;
 };
 
 export type StockFlag = 'ORDER' | 'ON_ORDER' | 'LOW' | 'OK' | 'NO_USE' | 'EMPTY';
@@ -385,6 +436,7 @@ export type MonthEndRow = {
   itemsWithStock: number;
   movements: number;
   counted: boolean; // a stock take was saved in the month
+  reasons: Record<string, number>; // value lost by reason: waste reasons, and COUNT for stock-take shortfalls
 };
 
 const nextMonth = (month: string) => new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1)).toISOString().slice(0, 7);
@@ -401,7 +453,7 @@ export const monthEndRows = (items: StockItem[], movementsByItem: Map<string, St
   for (let month = first.slice(0, 7); month <= lastMonth; month = nextMonth(month)) {
     const start = `${month}-01`;
     const end = `${nextMonth(month)}-01`;
-    const row: MonthEndRow = { month, openingValue: 0, purchasedValue: 0, otherInValue: 0, usedValue: 0, wasteValue: 0, otherOutValue: 0, closingValue: 0, closingUnits: 0, itemsWithStock: 0, movements: 0, counted: false };
+    const row: MonthEndRow = { month, openingValue: 0, purchasedValue: 0, otherInValue: 0, usedValue: 0, wasteValue: 0, otherOutValue: 0, closingValue: 0, closingUnits: 0, itemsWithStock: 0, movements: 0, counted: false, reasons: {} };
 
     for (const item of items) {
       const list = movementsByItem.get(item.id) ?? [];
@@ -424,9 +476,13 @@ export const monthEndRows = (items: StockItem[], movementsByItem: Map<string, St
         else if (isIn(m.type)) row.otherInValue += value;
         else row.otherOutValue += value;
         if (m.type === 'ADJUST_IN' || m.type === 'ADJUST_OUT') row.counted = true;
+        const reason = wasteReasonOf(m);
+
+        if (reason) row.reasons[reason] = (row.reasons[reason] ?? 0) + value;
       }
     }
     for (const key of ['openingValue', 'purchasedValue', 'otherInValue', 'usedValue', 'wasteValue', 'otherOutValue', 'closingValue', 'closingUnits'] as const) row[key] = round(row[key], 2);
+    for (const key of Object.keys(row.reasons)) row.reasons[key] = round(row.reasons[key], 2);
     rows.push(row);
   }
 

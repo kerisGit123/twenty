@@ -51,3 +51,18 @@ export const stockGroupLabel = (value: string | null | undefined) => STOCK_GROUP
 // Defaults for the reorder rule (each workspace can change them).
 export const DEFAULT_REORDER_BELOW_MONTHS = 1.5;
 export const DEFAULT_ORDER_UP_TO_MONTHS = 2.5;
+
+// Why stock was thrown away. pick: the ones a person chooses; the rest are
+// set by the system (a stock-take shortfall, a discontinued item written off).
+export const WASTE_REASONS: Array<{ value: string; label: string; color: string; pick: boolean }> = [
+  { value: 'EXPIRED', label: 'Expired', color: 'red', pick: true },
+  { value: 'DAMAGED', label: 'Spilled / damaged', color: 'orange', pick: true },
+  { value: 'STAFF_MEAL', label: 'Staff meal', color: 'blue', pick: true },
+  { value: 'SAMPLE', label: 'Sample / promotion', color: 'purple', pick: true },
+  { value: 'WRONG_ORDER', label: 'Wrong order / returned', color: 'yellow', pick: true },
+  { value: 'OTHER', label: 'Other', color: 'gray', pick: true },
+  { value: 'DISCONTINUED', label: 'Discontinued item', color: 'gray', pick: false },
+  { value: 'COUNT', label: 'Count short', color: 'amber', pick: false },
+];
+
+export const wasteReasonLabel = (value: string | null | undefined) => WASTE_REASONS.find((r) => r.value === value)?.label ?? '';

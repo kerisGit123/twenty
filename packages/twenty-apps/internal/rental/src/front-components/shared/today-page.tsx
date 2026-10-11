@@ -577,9 +577,11 @@ export const Today = () => {
 
   const stockView = (() => {
     const mine = (stock ?? []).filter((a) => scope.matches(a.ownerId));
-    const sum = (key: 'orderNow' | 'expiredItems' | 'expiredValue' | 'waiting' | 'late') => mine.reduce((s, a) => s + a[key], 0);
+    const sum = (key: 'orderNow' | 'expiredItems' | 'expiredValue' | 'expiringItems' | 'waiting' | 'late') => mine.reduce((s, a) => s + (a[key] ?? 0), 0);
 
-    return mine.length ? { orderNow: sum('orderNow'), expiredItems: sum('expiredItems'), expiredValue: sum('expiredValue'), waiting: sum('waiting'), late: sum('late') } : null;
+    return mine.length
+      ? { orderNow: sum('orderNow'), expiredItems: sum('expiredItems'), expiredValue: sum('expiredValue'), expiringItems: sum('expiringItems'), waiting: sum('waiting'), late: sum('late') }
+      : null;
   })();
 
   const date = new Date(`${today}T00:00:00Z`);
@@ -655,12 +657,13 @@ export const Today = () => {
                 hint={
                   [
                     stockView.expiredItems ? `${stockView.expiredItems} expired (${rm(stockView.expiredValue)})` : '',
+                    stockView.expiringItems ? `${stockView.expiringItems} expire within 30 days` : '',
                     stockView.late ? `${stockView.late} deliver${stockView.late === 1 ? 'y' : 'ies'} late` : stockView.waiting ? `${stockView.waiting} on order` : '',
                   ]
                     .filter(Boolean)
-                    .join(' · ') || 'nothing expired'
+                    .join(' · ') || 'nothing expiring'
                 }
-                color={stockView.expiredItems || stockView.late ? 'red' : stockView.orderNow ? 'amber' : 'green'}
+                color={stockView.expiredItems || stockView.late ? 'red' : stockView.orderNow || stockView.expiringItems ? 'amber' : 'green'}
                 onClick={() => openPage('Stock')}
               />
             ) : null}

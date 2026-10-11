@@ -1,5 +1,6 @@
 import { type CSSProperties, useState } from 'react';
 
+import { readPickedFile } from 'src/front-components/shared/pick-file';
 import { readValue } from 'src/front-components/shared/read-value';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { stockAction } from 'src/front-components/shared/stock-forms';
@@ -15,16 +16,6 @@ type Preview = {
   sheet: { name: string; sheetDate: string | null; takeDates: string[]; inDates: string[]; warnings: string[]; balanceDiffers: string[] };
   dates: { opening: string; closing: string };
   rows: PreviewRow[];
-};
-type PickedFile = { name?: string; size?: number; blob?: Blob } & Partial<Blob>;
-
-const toBase64 = async (blob: Blob) => {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = '';
-
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-
-  return btoa(binary);
 };
 
 const isFullDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -72,18 +63,14 @@ export const ImportSheet = ({ owners, defaultOwnerId, onClose, onDone }: { owner
   };
 
   const pick = async (event: unknown) => {
-    const target = (event as { target?: { files?: ArrayLike<PickedFile> } }).target;
-    const chosen = target?.files?.[0];
-    const blob = chosen?.blob ?? (chosen instanceof Blob ? chosen : null);
+    const picked = await readPickedFile(event);
 
-    if (!chosen || !blob) return;
-    if (!/\.xlsx$/i.test(chosen.name ?? '')) {
+    if (!picked) return;
+    if (!/\.xlsx$/i.test(picked.name)) {
       setError('Choose an Excel .xlsx file (in Excel: File › Save As › Excel Workbook).');
 
       return;
     }
-    const picked = { name: chosen.name ?? 'file.xlsx', base64: await toBase64(blob) };
-
     setFile(picked);
     await load(picked, ownerId);
   };

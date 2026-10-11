@@ -91,3 +91,6 @@ export const STOCK_MOVEMENT_RECORDED_BY_FIELD_ID = 'db197040-b9a1-4d11-92b9-9035
 
 // Re-order rule: days a delivery takes to arrive.
 export const OWNER_STOCK_LEAD_DAYS_FIELD_ID = '9a522971-3269-44bd-a296-bc2b84a1fae3';
+
+// Why stock was thrown away (waste) or went missing (count short).
+export const STOCK_MOVEMENT_REASON_FIELD_ID = 'aa255e79-0d42-4204-a958-91c54c7419b1';

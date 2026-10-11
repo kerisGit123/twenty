@@ -17,8 +17,8 @@ import {
   td,
   th,
 } from 'src/front-components/shared/stock-ui';
-import { cartonsAndUnits, type StockItem, type StockMovement } from 'src/shared/stock';
-import { BORROW_STATUSES, movementType } from 'src/shared/stock-types';
+import { cartonsAndUnits, type StockItem, type StockMovement, wasteReasonOf } from 'src/shared/stock';
+import { BORROW_STATUSES, movementType, wasteReasonLabel } from 'src/shared/stock-types';
 
 // The Stock page's tabs. Each gets the items/movements already cut down to
 // the chosen workspace.
@@ -103,7 +103,7 @@ export const MovementsTab = ({
                 {item ? cartonsAndUnits(m.quantity, item) : qty(m.quantity)}
                 {m.expiryDate ? <div style={{ fontSize: 11, color: c.text3 }}>exp {shortDate(m.expiryDate)}</div> : null}
               </td>
-              <td style={{ ...td, color: c.text2 }}>{m.party || '—'}</td>
+              <td style={{ ...td, color: c.text2 }}>{wasteReasonLabel(wasteReasonOf(m)) || m.party || '—'}</td>
               <td style={{ ...td, color: c.text3, fontSize: 12 }}>{[m.reference, m.notes].filter(Boolean).join(' · ') || '—'}</td>
               <td style={{ ...td, color: c.text2, fontSize: 12, whiteSpace: 'nowrap' }}>{m.recordedBy || '—'}</td>
               <td style={{ ...td, textAlign: 'right' }}>

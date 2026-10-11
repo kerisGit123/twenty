@@ -6,6 +6,7 @@ import { stockAction } from 'src/front-components/shared/stock-forms';
 import { c, Chip, control, ExcelButton, monthLabel, primary, rm, small, withOwner } from 'src/front-components/shared/stock-ui';
 import type { StockOwner } from 'src/logic-functions/utils/stock-data';
 import { type MonthEndRow, monthEndRows, type StockItem, type StockMovement } from 'src/shared/stock';
+import { WASTE_REASONS } from 'src/shared/stock-types';
 
 // Month end: each month's opening and closing stock (value), what came in
 // and went out, and closing a month so nothing dated in it can change.
@@ -191,6 +192,59 @@ export const MonthEndTab = ({
           </tbody>
         </table>
       </div>
+      {(() => {
+        const lost = WASTE_REASONS.filter((r) => rows.some((x) => (x.reasons[r.value] ?? 0) > 0));
+        const withLoss = rows.filter((x) => lost.some((r) => (x.reasons[r.value] ?? 0) > 0));
+        const totalOf = (x: MonthEndRow) => lost.reduce((sum, r) => sum + (x.reasons[r.value] ?? 0), 0);
+
+        if (!lost.length) {
+          return <span style={{ fontSize: 12, color: c.text3 }}>No waste or count shortfall recorded yet. When stock is wasted, pick why: this table then shows where the money went.</span>;
+        }
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>Where the loss went (RM)</span>
+            <div style={{ overflow: 'auto', border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 620 }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...head, textAlign: 'left' }}>Month</th>
+                    {lost.map((r) => (
+                      <th key={r.value} style={{ ...head, color: 'var(--t-color-red11)' }}>
+                        {r.label}
+                      </th>
+                    ))}
+                    <th style={head}>Total lost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {withLoss.map((x) => (
+                    <tr key={x.month}>
+                      <td style={{ ...cell, fontWeight: 600 }}>{monthLabel(x.month)}</td>
+                      {lost.map((r) => (
+                        <td key={r.value} style={{ ...right, color: x.reasons[r.value] ? 'var(--t-color-red11)' : c.text3 }}>
+                          {x.reasons[r.value] ? rm(x.reasons[r.value]) : '—'}
+                        </td>
+                      ))}
+                      <td style={{ ...right, fontWeight: 700 }}>{rm(totalOf(x))}</td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td style={{ ...cell, fontWeight: 700, background: c.bg2 }}>All months</td>
+                    {lost.map((r) => (
+                      <td key={r.value} style={{ ...right, fontWeight: 700, background: c.bg2 }}>
+                        {rm(withLoss.reduce((sum, x) => sum + (x.reasons[r.value] ?? 0), 0))}
+                      </td>
+                    ))}
+                    <td style={{ ...right, fontWeight: 700, background: c.bg2 }}>{rm(withLoss.reduce((sum, x) => sum + totalOf(x), 0))}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <span style={{ fontSize: 12, color: c.text3 }}>Expired stock points to over-ordering; spilled or damaged to handling; count short is stock that went missing between stock takes.</span>
+          </div>
+        );
+      })()}
       <span style={{ fontSize: 12, color: c.text3 }}>
         Values at each item&apos;s carton price ÷ units. Opening = the previous month&apos;s closing. Close months in order, after the month is over.
       </span>

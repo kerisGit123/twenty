@@ -4,7 +4,7 @@ import { enqueueSnackbar } from 'twenty-sdk/front-component';
 
 import { readValue } from 'src/front-components/shared/read-value';
 import { Sheet } from 'src/front-components/shared/sheet';
-import { c, control, Field, input, primary, qty, select, small } from 'src/front-components/shared/stock-ui';
+import { c, control, Field, input, primary, qty, ReasonPicker, select, small } from 'src/front-components/shared/stock-ui';
 import type { StockOwner } from 'src/logic-functions/utils/stock-data';
 import { cartonsAndUnits, type StockItem, type StockMovement, type StockRule, unitPrice } from 'src/shared/stock';
 import { STOCK_GROUPS, STOCK_MOVEMENT_TYPES } from 'src/shared/stock-types';
@@ -18,7 +18,7 @@ const requestId = () => `${Date.now().toString(36)}-${Math.random().toString(36)
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // Saves that are safe to send again: the server recognises the request id
 // (or the change is the same whatever the number of times).
-const RETRYABLE = ['alerts', 'importExcel', 'record', 'settleBorrow', 'stockTake', 'setStatus', 'saveRule', 'deleteMovement', 'data', 'saveOrder', 'receiveOrder', 'setOrderStatus', 'closeMonth', 'reopenMonth'];
+const RETRYABLE = ['alerts', 'importExcel', 'readCounts', 'record', 'settleBorrow', 'stockTake', 'setStatus', 'saveRule', 'deleteMovement', 'data', 'saveOrder', 'receiveOrder', 'setOrderStatus', 'closeMonth', 'reopenMonth'];
 
 export const stockAction = async (body: Record<string, unknown>): Promise<Result> => {
   const payload = { ...body, requestId: requestId() };
@@ -238,6 +238,7 @@ export const RecordSheet = ({
   const [date, setDate] = useState(today);
   const [party, setParty] = useState(initialType === 'TAKE' ? 'Wawa' : initialType === 'PURCHASE' ? 'WeDrink' : '');
   const [reference, setReference] = useState(initialReference ?? '');
+  const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
   // Purchases also go into Expenses (switch off if the bill is recorded already).
   const [addExpense, setAddExpense] = useState(true);
@@ -250,7 +251,7 @@ export const RecordSheet = ({
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const choosable = items.filter((i) => i.status !== 'DISCONTINUED' || type !== 'PURCHASE');
   const isOut = STOCK_MOVEMENT_TYPES.find((t) => t.value === type)?.direction === 'OUT';
-  const ready = isFullDate(date) && lines.some((l) => l.itemId && l.units > 0) && !lines.some((l) => l.itemId && !(l.units > 0)) && (type !== 'BORROW' || party.trim());
+  const ready = isFullDate(date) && lines.some((l) => l.itemId && l.units > 0) && !lines.some((l) => l.itemId && !(l.units > 0)) && (type !== 'BORROW' || party.trim()) && (type !== 'WASTE' || reason);
   const total = lines.reduce((sum, l) => {
     const item = byId.get(l.itemId);
 
@@ -268,6 +269,7 @@ export const RecordSheet = ({
       party,
       reference,
       notes,
+      reason: type === 'WASTE' ? reason : undefined,
       addExpense: type === 'PURCHASE' ? addExpense : undefined,
       lines: lines.filter((l) => l.itemId && l.units > 0).map((l) => ({ itemId: l.itemId, quantity: l.units, unitCost: l.unitCost ? toNumber(l.unitCost) : undefined, expiryDate: l.expiryDate || undefined })),
     });
@@ -303,9 +305,13 @@ export const RecordSheet = ({
         </Field>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <Field label={PARTY_HINT[type] ?? 'To / from'}>
-          <input value={party} onChange={(e) => setParty(readValue(e))} style={input} />
-        </Field>
+        {type === 'WASTE' ? (
+          <ReasonPicker value={reason} onChange={setReason} />
+        ) : (
+          <Field label={PARTY_HINT[type] ?? 'To / from'}>
+            <input value={party} onChange={(e) => setParty(readValue(e))} style={input} />
+          </Field>
+        )}
         <Field label={type === 'PURCHASE' ? 'Invoice / DO no.' : 'Reference'}>
           <input value={reference} onChange={(e) => setReference(readValue(e))} style={input} />
         </Field>
@@ -464,73 +470,6 @@ export const SettleSheet = ({ borrow, item, items, today, onClose, onDone }: { b
 };
 
 // ---------------------------------------------------------------- Stock take
-
-export const StockTakeSheet = ({
-  items,
-  balances,
-  today,
-  initialDate,
-  onClose,
-  onDone,
-}: {
-  items: StockItem[];
-  balances: Map<string, number>;
-  today: string;
-  initialDate?: string;
-  onClose: () => void;
-  onDone: () => void;
-}) => {
-  const [date, setDate] = useState(initialDate ?? today);
-  const [counts, setCounts] = useState<Record<string, number>>({});
-  const [busy, setBusy] = useState(false);
-  const entered = Object.keys(counts);
-
-  const save = async () => {
-    setBusy(true);
-    const result = await stockAction({ action: 'stockTake', date, counts: entered.map((itemId) => ({ itemId, counted: counts[itemId] })) });
-
-    setBusy(false);
-    if (result.success) onDone();
-  };
-
-  return (
-    <Shell
-      title="Stock take"
-      intro="Type what you counted. Only items you fill in are checked; differences are saved as stock-take adjustments on that date."
-      onClose={onClose}
-    >
-      <Field label="Counted on">
-        <input type="date" value={date} onChange={(e) => setDate(readValue(e))} style={{ ...input, width: 170 }} />
-      </Field>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {items.map((item) => {
-          const expected = balances.get(item.id) ?? 0;
-          const counted = counts[item.id];
-          const diff = counted === undefined ? 0 : Math.round((counted - expected) * 100) / 100;
-
-          return (
-            <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, borderBottom: `1px dashed ${c.border}`, paddingBottom: 6, flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: 160 }}>
-                <div style={{ fontSize: 13 }}>{item.name}</div>
-                <div style={{ fontSize: 12, color: c.text3 }}>Expected {cartonsAndUnits(expected, item)}</div>
-              </div>
-              <QtyInput item={item} units={0} onChange={(units) => setCounts({ ...counts, [item.id]: units })} />
-              {counted !== undefined && diff !== 0 ? (
-                <span style={{ fontSize: 12, width: 70, textAlign: 'right', color: diff < 0 ? 'var(--t-color-red11)' : 'var(--t-color-green11)' }}>
-                  {diff > 0 ? '+' : ''}
-                  {qty(diff)}
-                </span>
-              ) : (
-                <span style={{ width: 70 }} />
-              )}
-            </div>
-          );
-        })}
-      </div>
-      <Buttons onClose={onClose} onSave={save} busy={busy} ready={entered.length > 0} label={`Save count (${entered.length})`} />
-    </Shell>
-  );
-};
 
 // ---------------------------------------------------------------- Discontinue with stock left
 

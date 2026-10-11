@@ -5,6 +5,7 @@ import {
   STOCK_MOVEMENT_BATCH_ID_FIELD_ID,
   STOCK_MOVEMENT_ORDER_ID_FIELD_ID,
   STOCK_MOVEMENT_RECORDED_BY_FIELD_ID,
+  STOCK_MOVEMENT_REASON_FIELD_ID,
   STOCK_MOVEMENT_BORROW_ID_FIELD_ID,
   STOCK_MOVEMENT_BORROW_STATUS_FIELD_ID,
   STOCK_MOVEMENT_DATE_FIELD_ID,
@@ -101,6 +102,15 @@ export default defineObject({
       label: 'Received against order',
       description: 'The stock order this purchase line was received for.',
       icon: 'IconShoppingCart',
+      isNullable: true,
+    },
+    {
+      universalIdentifier: STOCK_MOVEMENT_REASON_FIELD_ID,
+      type: FieldType.TEXT,
+      name: 'reason',
+      label: 'Reason',
+      description: 'Why it was wasted: EXPIRED, DAMAGED, STAFF_MEAL, SAMPLE, WRONG_ORDER, OTHER (or COUNT, DISCONTINUED).',
+      icon: 'IconTrash',
       isNullable: true,
     },
     {

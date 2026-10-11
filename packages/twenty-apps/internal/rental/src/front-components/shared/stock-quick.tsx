@@ -3,7 +3,7 @@ import { type CSSProperties, useMemo, useState } from 'react';
 import { readValue } from 'src/front-components/shared/read-value';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { stockAction } from 'src/front-components/shared/stock-forms';
-import { c, control, input, primary, qty, shortDate } from 'src/front-components/shared/stock-ui';
+import { c, control, input, primary, qty, ReasonPicker, shortDate } from 'src/front-components/shared/stock-ui';
 import { cartonsAndUnits, expiredStock, type StockItem, type StockMovement } from 'src/shared/stock';
 
 // Fast entry for the store room (works on a phone): search, tap +1 ctn /
@@ -35,6 +35,7 @@ export const QuickSheet = ({
 }) => {
   const [kind, setKind] = useState<(typeof KINDS)[number]['value']>('TAKE');
   const [party, setParty] = useState('Wawa');
+  const [reason, setReason] = useState('');
   const [date, setDate] = useState(today);
   const [query, setQuery] = useState('');
   const [basket, setBasket] = useState<Record<string, number>>({});
@@ -66,8 +67,8 @@ export const QuickSheet = ({
       action: 'record',
       type: kind,
       date,
-      party: party || (kind === 'WASTE' ? 'Waste' : ''),
-      notes: kind === 'WASTE' ? party : '',
+      party: kind === 'WASTE' ? '' : party,
+      reason: kind === 'WASTE' ? reason : undefined,
       lines: lines.map(([itemId, units]) => ({ itemId, quantity: units })),
     });
 
@@ -94,9 +95,10 @@ export const QuickSheet = ({
           ))}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px', gap: 8 }}>
-          <input value={party} onChange={(e) => setParty(readValue(e))} placeholder={KINDS.find((k) => k.value === kind)?.hint} style={{ ...input, height: 40 }} />
+          {kind === 'WASTE' ? <span /> : <input value={party} onChange={(e) => setParty(readValue(e))} placeholder={KINDS.find((k) => k.value === kind)?.hint} style={{ ...input, height: 40 }} />}
           <input type="date" value={date} onChange={(e) => setDate(readValue(e))} style={{ ...input, height: 40, borderColor: isFullDate(date) ? undefined : 'var(--t-color-red9)' }} />
         </div>
+        {kind === 'WASTE' ? <ReasonPicker value={reason} onChange={setReason} /> : null}
         <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder="🔍 Type a code or name…" style={{ ...input, height: 44, fontSize: 15 }} />
         <span style={{ fontSize: 12, color: c.text3 }}>{q ? `${shown.length} match${shown.length === 1 ? '' : 'es'}` : 'Recently taken out'}</span>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -152,7 +154,7 @@ export const QuickSheet = ({
             <button onClick={onClose} style={{ ...big, flex: 1 }}>
               Cancel
             </button>
-            <button onClick={save} disabled={busy || !lines.length || !isFullDate(date)} style={{ ...primary, ...{ height: 40, fontSize: 15 }, flex: 2, opacity: busy || !lines.length || !isFullDate(date) ? 0.5 : 1 }}>
+            <button onClick={save} disabled={busy || !lines.length || !isFullDate(date) || (kind === 'WASTE' && !reason)} style={{ ...primary, ...{ height: 40, fontSize: 15 }, flex: 2, opacity: busy || !lines.length || !isFullDate(date) || (kind === 'WASTE' && !reason) ? 0.5 : 1 }}>
               {busy ? 'Saving…' : `Save ${lines.length} item${lines.length === 1 ? '' : 's'}`}
             </button>
           </div>
@@ -197,7 +199,7 @@ export const ExpiredSheet = ({
       action: 'record',
       type: 'WASTE',
       date: today,
-      party: 'Expired',
+      reason: 'EXPIRED',
       notes: 'Expired stock written off',
       lines: chosen.map((r) => ({ itemId: r.item.id, quantity: Number(units[r.item.id]) })),
     });

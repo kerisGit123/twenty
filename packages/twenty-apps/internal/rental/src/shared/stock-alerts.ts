@@ -1,4 +1,4 @@
-import { DEFAULT_RULE, expiredStock, groupMovements, stockStatus, type StockItem, type StockMovement, type StockRule, unitValue } from 'src/shared/stock';
+import { DEFAULT_RULE, expiredStock, expiringStock, groupMovements, stockStatus, type StockItem, type StockMovement, type StockRule, unitValue } from 'src/shared/stock';
 import { onOrderUnits, type StockOrder } from 'src/shared/stock-orders';
 
 export type StockAlert = {
@@ -6,6 +6,8 @@ export type StockAlert = {
   orderNow: number; // items to order (not already on order)
   expiredItems: number; // items with expired units still in stock
   expiredValue: number;
+  expiringItems: number; // items with stock that expires within 30 days
+  expiringValue: number;
   waiting: number; // orders sent, not fully received
   late: number; // of those, older than the delivery time (at least a week)
 };
@@ -26,6 +28,8 @@ export const stockAlerts = (
     let orderNow = 0;
     let expiredItems = 0;
     let expiredValue = 0;
+    let expiringItems = 0;
+    let expiringValue = 0;
 
     for (const item of items) {
       const own = byItem.get(item.id) ?? [];
@@ -38,6 +42,12 @@ export const stockAlerts = (
         expiredItems += 1;
         expiredValue += expired.units * unitValue(item);
       }
+      const soon = expiringStock(own, status.balance, today, 30);
+
+      if (soon.units > 0) {
+        expiringItems += 1;
+        expiringValue += soon.units * unitValue(item);
+      }
     }
     const sent = orders.filter((o) => o.status === 'SENT' || o.status === 'PARTLY_RECEIVED');
     const dueBy = addDays(today, -Math.max(7, rule.leadDays ?? 0));
@@ -47,6 +57,8 @@ export const stockAlerts = (
       orderNow,
       expiredItems,
       expiredValue: Math.round(expiredValue * 100) / 100,
+      expiringItems,
+      expiringValue: Math.round(expiringValue * 100) / 100,
       waiting: sent.length,
       late: sent.filter((o) => o.date < dueBy).length,
     };
