@@ -18,13 +18,16 @@ export type ImportRow = {
   openingUnits: number; // 数量 Quantity (cartons) x item/ctn
   orderUnits: number; // "this month ordering by ctn" x item/ctn
   expiryDate: string | null;
+  ins: ImportTake[]; // dated deliveries ("IN 3/5/26" columns of our own export)
   takes: ImportTake[];
+  balanceUnits: number | null; // the sheet's own balance column, when it has one
 };
 
 export type ImportSheet = {
   sheet: string;
   sheetDate: string | null;
   takeDates: string[];
+  inDates: string[];
   rows: ImportRow[];
   warnings: string[];
 };
@@ -80,7 +83,8 @@ const HEADINGS = {
   spec: /specification|规格/i,
   quantity: /^(数量|quantity)|数量 ?quantity/i,
   price: /unit price|单价/i,
-  order: /ordering by ctn|order(ing)? .*ctn/i,
+  order: /ordering by ctn|this month order/i,
+  balance: /^balance ?(unit|\(units\))/i,
   perCarton: /item ?\/ ?ctn/i,
   inHand: /qty in hand/i,
   expiry: /expir/i,
@@ -101,6 +105,10 @@ export const parseStockSheet = (name: string, rows: Cell[][]): ImportSheet | nul
   const stop = at.consumption >= 0 ? at.consumption : header.length;
   const takeCols = header
     .map((v, index) => ({ index, date: index > Math.max(at.expiry, at.inHand, at.perCarton) && index < stop ? excelDate(v) : null }))
+    .filter((x): x is { index: number; date: string } => !!x.date);
+  // Delivery columns: "IN 3/5/26" (the Excel export of this app).
+  const inCols = header
+    .map((v, index) => ({ index, date: /^IN\s+/i.test(clean(v)) ? excelDate(clean(v).replace(/^IN\s+/i, '')) : null }))
     .filter((x): x is { index: number; date: string } => !!x.date);
   const undatedCols = header.map((v, index) => ({ v: clean(v), index })).filter((x) => x.index < stop && /tarikh ambil/i.test(x.v)).map((x) => x.index);
   // 日期 Date: on the top rows.
@@ -150,10 +158,14 @@ export const parseStockSheet = (name: string, rows: Cell[][]): ImportSheet | nul
       unitsPerCarton: perCarton,
       perCartonGuessed: !fromColumn,
       cartonPrice: at.price >= 0 ? number(row[at.price]) : 0,
-      openingUnits: units(cartons ? cartons * perCarton : inHand),
+      // Qty in hand stands in for a blank opening only on WeDrink sheets; in this app's export it includes the deliveries.
+      openingUnits: units(cartons ? cartons * perCarton : inCols.length ? 0 : inHand),
       orderUnits: units(at.order >= 0 ? number(row[at.order]) * perCarton : 0),
       expiryDate: at.expiry >= 0 ? excelDate(row[at.expiry]) : null,
+      ins: inCols.map(({ index, date }) => ({ date, units: units(number(row[index])) })).filter((t) => t.units > 0),
       takes: takeCols.map(({ index, date }) => ({ date, units: units(number(row[index])) })).filter((t) => t.units > 0),
+      // A blank balance cell is 0 (the export leaves zeros blank).
+      balanceUnits: at.balance >= 0 ? units(number(row[at.balance])) : null,
     });
   }
   if (undated) warnings.push(`${undated} take-out number${undated === 1 ? '' : 's'} under "tarikh ambil" have no date and were left out.`);
@@ -164,7 +176,7 @@ export const parseStockSheet = (name: string, rows: Cell[][]): ImportSheet | nul
     codes.add(r.code);
   }
 
-  return { sheet: name, sheetDate, takeDates: takeCols.map((c) => c.date), rows: result.filter((r, i) => result.findIndex((x) => x.code === r.code) === i), warnings };
+  return { sheet: name, sheetDate, takeDates: takeCols.map((c) => c.date), inDates: inCols.map((c) => c.date), rows: result.filter((r, i) => result.findIndex((x) => x.code === r.code) === i), warnings };
 };
 
 // The sheet with the most products (the 原料 order sheet, not a summary).
@@ -189,15 +201,21 @@ export const importChanges = (row: ImportRow, item: { name: string; specificatio
   return changes;
 };
 
-// Closing = opening + this month's order - take-outs (the sheet's "balance unit").
-export const importClosing = (row: ImportRow) => Math.round((row.openingUnits + row.orderUnits - row.takes.reduce((sum, t) => sum + t.units, 0)) * 100) / 100;
+const total = (list: ImportTake[]) => list.reduce((sum, t) => sum + t.units, 0);
+
+// Opening + this month's order and deliveries - take-outs.
+export const importComputedClosing = (row: ImportRow) => Math.round((row.openingUnits + row.orderUnits + total(row.ins) - total(row.takes)) * 100) / 100;
+
+// The balance: the sheet's own balance column when it has one (it also
+// counts waste and lending), else worked out.
+export const importClosing = (row: ImportRow) => row.balanceUnits ?? importComputedClosing(row);
 
 const dayBefore = (iso: string) => new Date(Date.parse(`${iso}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
 
 // Suggested dates: the opening the day before the first take-out; the
 // closing on the sheet's date (or the last take-out, if later).
-export const importDates = (sheet: Pick<ImportSheet, 'sheetDate' | 'takeDates'>, today: string) => {
-  const dates = [...sheet.takeDates].sort();
+export const importDates = (sheet: Pick<ImportSheet, 'sheetDate' | 'takeDates' | 'inDates'>, today: string) => {
+  const dates = [...sheet.takeDates, ...sheet.inDates].sort();
   const opening = dates.length ? dayBefore(dates[0]) : (sheet.sheetDate ?? today);
   const known = [sheet.sheetDate, dates[dates.length - 1]].filter((d): d is string => !!d).sort();
   const closing = known[known.length - 1] ?? today;

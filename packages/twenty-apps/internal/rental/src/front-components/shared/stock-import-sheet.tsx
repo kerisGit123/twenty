@@ -12,7 +12,7 @@ import type { ImportRow } from 'src/shared/stock-import';
 
 type PreviewRow = ImportRow & { closingUnits: number; status: 'NEW' | 'CHANGED' | 'SAME'; changes: string[]; hasRecords: boolean };
 type Preview = {
-  sheet: { name: string; sheetDate: string | null; takeDates: string[]; warnings: string[] };
+  sheet: { name: string; sheetDate: string | null; takeDates: string[]; inDates: string[]; warnings: string[]; balanceDiffers: string[] };
   dates: { opening: string; closing: string };
   rows: PreviewRow[];
 };
@@ -93,6 +93,8 @@ export const ImportSheet = ({ owners, defaultOwnerId, onClose, onDone }: { owner
   const withRecords = rows.filter((r) => r.hasRecords).length;
   const belowZero = rows.filter((r) => r.closingUnits < 0);
   const takeDates = preview?.sheet.takeDates ?? [];
+  const inDates = preview?.sheet.inDates ?? [];
+  const differs = preview?.sheet.balanceDiffers ?? [];
   const ready = !!preview && rows.length > 0 && (mode === 'month' ? isFullDate(openingDate) : isFullDate(closingDate));
   const value = (r: PreviewRow, units: number) => (units ? `${qty(units)} ${r.unit}` : '');
 
@@ -151,11 +153,15 @@ export const ImportSheet = ({ owners, defaultOwnerId, onClose, onDone }: { owner
               {counts.NEW ? <Chip label={`${counts.NEW} new`} color="green" /> : null}
               {counts.CHANGED ? <Chip label={`${counts.CHANGED} changed`} color="orange" /> : null}
               {counts.SAME ? <Chip label={`${counts.SAME} already here`} color="gray" /> : null}
+              {inDates.length ? <span style={{ color: c.text3 }}>Delivery dates: {inDates.map(shortDate).join(', ')}</span> : null}
               {takeDates.length ? <span style={{ color: c.text3 }}>Take-out dates: {takeDates.map(shortDate).join(', ')}</span> : null}
             </div>
             {[
               ...preview.sheet.warnings,
               ...(withRecords ? [`${withRecords} product${withRecords === 1 ? '' : 's'} already have stock records here: their stock is left as is (use Stock take to correct it).`] : []),
+              ...(differs.length
+                ? [`${differs.length} product${differs.length === 1 ? '' : 's'} have a balance that isn't opening + in − out (waste, lending or count differences the sheet doesn't list): ${differs.slice(0, 5).join(', ')}${differs.length > 5 ? '…' : ''}. One adjustment line each makes them end on the sheet's balance.`]
+                : []),
               ...(belowZero.length
                 ? [`${belowZero.length} product${belowZero.length === 1 ? '' : 's'} end below zero in the sheet (more taken out than in hand): ${belowZero.slice(0, 5).map((r) => r.code).join(', ')}${belowZero.length > 5 ? '…' : ''}. Check them after importing.`]
                 : []),
@@ -192,13 +198,13 @@ export const ImportSheet = ({ owners, defaultOwnerId, onClose, onDone }: { owner
                     <Field label="Opening date">
                       <input type="date" value={openingDate} onChange={(e) => setOpeningDate(readValue(e))} style={{ ...input, width: 170 }} />
                     </Field>
-                    <Toggle on={includeOrder} onClick={() => setIncludeOrder(!includeOrder)} label="Add this month's order as a purchase" off="This month's order left out" />
+                    <Toggle on={includeOrder} onClick={() => setIncludeOrder(!includeOrder)} label={inDates.length ? `Add the ${inDates.length} dated deliveries` : "Add this month's order as a purchase"} off="Purchases left out" />
                     <Toggle on={includeTakes} onClick={() => setIncludeTakes(!includeTakes)} label={`Add the ${takeDates.length} dated take-outs`} off="Take-outs left out" />
                   </div>
                 </>
               ) : (
                 <>
-                  <span style={{ fontSize: 12, color: c.text3 }}>One opening line per product: the sheet&apos;s balance (opening + order − take-outs). Below zero counts as none.</span>
+                  <span style={{ fontSize: 12, color: c.text3 }}>One opening line per product: the sheet&apos;s balance (its Balance column, or opening + in − out). Below zero counts as none.</span>
                   <Field label="Balance on">
                     <input type="date" value={closingDate} onChange={(e) => setClosingDate(readValue(e))} style={{ ...input, width: 170 }} />
                   </Field>
@@ -217,7 +223,7 @@ export const ImportSheet = ({ owners, defaultOwnerId, onClose, onDone }: { owner
                     <th style={{ ...head, textAlign: 'right' }}>Item/ctn</th>
                     <th style={{ ...head, textAlign: 'right' }}>Price/ctn</th>
                     <th style={{ ...head, textAlign: 'right' }}>Opening</th>
-                    <th style={{ ...head, textAlign: 'right' }}>Order</th>
+                    <th style={{ ...head, textAlign: 'right' }}>In</th>
                     <th style={{ ...head, textAlign: 'right' }}>Out</th>
                     <th style={{ ...head, textAlign: 'right' }}>Closing</th>
                     <th style={{ ...head, textAlign: 'left' }}>Expiry</th>
@@ -239,7 +245,9 @@ export const ImportSheet = ({ owners, defaultOwnerId, onClose, onDone }: { owner
                       </td>
                       <td style={right}>{rm(r.cartonPrice).replace('RM ', '')}</td>
                       <td style={right}>{value(r, r.openingUnits)}</td>
-                      <td style={{ ...right, color: 'var(--t-color-green11)' }}>{r.orderUnits ? `+${value(r, r.orderUnits)}` : ''}</td>
+                      <td style={{ ...right, color: 'var(--t-color-green11)' }} title={r.ins.map((d) => `${shortDate(d.date)}: ${qty(d.units)}`).join('\n')}>
+                        {r.orderUnits + r.ins.reduce((s, d) => s + d.units, 0) ? `+${value(r, r.orderUnits + r.ins.reduce((s, d) => s + d.units, 0))}` : ''}
+                      </td>
                       <td style={{ ...right, color: 'var(--t-color-blue11)' }} title={r.takes.map((t) => `${shortDate(t.date)}: ${qty(t.units)}`).join('\n')}>
                         {r.takes.length ? `−${value(r, r.takes.reduce((s, t) => s + t.units, 0))}` : ''}
                       </td>

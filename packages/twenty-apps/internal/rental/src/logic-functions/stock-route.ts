@@ -11,7 +11,7 @@ import { ITEM_FIELDS, loadItemMovements, loadMovementsOf, loadStockData, ORDER_F
 import { orderProgress, orderStatusFor, type OrderLine, type StockOrder } from 'src/shared/stock-orders';
 import { balanceOf, cartonsAndUnits, groupMovements, type StockItem, unitPrice } from 'src/shared/stock';
 import { stockAlerts } from 'src/shared/stock-alerts';
-import { importChanges, importClosing, importDates, type ImportRow, type ImportSheet, pickStockSheet } from 'src/shared/stock-import';
+import { importChanges, importClosing, importComputedClosing, importDates, type ImportRow, type ImportSheet, pickStockSheet } from 'src/shared/stock-import';
 import { readXlsx } from 'src/logic-functions/utils/xlsx-read';
 import { movementType, STOCK_GROUPS } from 'src/shared/stock-types';
 
@@ -299,7 +299,15 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       return json({
         success: true,
         message: 'Read ' + sheet.rows.length + ' products from "' + sheet.sheet + '". Check them, then press Import.',
-        sheet: { name: sheet.sheet, sheetDate: sheet.sheetDate, takeDates: sheet.takeDates, warnings: sheet.warnings },
+        sheet: {
+          name: sheet.sheet,
+          sheetDate: sheet.sheetDate,
+          takeDates: sheet.takeDates,
+          inDates: sheet.inDates,
+          warnings: sheet.warnings,
+          // Products whose balance isn't opening + in - out (waste or lending the sheet doesn't show).
+          balanceDiffers: plan.filter((p) => p.row.balanceUnits !== null && Math.abs(p.row.balanceUnits - importComputedClosing(p.row)) > 0.01).map((p) => p.row.code),
+        },
         dates: importDates(sheet, todayIso()),
         rows: plan.map((p) => ({ ...p.row, closingUnits: p.closing, status: !p.item ? 'NEW' : p.changes.length ? 'CHANGED' : 'SAME', changes: p.changes, hasRecords: !p.fresh })),
       });
@@ -315,10 +323,17 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
     if (mode === 'month' && !openingDate) return fail('Choose the opening date.');
     if (mode === 'closing' && !closingDate) return fail('Choose the date of the balance.');
-    if (mode === 'month' && includeTakes && sheet.takeDates.some((d) => d < (openingDate as string))) {
-      return fail('The opening date must be on or before the first take-out date (' + [...sheet.takeDates].sort()[0] + ').');
+    const datedLines = [...(includeTakes ? sheet.takeDates : []), ...(includeOrder ? sheet.inDates : [])].sort();
+
+    if (mode === 'month' && datedLines.some((d) => d < (openingDate as string))) {
+      return fail('The opening date must be on or before the first dated IN or OUT (' + datedLines[0] + ').');
     }
-    const dates = mode === 'closing' ? [closingDate as string] : [openingDate as string, ...(includeTakes ? sheet.takeDates : [])];
+    const dates = mode === 'closing' ? [closingDate as string] : [openingDate as string, ...datedLines];
+    // Month mode: where the sheet's balance isn't opening + in - out (waste,
+    // lending, stock-take differences), one adjustment on the sheet's last day
+    // makes the product end on that balance.
+    const suggested = importDates(sheet, todayIso()).closing;
+    const adjustDate = [closingDate ?? suggested, ...datedLines].sort().slice(-1)[0];
     const locked = lockedMessage(await loadLocks(client, [ownerId]), ownerId, [...dates].sort()[0]);
 
     if (locked) return fail(locked);
@@ -372,11 +387,28 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
         continue;
       }
       if (p.row.openingUnits > 0) lines.push({ item, data: { ...common, date: openingDate as string, type: 'ADJUST_IN', quantity: p.row.openingUnits, unitCost: cost, notes: 'Opening balance (from Excel)' } });
+      // Already below zero at the start (more taken out than recorded): carry it over.
+      if (p.row.openingUnits < 0) lines.push({ item, data: { ...common, expiryDate: null, date: openingDate as string, type: 'ADJUST_OUT', quantity: -p.row.openingUnits, notes: 'Opening balance below zero (from Excel)' } });
       if (includeOrder && p.row.orderUnits > 0) {
         lines.push({ item, data: { ...common, date: openingDate as string, type: 'PURCHASE', quantity: p.row.orderUnits, unitCost: cost, party: 'WeDrink', reference: 'From Excel: this month ordering' } });
       }
+      if (includeOrder) {
+        for (const d of p.row.ins) {
+          lines.push({ item, data: { ...common, date: d.date, type: 'PURCHASE', quantity: d.units, unitCost: cost, reference: 'From Excel' } });
+        }
+      }
       if (includeTakes) {
         for (const t of p.row.takes) lines.push({ item, data: { ...common, expiryDate: null, date: t.date, type: 'TAKE', quantity: t.units, notes: 'From Excel' } });
+      }
+      if (includeOrder && includeTakes && p.row.balanceUnits !== null) {
+        const gap = Math.round((p.row.balanceUnits - importComputedClosing(p.row)) * 100) / 100;
+
+        if (gap !== 0) {
+          lines.push({
+            item,
+            data: { ...common, expiryDate: null, date: adjustDate, type: gap > 0 ? 'ADJUST_IN' : 'ADJUST_OUT', quantity: Math.abs(gap), notes: "From Excel: matches the sheet's balance (waste, lending or count differences)" },
+          });
+        }
       }
     }
     await createMovements(client, lines);

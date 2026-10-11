@@ -155,7 +155,8 @@ export const stockMonthWorkbook = (
         cell(item.code, { align: 'center' }),
         cell(item.name),
         cell(item.specification, { wrap: true }),
-        num(openingCtn),
+        // Full precision, so 5 bags of 8/ctn reads back as exactly 5 bags.
+        cell(r.opening ? Math.round((r.opening / (item.unitsPerCarton || 1)) * 1_000_000) / 1_000_000 : null, { format: 'num', align: 'right' }),
         money(item.cartonPrice),
         money(amount),
         num(purchasedCtn),
