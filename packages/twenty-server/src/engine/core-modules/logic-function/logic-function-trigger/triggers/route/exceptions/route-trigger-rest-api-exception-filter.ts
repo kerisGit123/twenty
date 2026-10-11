@@ -33,6 +33,16 @@ export class RouteTriggerRestApiExceptionFilter implements ExceptionFilter {
           response,
           404,
         );
+      // 401 lets clients renew an expired token and retry.
+      case RouteTriggerExceptionCode.UNAUTHENTICATED:
+        return this.httpExceptionHandlerService.handleError(
+          exception as CustomException,
+          response,
+          401,
+          undefined,
+          undefined,
+          { shouldBeCapturedBySentry: false },
+        );
       case RouteTriggerExceptionCode.FORBIDDEN_EXCEPTION:
       case RouteTriggerExceptionCode.WORKSPACE_SUSPENDED:
         return this.httpExceptionHandlerService.handleError(

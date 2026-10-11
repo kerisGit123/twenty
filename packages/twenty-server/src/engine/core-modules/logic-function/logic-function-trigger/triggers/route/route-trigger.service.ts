@@ -86,6 +86,24 @@ export class RouteTriggerService {
     }
   }
 
+  // A missing, expired or invalid token is a 401, not a 500.
+  private async validateRouteTokenOrThrowUnauthenticated(
+    request: Request,
+  ): Promise<AuthContext> {
+    try {
+      return await this.accessTokenService.validateTokenByRequest(request);
+    } catch (error) {
+      if (error instanceof AuthException) {
+        throw new RouteTriggerException(
+          error.message,
+          RouteTriggerExceptionCode.UNAUTHENTICATED,
+        );
+      }
+
+      throw error;
+    }
+  }
+
   private async resolveRouteTriggerRequestContextOrFail(
     request: Request,
   ): Promise<RouteTriggerRequestContext> {
@@ -292,7 +310,7 @@ export class RouteTriggerService {
     if (httpRouteSettings?.isAuthRequired) {
       const routeAuthenticationContext =
         authenticationContext ??
-        (await this.accessTokenService.validateTokenByRequest(request));
+        (await this.validateRouteTokenOrThrowUnauthenticated(request));
 
       if (!isDefined(routeAuthenticationContext.workspace)) {
         throw new RouteTriggerException(
