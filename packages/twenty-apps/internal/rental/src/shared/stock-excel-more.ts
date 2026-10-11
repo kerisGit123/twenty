@@ -125,6 +125,10 @@ export const countWorkbook = (items: StockItem[], heading: Heading) => {
     }
   }
 
+  if (!items.some((i) => i.status !== 'DISCONTINUED')) {
+    rows.push([{ value: 'No products in this workspace yet. Import your stock sheet (Stock › Import Excel) or add products first, then download the count sheet again.', style: { bold: true, color: 'C00000' } }]);
+  }
+
   return buildXlsx({ name: 'Count sheet', rows, merges, freeze: { rows: 9, cols: 2 }, heights: { 8: 30 }, widths: [9, 40, 24, 7, 8, 11, 13, 30] });
 };
 
