@@ -577,10 +577,10 @@ export const Today = () => {
 
   const stockView = (() => {
     const mine = (stock ?? []).filter((a) => scope.matches(a.ownerId));
-    const sum = (key: 'orderNow' | 'expiredItems' | 'expiredValue' | 'expiringItems' | 'waiting' | 'late' | 'requestsToIssue' | 'awaitingReceipt' | 'requestsShort') => mine.reduce((s, a) => s + (a[key] ?? 0), 0);
+    const sum = (key: 'orderNow' | 'expiredItems' | 'expiredValue' | 'expiringItems' | 'waiting' | 'late' | 'partlyReceived' | 'stillToComeItems' | 'requestsToIssue' | 'awaitingReceipt' | 'requestsShort') => mine.reduce((s, a) => s + (a[key] ?? 0), 0);
 
     return mine.length
-      ? { orderNow: sum('orderNow'), expiredItems: sum('expiredItems'), expiredValue: sum('expiredValue'), expiringItems: sum('expiringItems'), waiting: sum('waiting'), late: sum('late'), toIssue: sum('requestsToIssue'), toConfirm: sum('awaitingReceipt'), short: sum('requestsShort') }
+      ? { orderNow: sum('orderNow'), expiredItems: sum('expiredItems'), expiredValue: sum('expiredValue'), expiringItems: sum('expiringItems'), waiting: sum('waiting'), late: sum('late'), partly: sum('partlyReceived'), toCome: sum('stillToComeItems'), toIssue: sum('requestsToIssue'), toConfirm: sum('awaitingReceipt'), short: sum('requestsShort') }
       : null;
   })();
 
@@ -661,12 +661,13 @@ export const Today = () => {
                     stockView.toIssue ? `${stockView.toIssue} branch request${stockView.toIssue === 1 ? '' : 's'} to issue` : '',
                     stockView.toConfirm ? `${stockView.toConfirm} delivered, not confirmed` : '',
                     stockView.short ? `${stockView.short} short delivery` : '',
-                    stockView.late ? `${stockView.late} deliver${stockView.late === 1 ? 'y' : 'ies'} late` : stockView.waiting ? `${stockView.waiting} on order` : '',
+                    stockView.partly ? `${stockView.partly} order${stockView.partly === 1 ? '' : 's'} not fully received (${stockView.toCome} item${stockView.toCome === 1 ? '' : 's'} still to come)` : '',
+                    stockView.late ? `${stockView.late} deliver${stockView.late === 1 ? 'y' : 'ies'} late` : stockView.waiting && !stockView.partly ? `${stockView.waiting} on order` : '',
                   ]
                     .filter(Boolean)
                     .join(' · ') || 'nothing expiring'
                 }
-                color={stockView.expiredItems || stockView.late || stockView.short ? 'red' : stockView.orderNow || stockView.expiringItems || stockView.toIssue || stockView.toConfirm ? 'amber' : 'green'}
+                color={stockView.expiredItems || stockView.late || stockView.short || stockView.partly ? 'red' : stockView.orderNow || stockView.expiringItems || stockView.toIssue || stockView.toConfirm ? 'amber' : 'green'}
                 onClick={() => openPage('Stock')}
               />
             ) : null}

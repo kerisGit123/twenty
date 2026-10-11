@@ -1,5 +1,5 @@
 import { DEFAULT_RULE, expiredStock, expiringStock, groupMovements, stockStatus, type StockItem, type StockMovement, type StockRule, unitValue } from 'src/shared/stock';
-import { onOrderUnits, type StockOrder } from 'src/shared/stock-orders';
+import { onOrderUnits, orderAttention, type StockOrder, stillToCome } from 'src/shared/stock-orders';
 import { requestCounts, type StockRequest } from 'src/shared/stock-requests';
 
 export type StockAlert = {
@@ -13,10 +13,10 @@ export type StockAlert = {
   awaitingReceipt: number; // issued to a branch, not confirmed yet
   requestsShort: number; // a branch got less than was issued: to resolve
   waiting: number; // orders sent, not fully received
-  late: number; // of those, older than the delivery time (at least a week)
+  late: number; // sent, nothing arrived, past the delivery time (at least a week)
+  partlyReceived: number; // orders where some goods arrived but not all
+  stillToComeItems: number; // products still to come on those orders
 };
-
-const addDays = (iso: string, days: number) => new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 
 export const stockAlerts = (
   data: { items: StockItem[]; movements: StockMovement[]; orders: StockOrder[]; requests?: StockRequest[]; owners: Array<{ id: string; rule: StockRule }> },
@@ -54,7 +54,8 @@ export const stockAlerts = (
       }
     }
     const sent = orders.filter((o) => o.status === 'SENT' || o.status === 'PARTLY_RECEIVED');
-    const dueBy = addDays(today, -Math.max(7, rule.leadDays ?? 0));
+    const attention = orders.map((o) => ({ o, kind: orderAttention(o, movements, today, rule.leadDays ?? 0) }));
+    const partly = attention.filter((x) => x.kind === 'PARTLY').map((x) => x.o);
 
     return {
       ownerId: owner.id,
@@ -67,6 +68,8 @@ export const stockAlerts = (
       requestsShort: requestCounts((data.requests ?? []).filter((r) => r.ownerId === owner.id)).short,
       expiringValue: Math.round(expiringValue * 100) / 100,
       waiting: sent.length,
-      late: sent.filter((o) => o.date < dueBy).length,
+      late: attention.filter((x) => x.kind === 'LATE').length,
+      partlyReceived: partly.length,
+      stillToComeItems: new Set(partly.flatMap((o) => stillToCome(o, movements).map((l) => l.itemId))).size,
     };
   });

@@ -11,7 +11,7 @@ import { OrderTab } from 'src/front-components/shared/stock-order-tab';
 import { OrdersTab } from 'src/front-components/shared/stock-orders-tab';
 import { MonthEndTab } from 'src/front-components/shared/stock-monthend-tab';
 import { ExpiredSheet, QuickSheet } from 'src/front-components/shared/stock-quick';
-import { onOrderUnits } from 'src/shared/stock-orders';
+import { onOrderUnits, orderAttention } from 'src/shared/stock-orders';
 import { requestCounts, type StockRequest } from 'src/shared/stock-requests';
 import { BorrowTab } from 'src/front-components/shared/stock-borrow-tab';
 import { HistoryTab } from 'src/front-components/shared/stock-history-tab';
@@ -113,6 +113,8 @@ export const StockPage = () => {
   const ruleOf = useCallback((ownerOf: string | null) => data?.owners.find((o) => o.id === ownerOf)?.rule ?? DEFAULT_RULE, [data]);
   const orders = useMemo(() => (data?.orders ?? []).filter((o) => !ownerId || o.ownerId === ownerId), [data, ownerId]);
   const requests = useMemo(() => (data?.requests ?? []).filter((r) => !ownerId || r.ownerId === ownerId), [data, ownerId]);
+  // Orders not fully received, or late: shown as a count on the Orders tab.
+  const orderAlerts = useMemo(() => orders.filter((o) => orderAttention(o, movements, today, ruleOf(o.ownerId).leadDays ?? 0)).length, [orders, movements, today, ruleOf]);
   const requestCount = useMemo(() => {
     const n = requestCounts(requests);
 
@@ -263,6 +265,7 @@ export const StockPage = () => {
             >
               {t.label}
               {t.key === 'requests' && requestCount ? ` (${requestCount})` : ''}
+              {t.key === 'orders' && orderAlerts ? ` (${orderAlerts})` : ''}
               {t.key === 'borrowed' && movements.some((m) => m.type === 'BORROW' && (m.borrowStatus ?? 'OUTSTANDING') === 'OUTSTANDING') ? ' •' : ''}
             </button>
           ))}
@@ -313,7 +316,7 @@ export const StockPage = () => {
                 onChanged={refresh}
               />
             ) : null}
-            {tab === 'orders' ? <OrdersTab orders={orders} items={items} movements={movements} lastPaid={lastPaid} ownerName={ownerName} today={today} ownerId={ownerId} onChanged={refresh} /> : null}
+            {tab === 'orders' ? <OrdersTab orders={orders} items={items} movements={movements} lastPaid={lastPaid} ownerName={ownerName} owners={data.owners} leadDaysOf={(id) => ruleOf(id).leadDays ?? 0} today={today} ownerId={ownerId} onChanged={refresh} /> : null}
             {tab === 'monthend' ? (
               <MonthEndTab items={items} movementsByItem={byItem} owner={owner} canClose={!!owner?.canManage} today={today} onStockTake={(date) => setOpen({ kind: 'take', date })} onChanged={refresh} />
             ) : null}

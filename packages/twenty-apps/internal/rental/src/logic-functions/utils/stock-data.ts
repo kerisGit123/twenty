@@ -73,7 +73,8 @@ export const toStockOrder = (node: OrderNode): StockOrder => ({
   status: node.status ?? 'DRAFT',
   supplierRef: node.supplierRef ?? '',
   supplierPhone: node.supplierPhone ?? '',
-  notes: node.notes ?? '',
+  // "req:<id>" lines are retry markers, not notes.
+  notes: (node.notes ?? '').split('\n').filter((line) => !line.startsWith('req:')).join('\n'),
   ownerId: node.ownerId ?? null,
   lines: parseOrderLines(node.lines),
 });

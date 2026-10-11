@@ -119,3 +119,22 @@ export const orderWhatsappText = (order: StockOrder, items: Map<string, StockIte
     'Please confirm what you can deliver and when, and send us your PO / invoice. Thank you!',
   ].join('\n');
 };
+
+// An order that needs a look: PARTLY = some goods arrived but not everything
+// (the rest is still to come); LATE = sent, nothing has arrived and it is past
+// the delivery time (at least a week).
+export type OrderAttention = 'PARTLY' | 'LATE';
+
+const addDays = (iso: string, days: number) => new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+
+export const orderAttention = (order: StockOrder, movements: StockMovement[], today: string, leadDays = 0): OrderAttention | null => {
+  const progress = orderProgress(order, movements);
+
+  if (order.status === 'PARTLY_RECEIVED' && progress.outstanding > 0) return 'PARTLY';
+  if (order.status === 'SENT' && progress.received === 0 && order.date < addDays(today, -Math.max(7, leadDays))) return 'LATE';
+
+  return null;
+};
+
+// The lines still to come on an order, for the alert list.
+export const stillToCome = (order: StockOrder, movements: StockMovement[]) => orderProgress(order, movements).lines.filter((l) => l.outstanding > 0);

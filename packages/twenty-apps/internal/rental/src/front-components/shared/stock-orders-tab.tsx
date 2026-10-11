@@ -5,7 +5,9 @@ import { Sheet } from 'src/front-components/shared/sheet';
 import { stockAction } from 'src/front-components/shared/stock-forms';
 import { c, Chip, control, ExcelButton, input, PriceNote, primary, rm, shortDate, small, withOwner } from 'src/front-components/shared/stock-ui';
 import { cartonsAndUnits, type StockItem, type StockMovement, toCartons } from 'src/shared/stock';
-import { normalizePhone, orderWhatsappText } from 'src/shared/stock-orders';
+import { normalizePhone, orderAttention, orderWhatsappText } from 'src/shared/stock-orders';
+import { OrderSheet } from 'src/front-components/shared/stock-order-sheet';
+import type { StockOwner } from 'src/logic-functions/utils/stock-data';
 import { type LineProgress, orderProgress, type StockOrder } from 'src/shared/stock-orders';
 import { ORDER_STATUSES } from 'src/shared/stock-types';
 
@@ -243,7 +245,7 @@ const WhatsAppSheet = ({ order, items, company, phoneGuess, onClose, onDone }: {
 
 // ---------------------------------------------------------------- Orders list
 
-type Show = 'OPEN' | 'DONE' | 'ALL';
+type Show = 'OPEN' | 'PARTLY' | 'DONE' | 'ALL';
 
 export const OrdersTab = ({
   orders,
@@ -251,6 +253,8 @@ export const OrdersTab = ({
   movements,
   lastPaid,
   ownerName,
+  owners,
+  leadDaysOf,
   today,
   ownerId,
   onChanged,
@@ -260,6 +264,8 @@ export const OrdersTab = ({
   movements: StockMovement[];
   lastPaid: Map<string, number>;
   ownerName: (ownerId: string | null) => string;
+  owners: StockOwner[];
+  leadDaysOf: (ownerId: string | null) => number;
   today: string;
   ownerId: string;
   onChanged: () => void;
@@ -268,9 +274,13 @@ export const OrdersTab = ({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [receiving, setReceiving] = useState<StockOrder | null>(null);
   const [sending, setSending] = useState<StockOrder | null>(null);
+  // The order sheet: undefined = closed, null = a new order, an order = changing that draft.
+  const [editing, setEditing] = useState<StockOrder | null | undefined>(undefined);
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const isOpen = (o: StockOrder) => ['DRAFT', 'SENT', 'PARTLY_RECEIVED'].includes(o.status);
-  const list = orders.filter((o) => show === 'ALL' || (show === 'OPEN' ? isOpen(o) : !isOpen(o)));
+  const attentionOf = (o: StockOrder) => orderAttention(o, movements, today, leadDaysOf(o.ownerId));
+  const needAttention = orders.filter((o) => attentionOf(o));
+  const list = orders.filter((o) => show === 'ALL' || (show === 'PARTLY' ? attentionOf(o) !== null : show === 'OPEN' ? isOpen(o) : !isOpen(o)));
   const ctn = (units: number, itemId: string) => toCartons(units, byId.get(itemId) ?? { unitsPerCarton: 1 });
 
   const act = async (order: StockOrder, status: string) => {
@@ -296,6 +306,20 @@ export const OrdersTab = ({
           }}
         />
       ) : null}
+      {editing !== undefined ? (
+        <OrderSheet
+          order={editing}
+          items={items}
+          owners={owners}
+          defaultOwnerId={ownerId}
+          today={today}
+          onClose={() => setEditing(undefined)}
+          onDone={() => {
+            setEditing(undefined);
+            onChanged();
+          }}
+        />
+      ) : null}
       {sending ? (
         <WhatsAppSheet
           order={sending}
@@ -313,6 +337,7 @@ export const OrdersTab = ({
         {(
           [
             ['OPEN', `Open (${orders.filter(isOpen).length})`],
+            ['PARTLY', `Needs a look (${needAttention.length})`],
             ['DONE', 'Received / cancelled'],
             ['ALL', 'All'],
           ] as const
@@ -321,15 +346,29 @@ export const OrdersTab = ({
             {label}
           </button>
         ))}
+        <button onClick={() => setEditing(null)} style={primary}>
+          + New order
+        </button>
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 13, color: c.text2 }}>
           Still to arrive: <b style={{ color: 'var(--t-color-blue11)' }}>{rm(openValue)}</b>
         </span>
       </div>
 
+      {needAttention.length && show !== 'PARTLY' ? (
+        <div style={{ padding: '10px 12px', borderRadius: c.radius, background: 'var(--t-color-amber2)', border: '1px solid var(--t-color-amber6)', color: 'var(--t-color-amber11)', fontSize: 13, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ flex: 1, minWidth: 220 }}>
+            <b>{needAttention.length} order{needAttention.length === 1 ? '' : 's'} not fully received or late.</b> Stock you ordered has not all arrived.
+          </span>
+          <button onClick={() => setShow('PARTLY')} style={small}>
+            Show them
+          </button>
+        </div>
+      ) : null}
+
       {list.length ? null : (
         <div style={{ padding: 32, textAlign: 'center', color: c.text3, fontSize: 13, border: `1px dashed ${c.border2}`, borderRadius: c.radius }}>
-          {show === 'OPEN' ? 'No open orders. Make one on Forecast & order with “Save as order”.' : 'Nothing here yet.'}
+          {show === 'OPEN' ? 'No open orders. Press “+ New order”, or make one on Forecast & order with “Save as order”.' : show === 'PARTLY' ? 'Everything ordered has arrived, nothing is late.' : 'Nothing here yet.'}
         </div>
       )}
 
@@ -341,9 +380,11 @@ export const OrdersTab = ({
         const receivedCtn = p.lines.reduce((sum, l) => sum + ctn(l.received, l.itemId), 0);
         const outstandingCtn = p.lines.reduce((sum, l) => sum + ctn(l.outstanding, l.itemId), 0);
         const showLines = expanded[o.id] ?? isOpen(o);
+        const attention = attentionOf(o);
+        const daysAgo = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${o.date}T00:00:00Z`)) / 86_400_000);
 
         return (
-          <div key={o.id} style={{ border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg, overflow: 'hidden' }}>
+          <div key={o.id} style={{ border: `1px solid ${attention === 'LATE' ? 'var(--t-color-red9)' : attention === 'PARTLY' ? 'var(--t-color-amber9)' : c.border}`, borderRadius: c.radius, background: c.bg, overflow: 'hidden' }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '10px 12px', background: c.bg2 }}>
               <button onClick={() => setExpanded({ ...expanded, [o.id]: !showLines })} style={{ all: 'unset', cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>
                 {showLines ? '▾' : '▸'} {o.number}
@@ -352,6 +393,8 @@ export const OrdersTab = ({
               <span style={{ fontSize: 12, color: c.text3 }}>ordered {shortDate(o.date)}</span>
               {o.supplierRef ? <span style={{ fontSize: 12, color: c.text3 }}>· supplier PO {o.supplierRef}</span> : null}
               <Chip label={status.label} color={status.color} />
+              {attention === 'PARTLY' ? <Chip label="Not fully received" color="orange" /> : null}
+              {attention === 'LATE' ? <Chip label={`Late: nothing arrived in ${daysAgo} days`} color="red" /> : null}
               <span style={{ flex: 1 }} />
               <span style={{ fontSize: 12, color: c.text2 }}>
                 {Math.round(orderedCtn * 100) / 100} ctn ordered · {Math.round(receivedCtn * 100) / 100} arrived
@@ -403,6 +446,11 @@ export const OrdersTab = ({
               {o.status === 'DRAFT' || o.status === 'SENT' ? (
                 <button onClick={() => setSending(o)} style={{ ...control, fontWeight: 600, color: 'var(--t-color-green11)' }} title="Send this order to the supplier on WhatsApp">
                   Send on WhatsApp
+                </button>
+              ) : null}
+              {o.status === 'DRAFT' ? (
+                <button onClick={() => setEditing(o)} style={control} title="Change the products or quantities of this draft">
+                  Edit
                 </button>
               ) : null}
               {o.status === 'DRAFT' ? (
