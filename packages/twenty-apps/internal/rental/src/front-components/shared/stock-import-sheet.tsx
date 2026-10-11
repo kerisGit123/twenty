@@ -212,6 +212,7 @@ export const ImportSheet = ({ owners, defaultOwnerId, onClose, onDone }: { owner
                 <thead>
                   <tr>
                     <th style={{ ...head, textAlign: 'left' }}>Code</th>
+                    <th style={{ ...head, textAlign: 'left' }}>Status</th>
                     <th style={{ ...head, textAlign: 'left' }}>Product</th>
                     <th style={{ ...head, textAlign: 'right' }}>Item/ctn</th>
                     <th style={{ ...head, textAlign: 'right' }}>Price/ctn</th>
@@ -220,14 +221,17 @@ export const ImportSheet = ({ owners, defaultOwnerId, onClose, onDone }: { owner
                     <th style={{ ...head, textAlign: 'right' }}>Out</th>
                     <th style={{ ...head, textAlign: 'right' }}>Closing</th>
                     <th style={{ ...head, textAlign: 'left' }}>Expiry</th>
-                    <th style={{ ...head, textAlign: 'left' }}>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((r) => (
                     <tr key={r.code}>
                       <td style={{ ...cell, color: c.text3 }}>{r.code}</td>
-                      <td style={{ ...cell, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' }} title={`${r.name} · ${r.specification}`}>
+                      <td style={cell} title={r.changes.join(', ')}>
+                        {r.status === 'NEW' ? <Chip label="New" color="green" /> : r.status === 'CHANGED' ? <Chip label="Update" color="orange" /> : <Chip label="Already here" color="gray" />}
+                        {r.hasRecords ? <span style={{ fontSize: 11, color: c.text3 }} title="Has stock records: its stock is left as is"> · has stock</span> : null}
+                      </td>
+                      <td style={{ ...cell, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }} title={`${r.name} · ${r.specification}`}>
                         {r.name}
                       </td>
                       <td style={right}>
@@ -241,10 +245,6 @@ export const ImportSheet = ({ owners, defaultOwnerId, onClose, onDone }: { owner
                       </td>
                       <td style={{ ...right, fontWeight: 600, color: r.closingUnits < 0 ? 'var(--t-color-red11)' : c.text }}>{qty(r.closingUnits)}</td>
                       <td style={{ ...cell, color: c.text2 }}>{r.expiryDate ? shortDate(r.expiryDate) : ''}</td>
-                      <td style={cell} title={r.changes.join(', ')}>
-                        {r.status === 'NEW' ? <Chip label="New" color="green" /> : r.status === 'CHANGED' ? <Chip label={`Update: ${r.changes.join(', ')}`} color="orange" /> : <Chip label="Already here" color="gray" />}
-                        {r.hasRecords ? <span style={{ fontSize: 11, color: c.text3 }}> · has records</span> : null}
-                      </td>
                     </tr>
                   ))}
                 </tbody>
