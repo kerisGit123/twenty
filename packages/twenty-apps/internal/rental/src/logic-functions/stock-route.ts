@@ -11,12 +11,15 @@ import { ITEM_FIELDS, loadItemMovements, loadMovementsOf, loadStockData, ORDER_F
 import { orderProgress, orderStatusFor, type OrderLine, type StockOrder } from 'src/shared/stock-orders';
 import { balanceOf, cartonsAndUnits, groupMovements, type StockItem, unitPrice } from 'src/shared/stock';
 import { stockAlerts } from 'src/shared/stock-alerts';
+import { importChanges, importClosing, importDates, type ImportRow, type ImportSheet, pickStockSheet } from 'src/shared/stock-import';
+import { readXlsx } from 'src/logic-functions/utils/xlsx-read';
 import { movementType, STOCK_GROUPS } from 'src/shared/stock-types';
 
 // POST /s/stock { action, ... }: the Stock page's data and every change it
 // makes, checked against the caller's workspaces.
 //   data                         items, movements, workspace rules
 //   alerts                       per workspace: items to order, expired, late orders
+//   importExcel   { ownerId, fileBase64, apply?, mode, openingDate | closingDate, includeOrder, includeTakes, updateDetails }
 //   saveItem      item fields (+ openingUnits on a new item)
 //   setStatus     { itemId, status, writeOff? }    discontinue / reactivate
 //   record        { date, type, party, reference, notes, lines: [{ itemId, quantity, unitCost?, expiryDate? }] }
@@ -256,6 +259,137 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
   // Counts for the Today page: what to order, expired stock, late deliveries.
   alerts: async (client, scope) => json({ success: true, alerts: stockAlerts(await loadStockData(client, scope), todayIso()) }),
+
+  // Start a workspace's stock from a monthly 订货单 workbook. preview: what
+  // would happen; apply: do it. The file is sent both times (as base64).
+  //   mode month:   opening on openingDate + this month's order + dated take-outs
+  //   mode closing: one opening line per product, the sheet's balance, on closingDate
+  // Products are matched by item code; stock lines are added only to products
+  // with no records yet, so importing twice never doubles stock.
+  importExcel: async (client, scope, body) => {
+    const ownerId = text(body.ownerId, 64);
+
+    if (!ownerId || !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!canManage(scope, ownerId)) return fail("Only an admin or this workspace's host can import products. Ask them to do it.", 403);
+    const base64 = typeof body.fileBase64 === 'string' ? body.fileBase64 : '';
+
+    if (!base64) return fail('Choose the Excel file first.');
+    if (base64.length > 12_000_000) return fail('That file is too big (over 9 MB). Save just the stock sheet and try again.');
+    let sheet: ImportSheet | null;
+
+    try {
+      sheet = pickStockSheet(readXlsx(new Uint8Array(Buffer.from(base64, 'base64'))));
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : 'Could not read that file.');
+    }
+    if (!sheet || !sheet.rows.length) return fail('No products found. The sheet needs a heading row with "Item Code" and "Product Name".');
+
+    const existing = (await queryAll<Parameters<typeof toStockItem>[0]>(client, 'stockItems', { filter: { ownerId: { eq: ownerId } } }, ITEM_FIELDS)).map(toStockItem);
+    const byCode = new Map(existing.filter((i) => i.code).map((i) => [i.code, i]));
+    const withHistory = new Set((await loadMovementsOf(client, existing.map((i) => i.id))).map((m) => m.itemId));
+    const mode = body.mode === 'closing' ? 'closing' : 'month';
+    const updateDetails = body.updateDetails !== false;
+    const plan = sheet.rows.map((row) => {
+      const item = byCode.get(row.code) ?? null;
+
+      return { row, item, changes: item ? importChanges(row, item) : [], fresh: !item || !withHistory.has(item.id), closing: importClosing(row) };
+    });
+
+    if (body.apply !== true) {
+      return json({
+        success: true,
+        message: 'Read ' + sheet.rows.length + ' products from "' + sheet.sheet + '". Check them, then press Import.',
+        sheet: { name: sheet.sheet, sheetDate: sheet.sheetDate, takeDates: sheet.takeDates, warnings: sheet.warnings },
+        dates: importDates(sheet, todayIso()),
+        rows: plan.map((p) => ({ ...p.row, closingUnits: p.closing, status: !p.item ? 'NEW' : p.changes.length ? 'CHANGED' : 'SAME', changes: p.changes, hasRecords: !p.fresh })),
+      });
+    }
+
+    const requestId = text(body.requestId, 64);
+
+    if (await alreadySaved(client, requestId)) return json({ success: true, message: 'Import already saved.' });
+    const openingDate = isDate(body.openingDate) ? body.openingDate : null;
+    const closingDate = isDate(body.closingDate) ? body.closingDate : null;
+    const includeOrder = body.includeOrder !== false;
+    const includeTakes = body.includeTakes !== false;
+
+    if (mode === 'month' && !openingDate) return fail('Choose the opening date.');
+    if (mode === 'closing' && !closingDate) return fail('Choose the date of the balance.');
+    if (mode === 'month' && includeTakes && sheet.takeDates.some((d) => d < (openingDate as string))) {
+      return fail('The opening date must be on or before the first take-out date (' + [...sheet.takeDates].sort()[0] + ').');
+    }
+    const dates = mode === 'closing' ? [closingDate as string] : [openingDate as string, ...(includeTakes ? sheet.takeDates : [])];
+    const locked = lockedMessage(await loadLocks(client, [ownerId]), ownerId, [...dates].sort()[0]);
+
+    if (locked) return fail(locked);
+
+    // 1. Products: add new ones, bring changed ones up to date.
+    const itemData = (row: ImportRow) => ({
+      name: row.name.slice(0, 200),
+      code: row.code,
+      specification: row.specification.slice(0, 200),
+      group: row.group as never,
+      unit: row.unit,
+      unitsPerCarton: row.unitsPerCarton,
+      cartonPrice: { amountMicros: Math.round(row.cartonPrice * 1_000_000), currencyCode: 'MYR' },
+    });
+    const toCreate = plan.filter((p) => !p.item);
+
+    for (let i = 0; i < toCreate.length; i += 50) {
+      await client.mutation({
+        createStockItems: { __args: { data: toCreate.slice(i, i + 50).map((p) => ({ ...itemData(p.row), supplier: 'WeDrink', ownerId, status: 'ACTIVE' })) as never }, id: true },
+      });
+    }
+    const toUpdate = updateDetails ? plan.filter((p) => p.item && p.changes.length) : [];
+
+    for (const p of toUpdate) {
+      const item = p.item as StockItem;
+      const data = itemData(p.row.perCartonGuessed ? { ...p.row, unitsPerCarton: item.unitsPerCarton } : p.row);
+
+      await client.mutation({ updateStockItem: { __args: { id: item.id, data }, id: true } });
+    }
+
+    // 2. Stock lines, only for products with no records yet.
+    const items = new Map(
+      (await queryAll<Parameters<typeof toStockItem>[0]>(client, 'stockItems', { filter: { ownerId: { eq: ownerId } } }, ITEM_FIELDS)).map(toStockItem).map((i) => [i.code, i]),
+    );
+    const lines: Array<{ item: StockItem; data: MovementInput }> = [];
+    let skipped = 0;
+
+    for (const p of plan) {
+      const item = items.get(p.row.code);
+
+      if (!item) continue;
+      if (!p.fresh) {
+        skipped += 1;
+        continue;
+      }
+      const cost = unitPrice(item);
+      const common = { batchId: requestId || null, expiryDate: p.row.expiryDate };
+
+      if (mode === 'closing') {
+        if (p.closing > 0) lines.push({ item, data: { ...common, date: closingDate as string, type: 'ADJUST_IN', quantity: p.closing, unitCost: cost, notes: 'Opening balance (from Excel)' } });
+        continue;
+      }
+      if (p.row.openingUnits > 0) lines.push({ item, data: { ...common, date: openingDate as string, type: 'ADJUST_IN', quantity: p.row.openingUnits, unitCost: cost, notes: 'Opening balance (from Excel)' } });
+      if (includeOrder && p.row.orderUnits > 0) {
+        lines.push({ item, data: { ...common, date: openingDate as string, type: 'PURCHASE', quantity: p.row.orderUnits, unitCost: cost, party: 'WeDrink', reference: 'From Excel: this month ordering' } });
+      }
+      if (includeTakes) {
+        for (const t of p.row.takes) lines.push({ item, data: { ...common, expiryDate: null, date: t.date, type: 'TAKE', quantity: t.units, notes: 'From Excel' } });
+      }
+    }
+    await createMovements(client, lines);
+
+    const parts = [
+      toCreate.length ? toCreate.length + ' product' + (toCreate.length === 1 ? '' : 's') + ' added' : '',
+      toUpdate.length ? toUpdate.length + ' updated' : '',
+      lines.length + ' stock line' + (lines.length === 1 ? '' : 's') + ' recorded',
+      skipped ? skipped + ' already had records (stock left as is)' : '',
+    ].filter(Boolean);
+
+    return json({ success: true, message: 'Imported: ' + parts.join(', ') + '.' });
+  },
 
   saveItem: async (client, scope, body) => {
     const id = text(body.id, 64);
@@ -807,7 +941,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
   try {
     const client = appClient();
-    const [scope, actor] = await Promise.all([resolveScope(client, context?.workspaceMemberId), body.action === 'data' || body.action === 'alerts' ? '' : memberName(client, context?.workspaceMemberId)]);
+    const [scope, actor] = await Promise.all([resolveScope(client, context?.workspaceMemberId), body.action === 'data' || body.action === 'alerts' || (body.action === 'importExcel' && body.apply !== true) ? '' : memberName(client, context?.workspaceMemberId)]);
 
     if (actor) actorOf.set(client, actor);
 

@@ -13,6 +13,7 @@ import { ExpiredSheet, QuickSheet } from 'src/front-components/shared/stock-quic
 import { onOrderUnits } from 'src/shared/stock-orders';
 import { BorrowTab } from 'src/front-components/shared/stock-borrow-tab';
 import { HistoryTab } from 'src/front-components/shared/stock-history-tab';
+import { ImportSheet } from 'src/front-components/shared/stock-import-sheet';
 import { c, control, primary } from 'src/front-components/shared/stock-ui';
 import type { StockData } from 'src/logic-functions/utils/stock-data';
 import { todayIso } from 'src/logic-functions/utils/dates';
@@ -31,6 +32,7 @@ type Open =
   | { kind: 'settle'; borrow: StockMovement }
   | { kind: 'take'; date?: string }
   | { kind: 'quick' }
+  | { kind: 'import' }
   | { kind: 'expired' }
   | { kind: 'rule' }
   | { kind: 'writeOff'; item: StockItem; message: string }
@@ -154,6 +156,7 @@ export const StockPage = () => {
 
       return item ? <SettleSheet borrow={open.borrow} item={item} items={activeItems} today={today} onClose={() => setOpen(null)} onDone={done} /> : null;
     }
+    if (open.kind === 'import') return <ImportSheet owners={data.owners.filter((o) => o.canManage)} defaultOwnerId={ownerId} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'quick') return <QuickSheet items={activeItems} balances={balances} movements={movements} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'expired') {
       return <ExpiredSheet items={activeItems} movementsByItem={byItem} balances={balances} today={today} onClose={() => setOpen(null)} onDone={done} />;
@@ -194,6 +197,11 @@ export const StockPage = () => {
               + Add item
             </button>
           ) : null}
+          {mayAddItems ? (
+            <button onClick={() => setOpen({ kind: 'import' })} style={control} disabled={!data} title="Add products and starting stock from your monthly stock Excel (订货单)">
+              ⬆ Import Excel
+            </button>
+          ) : null}
           <button onClick={() => setOpen({ kind: 'quick' })} style={{ ...control, fontWeight: 600 }} disabled={!data} title="Fast entry: search, tap, save (good on a phone)">
             ⚡ Quick entry
           </button>
@@ -228,7 +236,7 @@ export const StockPage = () => {
         {error ? <span style={{ color: 'var(--t-color-red11)', fontSize: 13 }}>{error}</span> : null}
         {!data && !error ? <span style={{ color: c.text3, fontSize: 13 }}>Loading…</span> : null}
         {data && !items.length ? (
-          <span style={{ color: c.text3, fontSize: 13 }}>No stock items in this workspace yet. Use “+ Add item” to start.</span>
+          <span style={{ color: c.text3, fontSize: 13 }}>No stock items in this workspace yet. Use “⬆ Import Excel” to bring in your monthly stock sheet, or “+ Add item”.</span>
         ) : null}
         {data && items.length ? (
           <>
