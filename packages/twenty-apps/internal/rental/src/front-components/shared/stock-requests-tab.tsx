@@ -1,6 +1,7 @@
 import { type CSSProperties, Fragment, useMemo, useState } from 'react';
 
 import { readValue } from 'src/front-components/shared/read-value';
+import { ItemPicker } from 'src/front-components/shared/item-picker';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { QtyInput, stockAction } from 'src/front-components/shared/stock-forms';
 import { c, Chip, control, ExcelButton, Field, input, primary, select, shortDate, small } from 'src/front-components/shared/stock-ui';
@@ -323,15 +324,9 @@ export const RequestSheet = ({
           return (
             <div key={l.key} style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingBottom: 8, borderBottom: `1px dashed ${c.border}` }}>
               <div style={{ display: 'flex', gap: 6 }}>
-                <select value={l.itemId} onChange={(e) => setLine(l.key, { itemId: readValue(e) })} style={{ ...select, flex: 1, minWidth: 0 }}>
-                  <option value="">Choose an item…</option>
-                  {choosable.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.code ? `${i.code} ` : ''}
-                      {i.name}
-                    </option>
-                  ))}
-                </select>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <ItemPicker items={choosable} value={l.itemId} onChange={(itemId) => setLine(l.key, { itemId })} />
+                </div>
                 <button onClick={() => setLines(lines.filter((x) => x.key !== l.key))} style={{ ...small, height: 34 }} title="Remove line">
                   ✕
                 </button>

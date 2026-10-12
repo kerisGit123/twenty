@@ -28,13 +28,40 @@ import { balanceOf, DEFAULT_RULE, groupMovements, lastPaidPerUnit, type StockIte
 
 type Tab = 'stock' | 'movements' | 'month' | 'order' | 'orders' | 'requests' | 'borrowed' | 'monthend';
 
+// Simple view: what a person at the shelf needs. Four big buttons and three tabs.
+const SIMPLE_KEY = 'stock.simpleView';
+const readSimplePref = (): boolean | null => {
+  try {
+    const value = globalThis.localStorage?.getItem(SIMPLE_KEY);
+
+    return value === 'simple' ? true : value === 'full' ? false : null;
+  } catch {
+    return null;
+  }
+};
+const writeSimplePref = (simple: boolean) => {
+  try {
+    globalThis.localStorage?.setItem(SIMPLE_KEY, simple ? 'simple' : 'full');
+  } catch {
+    // Storage can be unavailable; the switch still works for this page.
+  }
+};
+const SIMPLE_TABS: string[] = ['stock', 'orders', 'requests'];
+
+const BIG_BUTTONS = [
+  { key: 'TAKE', label: 'Take out', hint: 'to the shop', icon: '↑', color: 'blue' },
+  { key: 'WASTE', label: 'Waste', hint: 'thrown away', icon: '🗑', color: 'red' },
+  { key: 'PURCHASE', label: 'Stock in', hint: 'a delivery', icon: '↓', color: 'green' },
+  { key: 'COUNT', label: 'Count', hint: 'check the shelf', icon: '✔', color: 'gray' },
+] as const;
+
 type Open =
   | { kind: 'item'; item: StockItem | null }
   | { kind: 'detail'; itemId: string }
   | { kind: 'record'; type: string; itemId?: string; lines?: Array<{ itemId: string; units: number }> }
   | { kind: 'settle'; borrow: StockMovement }
   | { kind: 'take'; date?: string }
-  | { kind: 'quick' }
+  | { kind: 'quick'; quickKind?: 'TAKE' | 'WASTE' | 'PURCHASE' }
   | { kind: 'import' }
   | { kind: 'request'; request: StockRequest | null }
   | { kind: 'issue'; request: StockRequest }
@@ -64,6 +91,7 @@ export const StockPage = () => {
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
   const [open, setOpen] = useState<Open>(null);
+  const [simplePref, setSimplePref] = useState<boolean | null>(readSimplePref);
 
   useEffect(() => {
     let cancelled = false;
@@ -132,6 +160,13 @@ export const StockPage = () => {
   const managed = new Set((data?.owners ?? []).filter((o) => o.canManage).map((o) => o.id));
   const mayManage = (id: string | null) => !!id && managed.has(id);
   const mayAddItems = owner ? owner.canManage : managed.size > 0;
+  // People who manage nothing start in the simple view; anyone can switch (remembered).
+  const simple = simplePref ?? (data ? managed.size === 0 : false);
+  const chooseSimple = (value: boolean) => {
+    setSimplePref(value);
+    writeSimplePref(value);
+    if (value && !SIMPLE_TABS.includes(tab)) setTab('stock');
+  };
   const activeItems = items.filter((i) => i.status !== 'DISCONTINUED');
 
   const toggleStatus = async (item: StockItem) => {
@@ -193,7 +228,7 @@ export const StockPage = () => {
     if (open.kind === 'receiveRequest') return <ReceiveRequestSheet request={open.request} items={items} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'settleRequest') return <SettleRequestSheet request={open.request} items={items} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'import') return <ImportSheet owners={data.owners.filter((o) => o.canManage)} defaultOwnerId={ownerId} onClose={() => setOpen(null)} onDone={done} />;
-    if (open.kind === 'quick') return <QuickSheet items={activeItems} balances={balances} movements={movements} today={today} onClose={() => setOpen(null)} onDone={done} />;
+    if (open.kind === 'quick') return <QuickSheet items={activeItems} balances={balances} movements={movements} lastPaid={lastPaid} initialKind={open.quickKind} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'expired') {
       return <ExpiredSheet items={activeItems} movementsByItem={byItem} balances={balances} today={today} onClose={() => setOpen(null)} onDone={done} />;
     }
@@ -225,6 +260,11 @@ export const StockPage = () => {
             <span style={{ fontSize: 13, color: c.text3 }}>What's in hand, every IN and OUT, and what to order next.</span>
           </div>
           <OwnerSwitcher scope={scope} />
+          <button onClick={() => chooseSimple(!simple)} style={{ ...control, color: c.text2 }} title={simple ? 'Show every tab and button' : 'Only the everyday buttons'}>
+            {simple ? 'Show everything' : 'Simple view'}
+          </button>
+          {!simple ? (
+            <>
           <button onClick={() => setOpen({ kind: 'take' })} style={control} disabled={!data}>
             Stock take
           </button>
@@ -244,10 +284,43 @@ export const StockPage = () => {
           <button onClick={() => setOpen({ kind: 'record', type: 'TAKE' })} style={primary} disabled={!data}>
             Record in / out
           </button>
+            </>
+          ) : null}
         </div>
 
+        {simple && data ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+            {BIG_BUTTONS.map((b) => (
+              <button
+                key={b.key}
+                onClick={() => (b.key === 'COUNT' ? setOpen({ kind: 'take' }) : setOpen({ kind: 'quick', quickKind: b.key }))}
+                style={{
+                  all: 'unset',
+                  cursor: 'pointer',
+                  boxSizing: 'border-box',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 2,
+                  minHeight: 88,
+                  borderRadius: 12,
+                  border: `1px solid var(--t-color-${b.color}6)`,
+                  background: `var(--t-color-${b.color}2)`,
+                  color: `var(--t-color-${b.color}11)`,
+                  textAlign: 'center',
+                }}
+              >
+                <span style={{ fontSize: 26, lineHeight: 1 }}>{b.icon}</span>
+                <span style={{ fontSize: 17, fontWeight: 700 }}>{b.label}</span>
+                <span style={{ fontSize: 12, opacity: 0.8 }}>{b.hint}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${c.border}`, overflowX: 'auto' }}>
-          {TABS.map((t) => (
+          {TABS.filter((t) => !simple || SIMPLE_TABS.includes(t.key)).map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}

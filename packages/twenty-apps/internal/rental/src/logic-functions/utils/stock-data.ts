@@ -91,6 +91,7 @@ type ItemNode = {
   supplier?: string | null;
   status?: string | null;
   reorderBelowMonths?: number | null;
+  shelfLifeDays?: number | null;
   notes?: string | null;
   ownerId?: string | null;
   owner?: { name?: string | null } | null;
@@ -130,6 +131,7 @@ export const toStockItem = (node: ItemNode): StockItem => ({
   supplier: node.supplier ?? '',
   status: node.status ?? 'ACTIVE',
   reorderBelowMonths: node.reorderBelowMonths ?? null,
+  shelfLifeDays: node.shelfLifeDays ?? null,
   notes: node.notes ?? '',
   ownerId: node.ownerId ?? null,
   ownerName: node.owner?.name ?? '',
@@ -147,6 +149,7 @@ export const ITEM_FIELDS = {
   supplier: true,
   status: true,
   reorderBelowMonths: true,
+  shelfLifeDays: true,
   notes: true,
   ownerId: true,
   owner: { name: true },

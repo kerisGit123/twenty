@@ -3,10 +3,11 @@ import { RestApiClient } from 'twenty-client-sdk/rest';
 import { enqueueSnackbar } from 'twenty-sdk/front-component';
 
 import { readValue } from 'src/front-components/shared/read-value';
+import { ItemPicker } from 'src/front-components/shared/item-picker';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { c, control, Field, input, PriceNote, primary, qty, ReasonPicker, select, small } from 'src/front-components/shared/stock-ui';
 import type { StockOwner } from 'src/logic-functions/utils/stock-data';
-import { cartonsAndUnits, type StockItem, type StockMovement, type StockRule, unitPrice } from 'src/shared/stock';
+import { cartonsAndUnits, defaultExpiry, type StockItem, type StockMovement, type StockRule, unitPrice } from 'src/shared/stock';
 import { STOCK_GROUPS, STOCK_MOVEMENT_TYPES } from 'src/shared/stock-types';
 
 // The Stock page's forms: add/edit an item, record IN/OUT, settle a lending,
@@ -112,6 +113,7 @@ export const ItemSheet = ({ item, owners, defaultOwnerId, today, onClose, onDone
     cartonPrice: item ? String(item.cartonPrice) : '',
     supplier: item?.supplier ?? '',
     reorderBelowMonths: item?.reorderBelowMonths != null ? String(item.reorderBelowMonths) : '',
+    shelfLifeDays: item?.shelfLifeDays != null ? String(item.shelfLifeDays) : '',
     notes: item?.notes ?? '',
     openingUnits: 0,
     expiryDate: '',
@@ -182,6 +184,9 @@ export const ItemSheet = ({ item, owners, defaultOwnerId, today, onClose, onDone
           <input value={form.reorderBelowMonths} onChange={set('reorderBelowMonths')} inputMode="decimal" placeholder="1.5" style={input} />
         </Field>
       </div>
+      <Field label="Shelf life (days)" hint="How long it keeps, e.g. 180. When stock comes in without an expiry date, it gets this many days from the day it arrives. Empty = no automatic expiry.">
+        <input value={form.shelfLifeDays} onChange={set('shelfLifeDays')} inputMode="numeric" placeholder="e.g. 180" style={{ ...input, width: 160 }} />
+      </Field>
       {!item ? (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, alignItems: 'end' }}>
           <Field label="Stock in hand now (opening)">
@@ -330,15 +335,9 @@ export const RecordSheet = ({
           return (
             <div key={l.key} style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingBottom: 8, borderBottom: `1px dashed ${c.border}` }}>
               <div style={{ display: 'flex', gap: 6 }}>
-                <select value={l.itemId} onChange={(e) => setLine(l.key, { itemId: readValue(e) })} style={{ ...select, flex: 1, minWidth: 0 }}>
-                  <option value="">Choose an item…</option>
-                  {choosable.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.code ? `${i.code} ` : ''}
-                      {i.name}
-                    </option>
-                  ))}
-                </select>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <ItemPicker items={choosable} value={l.itemId} onChange={(itemId) => setLine(l.key, { itemId })} />
+                </div>
                 {lines.length > 1 ? (
                   <button onClick={() => setLines(lines.filter((x) => x.key !== l.key))} style={{ ...small, height: 34 }} title="Remove line">
                     ✕
@@ -357,7 +356,7 @@ export const RecordSheet = ({
                         style={{ ...input, width: 130 }}
                         title="Cost per unit (empty = carton price ÷ units)"
                       />
-                      <input type="date" value={l.expiryDate} onChange={(e) => setLine(l.key, { expiryDate: readValue(e) })} style={{ ...input, width: 150 }} title="Expiry date" />
+                      <input type="date" value={l.expiryDate || defaultExpiry(item, date)} onChange={(e) => setLine(l.key, { expiryDate: readValue(e) })} style={{ ...input, width: 150 }} title={item.shelfLifeDays ? `Expiry date (filled in from the ${item.shelfLifeDays}-day shelf life)` : 'Expiry date'} />
                     </>
                   ) : null}
                   <span style={{ fontSize: 12, color: isOut && l.units > left ? 'var(--t-color-red11)' : c.text3 }}>

@@ -50,7 +50,8 @@ export const useOwnerScope = () => {
         setOwners(list);
         setAll(Boolean(result.all));
         // A remembered workspace that is gone (or no longer allowed) falls back to All.
-        setOwnerIdState((current) => (current && !list.some((o) => o.id === current) ? ALL : current));
+        // A person with a single workspace starts on it, not on "All".
+        setOwnerIdState((current) => (current && !list.some((o) => o.id === current) ? (list.length === 1 ? list[0].id : ALL) : !current && list.length === 1 ? list[0].id : current));
       })
       .catch(() => setOwners([]));
   }, []);

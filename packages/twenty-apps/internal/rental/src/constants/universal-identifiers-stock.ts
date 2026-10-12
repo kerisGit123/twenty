@@ -119,3 +119,6 @@ export const STOCK_REQUEST_STATUS_OPTION_IDS = [
 
 // The supplier's WhatsApp number, saved on the order so the next one is pre-filled.
 export const STOCK_ORDER_SUPPLIER_PHONE_FIELD_ID = '28003296-ee10-4a14-a3c8-3682b780a598';
+
+// Days a product keeps: the expiry of a delivery is filled in from it.
+export const STOCK_ITEM_SHELF_LIFE_FIELD_ID = '4407c567-5b0b-4b8c-bbc0-d4a59e50605a';

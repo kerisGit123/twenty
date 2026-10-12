@@ -16,6 +16,7 @@ export type StockItem = {
   supplier: string;
   status: string; // ACTIVE | DISCONTINUED
   reorderBelowMonths: number | null;
+  shelfLifeDays?: number | null; // days it keeps: a delivery's expiry is filled in from it
   notes: string;
   ownerId: string | null;
   ownerName: string;
@@ -213,6 +214,10 @@ export const wasteReasonOf = (m: Pick<StockMovement, 'type' | 'reason' | 'party'
 
   return null;
 };
+
+// The expiry a delivery gets when none is typed: its date + the product's shelf life ('' if unknown).
+export const defaultExpiry = (item: { shelfLifeDays?: number | null }, date: string): string =>
+  item.shelfLifeDays && item.shelfLifeDays > 0 && /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(Date.parse(`${date}T00:00:00Z`) + item.shelfLifeDays * 86_400_000).toISOString().slice(0, 10) : '';
 
 // What was paid per unit on the latest delivery with a cost (null when none).
 export const lastPaidPerUnit = (movements: StockMovement[]): number | null => {

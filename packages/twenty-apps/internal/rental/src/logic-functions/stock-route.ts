@@ -11,7 +11,7 @@ import { ITEM_FIELDS, loadItemMovements, loadMovementsOf, loadStockData, ORDER_F
 import { shortUnits, type StockRequest, unresolvedShort } from 'src/shared/stock-requests';
 import { normalizePhone } from 'src/shared/stock-orders';
 import { orderProgress, orderStatusFor, type OrderLine, type StockOrder } from 'src/shared/stock-orders';
-import { balanceOf, cartonsAndUnits, groupMovements, type StockItem, unitPrice } from 'src/shared/stock';
+import { balanceOf, cartonsAndUnits, defaultExpiry, groupMovements, type StockItem, unitPrice } from 'src/shared/stock';
 import { stockAlerts } from 'src/shared/stock-alerts';
 import { importChanges, importClosing, importComputedClosing, importDates, type ImportRow, type ImportSheet, pickStockSheet } from 'src/shared/stock-import';
 import { readXlsx } from 'src/logic-functions/utils/xlsx-read';
@@ -717,11 +717,13 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const perCarton = num(body.unitsPerCarton);
     const price = num(body.cartonPrice);
     const reorder = body.reorderBelowMonths === '' || body.reorderBelowMonths == null ? null : num(body.reorderBelowMonths);
+    const shelfLife = body.shelfLifeDays === '' || body.shelfLifeDays == null ? null : Math.round(num(body.shelfLifeDays));
 
     if (!name) return fail('Give the item a name.');
     if (!(perCarton > 0)) return fail('Units per carton must be 1 or more.');
     if (!(price >= 0)) return fail('Carton price must be a number.');
     if (reorder !== null && !(reorder > 0)) return fail('Re-order below must be more than 0 months, or empty.');
+    if (shelfLife !== null && !(shelfLife >= 1 && shelfLife <= 3650)) return fail('Shelf life is a number of days, 1 to 3650 (or leave it empty).');
 
     const existing = id ? await loadItem(client, id) : null;
 
@@ -741,6 +743,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       cartonPrice: { amountMicros: Math.round(price * 1_000_000), currencyCode: 'MYR' },
       supplier: text(body.supplier, 120),
       reorderBelowMonths: reorder,
+      shelfLifeDays: shelfLife,
       notes: text(body.notes, 500),
     };
 
@@ -847,7 +850,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
         quantity: num(line.quantity),
         party: text(body.party, 120),
         unitCost: type === 'PURCHASE' ? (cost >= 0 ? cost : unitPrice(item)) : null,
-        expiryDate: isDate(line.expiryDate) ? line.expiryDate : null,
+        expiryDate: isDate(line.expiryDate) ? line.expiryDate : type === 'PURCHASE' ? defaultExpiry(item, body.date as string) || null : null,
         reference: text(body.reference, 120),
         notes: text(body.notes, 500),
             reason: reason || null,
@@ -1125,7 +1128,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
               quantity: l.units,
               party: order.supplier,
               unitCost: (l.cartonPrice ?? ordered.get(l.itemId)?.cartonPrice ?? item.cartonPrice) / (item.unitsPerCarton || 1),
-              expiryDate: l.expiryDate,
+              expiryDate: l.expiryDate ?? (defaultExpiry(item, body.date as string) || null),
               reference,
               notes: `Order ${order.number}`,
               batchId: batch,

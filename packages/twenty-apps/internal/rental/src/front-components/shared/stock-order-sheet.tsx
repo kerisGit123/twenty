@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import { readValue } from 'src/front-components/shared/read-value';
+import { ItemPicker } from 'src/front-components/shared/item-picker';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { stockAction } from 'src/front-components/shared/stock-forms';
 import { c, control, Field, input, primary, rm, select, small } from 'src/front-components/shared/stock-ui';
@@ -182,15 +183,9 @@ export const OrderSheet = ({
 
             return (
               <div key={l.key} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', paddingBottom: 8, borderBottom: `1px dashed ${c.border}` }}>
-                <select value={l.itemId} onChange={(e) => setLine(l.key, { itemId: readValue(e) })} style={{ ...select, flex: 1, minWidth: 200 }}>
-                  <option value="">Choose a product…</option>
-                  {choosable.map((i) => (
-                    <option key={i.id} value={i.id} disabled={lines.some((x) => x.key !== l.key && x.itemId === i.id)}>
-                      {i.code ? `${i.code} ` : ''}
-                      {i.name}
-                    </option>
-                  ))}
-                </select>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <ItemPicker items={choosable} value={l.itemId} onChange={(itemId) => setLine(l.key, { itemId })} disabledIds={new Set(lines.map((x) => x.itemId))} />
+                </div>
                 <input value={l.cartons} onChange={(e) => setLine(l.key, { cartons: readValue(e) })} inputMode="decimal" placeholder="0" style={{ ...input, width: 64, textAlign: 'right' }} />
                 <span style={{ fontSize: 12, color: c.text3, width: 80 }}>{item ? `ctn × ${rm(item.cartonPrice)}` : 'ctn'}</span>
                 <button onClick={() => setLines(lines.length > 1 ? lines.filter((x) => x.key !== l.key) : [{ key: 1, itemId: '', cartons: '' }])} style={{ ...small, height: 34 }} title="Remove line">

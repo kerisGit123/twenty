@@ -3,8 +3,8 @@ import { type CSSProperties, useMemo, useState } from 'react';
 import { readValue } from 'src/front-components/shared/read-value';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { stockAction } from 'src/front-components/shared/stock-forms';
-import { c, control, input, primary, qty, ReasonPicker, shortDate } from 'src/front-components/shared/stock-ui';
-import { cartonsAndUnits, expiredStock, type StockItem, type StockMovement } from 'src/shared/stock';
+import { c, control, input, PriceNote, primary, qty, ReasonPicker, shortDate } from 'src/front-components/shared/stock-ui';
+import { cartonsAndUnits, defaultExpiry, expiredStock, type StockItem, type StockMovement } from 'src/shared/stock';
 
 // Fast entry for the store room (works on a phone): search, tap +1 ctn /
 // +1 unit, collect several items, save once. And writing off expired stock.
@@ -18,10 +18,14 @@ const KINDS = [
   { value: 'PURCHASE', label: 'Stock in', party: 'WeDrink', hint: 'Supplier' },
 ] as const;
 
+const toNumber = (value: string) => Number(value.replace(/[^0-9.]/g, '')) || 0;
+
 export const QuickSheet = ({
   items,
   balances,
   movements,
+  lastPaid,
+  initialKind,
   today,
   onClose,
   onDone,
@@ -29,32 +33,43 @@ export const QuickSheet = ({
   items: StockItem[];
   balances: Map<string, number>;
   movements: StockMovement[];
+  lastPaid: Map<string, number>; // per unit, the last delivery's price
+  initialKind?: 'TAKE' | 'WASTE' | 'PURCHASE';
   today: string;
   onClose: () => void;
   onDone: () => void;
 }) => {
-  const [kind, setKind] = useState<(typeof KINDS)[number]['value']>('TAKE');
-  const [party, setParty] = useState('Wawa');
+  const start = KINDS.find((k) => k.value === initialKind) ?? KINDS[0];
+  const [kind, setKind] = useState<(typeof KINDS)[number]['value']>(start.value);
+  const [party, setParty] = useState<string>(start.party);
+  // Stock in: expiry, price per carton and invoice number are optional extras.
+  const [expiry, setExpiry] = useState<Record<string, string>>({});
+  const [cost, setCost] = useState<Record<string, string>>({});
+  const [reference, setReference] = useState('');
   const [reason, setReason] = useState('');
   const [date, setDate] = useState(today);
   const [query, setQuery] = useState('');
   const [basket, setBasket] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false);
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
-  // Items taken out most recently come first, so the usual ones are one tap away.
+  // Products used most recently for this kind come first, so the usual ones are one tap away.
   const recent = useMemo(() => {
-    const seen = new Set<string>();
-    const list: StockItem[] = [];
+    const latest = (type: string) => {
+      const seen = new Set<string>();
+      const list: StockItem[] = [];
 
-    for (const m of [...movements].sort((a, b) => b.date.localeCompare(a.date))) {
-      if (m.type !== 'TAKE' || seen.has(m.itemId) || !byId.has(m.itemId)) continue;
-      seen.add(m.itemId);
-      list.push(byId.get(m.itemId) as StockItem);
-      if (list.length >= 8) break;
-    }
+      for (const m of [...movements].sort((a, b) => b.date.localeCompare(a.date))) {
+        if (m.type !== type || seen.has(m.itemId) || !byId.has(m.itemId)) continue;
+        seen.add(m.itemId);
+        list.push(byId.get(m.itemId) as StockItem);
+        if (list.length >= 8) break;
+      }
 
-    return list;
-  }, [movements, byId]);
+      return list;
+    };
+
+    return latest(kind).length ? latest(kind) : latest('TAKE').length ? latest('TAKE') : items.slice(0, 8);
+  }, [movements, byId, kind, items]);
   const q = query.trim().toLowerCase();
   const shown = q ? items.filter((i) => `${i.code} ${i.name}`.toLowerCase().includes(q)).slice(0, 12) : recent;
   const add = (item: StockItem, units: number) => setBasket((b) => ({ ...b, [item.id]: Math.max(0, Math.round(((b[item.id] ?? 0) + units) * 100) / 100) }));
@@ -69,7 +84,17 @@ export const QuickSheet = ({
       date,
       party: kind === 'WASTE' ? '' : party,
       reason: kind === 'WASTE' ? reason : undefined,
-      lines: lines.map(([itemId, units]) => ({ itemId, quantity: units })),
+      reference: kind === 'PURCHASE' ? reference : undefined,
+      lines: lines.map(([itemId, units]) => {
+        const item = byId.get(itemId) as StockItem;
+        const perCarton = toNumber(cost[itemId] ?? '');
+
+        return {
+          itemId,
+          quantity: units,
+          ...(kind === 'PURCHASE' ? { expiryDate: expiry[itemId] || defaultExpiry(item, date) || undefined, unitCost: perCarton > 0 ? perCarton / (item.unitsPerCarton || 1) : undefined } : {}),
+        };
+      }),
     });
 
     setBusy(false);
@@ -98,9 +123,10 @@ export const QuickSheet = ({
           {kind === 'WASTE' ? <span /> : <input value={party} onChange={(e) => setParty(readValue(e))} placeholder={KINDS.find((k) => k.value === kind)?.hint} style={{ ...input, height: 40 }} />}
           <input type="date" value={date} onChange={(e) => setDate(readValue(e))} style={{ ...input, height: 40, borderColor: isFullDate(date) ? undefined : 'var(--t-color-red9)' }} />
         </div>
+        {kind === 'PURCHASE' ? <input value={reference} onChange={(e) => setReference(readValue(e))} placeholder="Invoice / DO no. (optional)" style={{ ...input, height: 40 }} /> : null}
         {kind === 'WASTE' ? <ReasonPicker value={reason} onChange={setReason} /> : null}
         <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder="🔍 Type a code or name…" style={{ ...input, height: 44, fontSize: 15 }} />
-        <span style={{ fontSize: 12, color: c.text3 }}>{q ? `${shown.length} match${shown.length === 1 ? '' : 'es'}` : 'Recently taken out'}</span>
+        <span style={{ fontSize: 12, color: c.text3 }}>{q ? `${shown.length} match${shown.length === 1 ? '' : 'es'}` : kind === 'TAKE' ? 'Recently taken out' : kind === 'WASTE' ? 'Recently wasted' : 'Recently received'}</span>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {shown.map((item) => {
             const inStock = balances.get(item.id) ?? 0;
@@ -145,6 +171,14 @@ export const QuickSheet = ({
                     {isOut ? '−' : '+'}
                     {cartonsAndUnits(units, item)} {item.name}
                     {short ? ' (more than in stock)' : ''}
+                    {!isOut ? (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', margin: '4px 0 8px' }}>
+                        <span style={{ fontSize: 12, color: c.text3 }}>expires</span>
+                        <input type="date" value={expiry[id] ?? defaultExpiry(item, date)} onChange={(e) => setExpiry({ ...expiry, [id]: readValue(e) })} title={item.shelfLifeDays ? `Filled in from the ${item.shelfLifeDays}-day shelf life` : 'Expiry date (optional)'} style={{ ...input, width: 148, height: 34 }} />
+                        <input value={cost[id] ?? ''} onChange={(e) => setCost({ ...cost, [id]: readValue(e) })} inputMode="decimal" placeholder={`RM ${item.cartonPrice.toFixed(2)} / ctn`} title="Price per carton on the invoice (empty = the list price)" style={{ ...input, width: 128, height: 34 }} />
+                        <PriceNote price={(toNumber(cost[id] ?? '') || item.cartonPrice) / (item.unitsPerCarton || 1)} last={lastPaid.get(id)} unit={item.unit || 'unit'} />
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}

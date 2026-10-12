@@ -4,7 +4,7 @@ import { readValue } from 'src/front-components/shared/read-value';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { stockAction } from 'src/front-components/shared/stock-forms';
 import { c, Chip, control, ExcelButton, input, PriceNote, primary, rm, shortDate, small, withOwner } from 'src/front-components/shared/stock-ui';
-import { cartonsAndUnits, type StockItem, type StockMovement, type StockStatus, toCartons } from 'src/shared/stock';
+import { cartonsAndUnits, defaultExpiry, type StockItem, type StockMovement, type StockStatus, toCartons } from 'src/shared/stock';
 import { normalizePhone, orderAttention, orderWhatsappText } from 'src/shared/stock-orders';
 import { OrderSheet } from 'src/front-components/shared/stock-order-sheet';
 import type { StockOwner } from 'src/logic-functions/utils/stock-data';
@@ -140,7 +140,7 @@ const ReceiveSheet = ({
                       ) : null}
                     </td>
                     <td style={cell}>
-                      <input type="date" value={expiry[l.itemId] ?? ''} onChange={(e) => setExpiry({ ...expiry, [l.itemId]: readValue(e) })} style={{ ...input, width: 140 }} />
+                      <input type="date" value={expiry[l.itemId] ?? (item ? defaultExpiry(item, date) : '')} onChange={(e) => setExpiry({ ...expiry, [l.itemId]: readValue(e) })} style={{ ...input, width: 140 }} />
                     </td>
                     <td style={cell}>
                       <button
