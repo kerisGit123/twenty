@@ -92,6 +92,7 @@ export const StockPage = () => {
   const [reload, setReload] = useState(0);
   const [open, setOpen] = useState<Open>(null);
   const [simplePref, setSimplePref] = useState<boolean | null>(readSimplePref);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -284,25 +285,32 @@ export const StockPage = () => {
           </button>
           {!simple ? (
             <>
-          <button onClick={() => setOpen({ kind: 'take' })} style={control} disabled={!data}>
-            Stock take
-          </button>
-          {mayAddItems ? (
-            <button onClick={() => setOpen({ kind: 'item', item: null })} style={control} disabled={!data}>
-              + Add item
-            </button>
-          ) : null}
-          {mayAddItems ? (
-            <button onClick={() => setOpen({ kind: 'import' })} style={control} disabled={!data} title="Add products and starting stock from your monthly stock Excel (订货单)">
-              ⬆ Import Excel
-            </button>
-          ) : null}
-          <button onClick={() => setOpen({ kind: 'quick' })} style={{ ...control, fontWeight: 600 }} disabled={!data} title="Fast entry: search, tap, save (good on a phone)">
-            ⚡ Quick entry
-          </button>
-          <button onClick={() => setOpen({ kind: 'record', type: 'TAKE' })} style={primary} disabled={!data}>
-            Record in / out
-          </button>
+              <button onClick={() => setOpen({ kind: 'quick' })} style={primary} disabled={!data} title="Take out, waste or stock in: search, tap, save">
+                ⚡ Quick entry
+              </button>
+              <button onClick={() => setOpen({ kind: 'take' })} style={control} disabled={!data} title="Count the shelf and fix the differences">
+                Stock take
+              </button>
+              <button onClick={() => setMoreOpen(!moreOpen)} style={{ ...control, color: c.text2 }}>
+                {moreOpen ? 'Less' : 'More ▾'}
+              </button>
+              {moreOpen ? (
+                <>
+                  {mayAddItems ? (
+                    <button onClick={() => setOpen({ kind: 'item', item: null })} style={control} disabled={!data}>
+                      + Add item
+                    </button>
+                  ) : null}
+                  {mayAddItems ? (
+                    <button onClick={() => setOpen({ kind: 'import' })} style={control} disabled={!data} title="Add products and starting stock from your monthly stock Excel (订货单)">
+                      ⬆ Import Excel
+                    </button>
+                  ) : null}
+                  <button onClick={() => setOpen({ kind: 'record', type: 'TAKE' })} style={control} disabled={!data} title="The full form: lending to a branch, returns, exchanges, notes">
+                    Full form (lend, return…)
+                  </button>
+                </>
+              ) : null}
             </>
           ) : null}
         </div>
