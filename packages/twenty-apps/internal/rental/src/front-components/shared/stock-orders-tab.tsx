@@ -1,6 +1,7 @@
 import { type CSSProperties, useMemo, useState } from 'react';
 
 import { readValue } from 'src/front-components/shared/read-value';
+import { useNarrow } from 'src/front-components/shared/use-narrow';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { stockAction } from 'src/front-components/shared/stock-forms';
 import { c, Chip, control, ExcelButton, input, PriceNote, primary, rm, shortDate, small, withOwner } from 'src/front-components/shared/stock-ui';
@@ -272,6 +273,7 @@ export const OrdersTab = ({
   ownerId: string;
   onChanged: () => void;
 }) => {
+  const narrow = useNarrow();
   const [show, setShow] = useState<Show>('OPEN');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [receiving, setReceiving] = useState<StockOrder | null>(null);
@@ -404,8 +406,42 @@ export const OrdersTab = ({
                 {outstandingCtn ? <b style={{ color: 'var(--t-color-amber11)' }}> · {Math.round(outstandingCtn * 100) / 100} to come</b> : null} · {rm(total)}
               </span>
             </div>
-            {showLines ? (
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            {showLines && narrow ? (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {p.lines.map((l) => {
+                  const item = byId.get(l.itemId);
+                  const fmt = (units: number) => (item ? cartonsAndUnits(units, item) : String(units));
+
+                  return (
+                    <div key={l.itemId} style={{ padding: '8px 12px', borderTop: `1px solid ${c.border}`, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>
+                        {item?.name ?? 'Item removed'}
+                        <span style={{ color: c.text3, fontWeight: 400, fontSize: 12 }}> · {item?.code}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: c.text2, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                        <span>
+                          Ordered <b>{fmt(l.orderedUnits)}</b>
+                        </span>
+                        <span>
+                          Arrived <b style={{ color: l.received ? 'var(--t-color-green11)' : c.text3 }}>{l.received ? fmt(l.received) : '—'}</b>
+                        </span>
+                        {l.outstanding ? (
+                          <span style={{ color: 'var(--t-color-amber11)' }}>
+                            To come <b>{fmt(l.outstanding)}</b>
+                          </span>
+                        ) : l.closed && l.received < l.orderedUnits ? (
+                          <span>not coming</span>
+                        ) : null}
+                        <span style={{ color: c.text3 }}>{rm(ctn(l.orderedUnits, l.itemId) * l.cartonPrice)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+            {showLines && !narrow ? (
+              <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 480 }}>
                 <thead>
                   <tr>
                     <th style={head}>Item</th>
@@ -439,6 +475,7 @@ export const OrdersTab = ({
                   })}
                 </tbody>
               </table>
+              </div>
             ) : null}
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '8px 12px', borderTop: `1px solid ${c.border}` }}>
               {isOpen(o) ? (

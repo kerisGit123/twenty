@@ -1,6 +1,7 @@
 import { type CSSProperties, Fragment, useMemo, useState } from 'react';
 
 import { readValue } from 'src/front-components/shared/read-value';
+import { useNarrow } from 'src/front-components/shared/use-narrow';
 import { ItemPicker } from 'src/front-components/shared/item-picker';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { QtyInput, stockAction } from 'src/front-components/shared/stock-forms';
@@ -64,6 +65,7 @@ export const RequestsTab = ({
   onSettle: (request: StockRequest) => void;
   onChanged: () => void;
 }) => {
+  const narrow = useNarrow();
   const [showAll, setShowAll] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sure, setSure] = useState<string | null>(null);
@@ -116,6 +118,91 @@ export const RequestsTab = ({
         </span>
       </div>
 
+      {narrow ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {shown.length ? null : (
+            <div style={{ padding: 24, textAlign: 'center', color: c.text3, fontSize: 13, border: `1px dashed ${c.border2}`, borderRadius: c.radius }}>
+              {showAll ? 'No requests yet. “+ New request” is how a branch asks the warehouse for stock.' : 'Nothing to do. Switch to “All” to see finished requests.'}
+            </div>
+          )}
+          {shown.map((r) => {
+            const open = expanded === r.id;
+            const status = statusOf(r.status);
+            const manage = mayManage(r.ownerId);
+
+            return (
+              <div key={r.id} style={{ border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button onClick={() => setExpanded(open ? null : r.id)} style={{ all: 'unset', cursor: 'pointer', fontWeight: 700, fontSize: 14 }}>
+                    {open ? '▾' : '▸'} {r.number}
+                  </button>
+                  <Chip label={status?.label ?? r.status} color={status?.color ?? 'gray'} />
+                </div>
+                <div style={{ fontSize: 12, color: c.text2 }}>
+                  {r.branch} · {shortDate(r.date)}
+                  {r.requestedBy ? ` · ${r.requestedBy}` : ''} · {summary(r)}
+                </div>
+                {open ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '6px 0', borderTop: `1px dashed ${c.border}`, borderBottom: `1px dashed ${c.border}` }}>
+                    {r.lines.map((l) => {
+                      const item = byId.get(l.itemId);
+                      const short = shortUnits(l);
+                      const show = (units: number | undefined) => (units === undefined ? '—' : item ? cartonsAndUnits(units, item) : String(units));
+
+                      return (
+                        <div key={l.itemId} style={{ fontSize: 12 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{item?.name ?? 'Item removed'}</div>
+                          <div style={{ color: c.text2 }}>
+                            asked {show(l.requestedUnits)} · issued {show(l.issuedUnits)} · received {show(l.receivedUnits)}
+                            {short ? <b style={{ color: 'var(--t-color-red11)' }}> · short {item ? cartonsAndUnits(short, item) : short}</b> : null}
+                            {l.resolved ? <span style={{ color: c.text3 }}> ({l.resolved === 'RETURNED' ? 'put back in stock' : 'written off'})</span> : null}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {r.status === 'REQUESTED' ? (
+                    <>
+                      <button onClick={() => onIssue(r)} style={{ ...primary, height: 40 }}>
+                        Issue…
+                      </button>
+                      <button onClick={() => onEdit(r)} style={{ ...control, height: 40 }}>
+                        Edit
+                      </button>
+                      {sure === r.id ? (
+                        <button onClick={() => cancel(r)} disabled={busy} style={{ ...control, height: 40, color: 'var(--t-color-red11)', fontWeight: 600 }}>
+                          Really cancel?
+                        </button>
+                      ) : (
+                        <button onClick={() => setSure(r.id)} style={{ ...control, height: 40, color: 'var(--t-color-red11)' }}>
+                          Cancel
+                        </button>
+                      )}
+                    </>
+                  ) : null}
+                  {r.status === 'ISSUED' ? (
+                    <button onClick={() => onReceive(r)} style={{ ...primary, height: 40 }}>
+                      Confirm received…
+                    </button>
+                  ) : null}
+                  {r.status === 'SHORT' ? (
+                    manage ? (
+                      <button onClick={() => onSettle(r)} style={{ ...primary, height: 40 }}>
+                        Settle the shortage…
+                      </button>
+                    ) : (
+                      <span style={{ fontSize: 12, color: c.text3 }}>A manager settles this</span>
+                    )
+                  ) : null}
+                  {r.status !== 'CANCELLED' ? <ExcelButton query={{ kind: 'xlsx-request', request: r.id, ...(r.ownerId ? { owner: r.ownerId } : {}) }} title="Picking list / delivery note (Excel)" /> : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
       <div style={{ overflowX: 'auto', border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
           <thead>
@@ -246,6 +333,7 @@ export const RequestsTab = ({
           </tbody>
         </table>
       </div>
+      )}
       <span style={{ fontSize: 12, color: c.text3 }}>
         Flow: the branch asks → the warehouse issues it (recorded as a take-out to the branch) → the branch confirms what arrived. If less arrived, a manager puts the difference back in stock or writes it off as lost.
       </span>

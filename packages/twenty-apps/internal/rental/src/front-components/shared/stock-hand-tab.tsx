@@ -1,6 +1,7 @@
 import { type CSSProperties, useState } from 'react';
 
 import { readValue } from 'src/front-components/shared/read-value';
+import { useNarrow } from 'src/front-components/shared/use-narrow';
 import { c, control, ExcelButton, input, monthLabel, qty, rm, small, withOwner } from 'src/front-components/shared/stock-ui';
 import { cartonsAndUnits, expiryState, type StockItem, type StockStatus } from 'src/shared/stock';
 import { STOCK_GROUPS } from 'src/shared/stock-types';
@@ -48,6 +49,81 @@ const Expiry = ({ s, today }: { s: StockStatus; today: string }) => {
   return <span style={{ color: state === 'SOON' ? 'var(--t-color-amber11)' : c.text2 }}>{shortDay(s.nearestExpiry)}</span>;
 };
 
+type Group = { value: string; label: string; rows: StockStatus[] };
+
+// The same list as cards (phone): the name, what is in hand, how long it lasts, and what to do.
+const CardList = ({ groups, today, onOpen, onRecord }: { groups: Group[]; today: string; onOpen: (item: StockItem) => void; onRecord: (type: string, itemId: string) => void }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    {groups.length ? null : <div style={{ padding: 24, textAlign: 'center', color: c.text3, fontSize: 13 }}>No items match.</div>}
+    {groups.map((g) => (
+      <div key={g.value} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: c.text2, padding: '2px 2px' }}>
+          {g.label}
+          <span style={{ fontWeight: 400, color: c.text3 }}> · {g.rows.length} items</span>
+        </div>
+        {g.rows.map((s) => {
+          const accent = s.flag === 'ORDER' ? COLORS.ORDER : s.flag === 'LOW' ? COLORS.LOW : c.border2;
+          const discontinued = s.item.status === 'DISCONTINUED';
+          const state = s.balance > 0 ? expiryState(s.nearestExpiry, today) : null;
+          const showExtra = s.suggestedCartons || s.onOrder || (state && s.nearestExpiry);
+
+          return (
+            <div key={s.item.id} style={{ border: `1px solid ${c.border}`, borderLeft: `4px solid ${accent}`, borderRadius: c.radius, background: c.bg, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8, opacity: discontinued ? 0.55 : 1 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <button onClick={() => onOpen(s.item)} style={{ all: 'unset', cursor: 'pointer', flex: 1, minWidth: 0 }} title="Open history and usage">
+                  <div style={{ fontWeight: 600, fontSize: 14, lineHeight: 1.3 }}>{s.item.name}</div>
+                  <div style={{ fontSize: 12, color: c.text3 }}>
+                    {s.item.code}
+                    {s.item.specification ? ` · ${s.item.specification}` : ''}
+                  </div>
+                </button>
+                {!discontinued ? (
+                  <span style={{ display: 'inline-flex', gap: 6, flexShrink: 0 }}>
+                    <button onClick={() => onRecord('PURCHASE', s.item.id)} style={{ ...control, width: 40, height: 40, justifyContent: 'center', padding: 0, fontSize: 18 }} title="Stock in (purchase)">
+                      +
+                    </button>
+                    <button onClick={() => onRecord('TAKE', s.item.id)} style={{ ...control, width: 40, height: 40, justifyContent: 'center', padding: 0, fontSize: 18 }} title="Take out">
+                      −
+                    </button>
+                  </span>
+                ) : null}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: s.balance < 0 ? 'var(--t-color-red11)' : s.balance === 0 ? c.text3 : c.text }}>
+                  {s.balance === 0 ? 'none in hand' : cartonsAndUnits(s.balance, s.item)}
+                  {s.item.unitsPerCarton > 1 && Math.abs(s.balance) >= s.item.unitsPerCarton ? (
+                    <span style={{ color: c.text3, fontSize: 12, fontWeight: 400 }}>
+                      {' '}
+                      ({qty(s.balance)} {s.item.unit})
+                    </span>
+                  ) : null}
+                </span>
+                <LastsBar s={s} />
+              </div>
+              {showExtra ? (
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12 }}>
+                  {s.suggestedCartons ? (
+                    <span style={{ color: 'var(--t-color-red11)', fontWeight: 600 }}>
+                      Order {s.suggestedCartons} ctn <span style={{ color: c.text3, fontWeight: 400 }}>· {rm(s.suggestedCost)}</span>
+                    </span>
+                  ) : null}
+                  {s.onOrder ? <span style={{ color: 'var(--t-color-blue11)', fontWeight: 600 }}>{cartonsAndUnits(s.onOrder, s.item)} on order</span> : null}
+                  {state && s.nearestExpiry ? (
+                    <span>
+                      <span style={{ color: c.text3 }}>Expiry </span>
+                      <Expiry s={s} today={today} />
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    ))}
+  </div>
+);
+
 const Tile = ({ label, value, note, color, active, onClick }: { label: string; value: string; note: string; color?: string; active: boolean; onClick: () => void }) => (
   <button
     onClick={onClick}
@@ -87,6 +163,7 @@ export const StockHandTab = ({
   onRecord: (type: string, itemId: string) => void;
   onOpen: (item: StockItem) => void;
 }) => {
+  const narrow = useNarrow();
   const [filter, setFilter] = useState<Filter>('all');
   const [group, setGroup] = useState('');
   const [query, setQuery] = useState('');
@@ -145,7 +222,7 @@ export const StockHandTab = ({
       ) : null}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder="Search code or name" style={{ ...input, width: 220 }} />
+        <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder="Search code or name" style={{ ...input, width: narrow ? '100%' : 220 }} />
         <select value={group} onChange={(e) => setGroup(readValue(e))} style={control}>
           <option value="">All groups</option>
           {STOCK_GROUPS.map((g) => (
@@ -170,6 +247,9 @@ export const StockHandTab = ({
         <ExcelButton query={withOwner({ kind: 'xlsx-hand' }, ownerId)} title="Stock in hand as an Excel file" />
       </div>
 
+      {narrow ? (
+        <CardList groups={groups} today={today} onOpen={onOpen} onRecord={onRecord} />
+      ) : (
       <div style={{ overflow: 'auto', border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg, maxHeight: 'calc(100cqh - 250px)', minHeight: 240 }}>
         <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 980 }}>
           <thead>
@@ -269,6 +349,7 @@ export const StockHandTab = ({
           </tbody>
         </table>
       </div>
+      )}
       <span style={{ fontSize: 12, color: c.text3 }}>
         Click an item for its usage by month and IN/OUT history. The bar shows how long the stock lasts at next month&apos;s rate; the tick is the re-order level.
       </span>
