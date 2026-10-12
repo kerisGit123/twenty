@@ -104,6 +104,7 @@ export const ImportSheet = ({ owners, defaultOwnerId, onClose, onDone }: { owner
         </span>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+          {owners.length > 1 ? (
           <Field label="Workspace">
             <select
               value={ownerId}
@@ -122,6 +123,7 @@ export const ImportSheet = ({ owners, defaultOwnerId, onClose, onDone }: { owner
               ))}
             </select>
           </Field>
+          ) : null}
           <Field label="Excel file (.xlsx)" hint={file ? `${file.name}` : 'The monthly stock workbook, e.g. MONTHLY STOCK.xlsx'}>
             <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={pick} style={{ ...input, paddingTop: 6 }} />
           </Field>

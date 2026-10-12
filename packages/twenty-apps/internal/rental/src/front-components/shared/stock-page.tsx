@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 
-import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
+import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { ItemSheet, RecordSheet, RuleSheet, SettleSheet, stockAction, WriteOffSheet } from 'src/front-components/shared/stock-forms';
 import { StockTakeSheet } from 'src/front-components/shared/stock-take-sheet';
 import { ItemDetailSheet } from 'src/front-components/shared/stock-detail';
@@ -161,7 +161,9 @@ export const StockPage = () => {
   const mayManage = (id: string | null) => !!id && managed.has(id);
   const mayAddItems = owner ? owner.canManage : managed.size > 0;
   // People who manage nothing start in the simple view; anyone can switch (remembered).
-  const simple = simplePref ?? (data ? managed.size === 0 : false);
+  const simple = simplePref ?? true;
+  // Stock belongs to one workspace: the one picked at the top of the left sidebar.
+  const needsWorkspace = !ownerId && scope.owners.length > 1;
   const chooseSimple = (value: boolean) => {
     setSimplePref(value);
     writeSimplePref(value);
@@ -199,7 +201,7 @@ export const StockPage = () => {
         />
       ) : null;
     }
-    if (open.kind === 'item') return <ItemSheet item={open.item} owners={data.owners.filter((o) => o.canManage)} defaultOwnerId={ownerId} today={today} onClose={() => setOpen(null)} onDone={done} />;
+    if (open.kind === 'item') return <ItemSheet item={open.item} owners={data.owners.filter((o) => o.canManage && (!ownerId || o.id === ownerId))} defaultOwnerId={ownerId} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'record') {
       return (
         <RecordSheet
@@ -222,12 +224,12 @@ export const StockPage = () => {
       return item ? <SettleSheet borrow={open.borrow} item={item} items={activeItems} today={today} onClose={() => setOpen(null)} onDone={done} /> : null;
     }
     if (open.kind === 'request') {
-      return <RequestSheet request={open.request} items={activeItems} balances={balances} owners={data.owners} defaultOwnerId={ownerId} onClose={() => setOpen(null)} onDone={done} />;
+      return <RequestSheet request={open.request} items={activeItems} balances={balances} owners={data.owners.filter((o) => !ownerId || o.id === ownerId)} defaultOwnerId={ownerId} onClose={() => setOpen(null)} onDone={done} />;
     }
     if (open.kind === 'issue') return <IssueSheet request={open.request} items={items} balances={balances} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'receiveRequest') return <ReceiveRequestSheet request={open.request} items={items} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'settleRequest') return <SettleRequestSheet request={open.request} items={items} today={today} onClose={() => setOpen(null)} onDone={done} />;
-    if (open.kind === 'import') return <ImportSheet owners={data.owners.filter((o) => o.canManage)} defaultOwnerId={ownerId} onClose={() => setOpen(null)} onDone={done} />;
+    if (open.kind === 'import') return <ImportSheet owners={data.owners.filter((o) => o.canManage && (!ownerId || o.id === ownerId))} defaultOwnerId={ownerId} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'quick') return <QuickSheet items={activeItems} balances={balances} movements={movements} lastPaid={lastPaid} initialKind={open.quickKind} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'expired') {
       return <ExpiredSheet items={activeItems} movementsByItem={byItem} balances={balances} today={today} onClose={() => setOpen(null)} onDone={done} />;
@@ -250,16 +252,33 @@ export const StockPage = () => {
     ? `Rule for ${owner.name}: re-order when stock lasts under ${rule.reorderBelow} months; order enough for ${rule.orderUpTo} months${rule.leadDays ? `; delivery takes ${rule.leadDays} days` : ''}.`
     : 'Each workspace uses its own re-order rule (default: under 2 months, order enough for 2.5). Pick a workspace to change it.';
 
+  if (needsWorkspace) {
+    return (
+      <div style={{ fontFamily: c.font, color: c.text, background: c.bg, height: '100%', overflowY: 'auto', boxSizing: 'border-box', padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <span style={{ fontSize: 18, fontWeight: 600 }}>Stock</span>
+        <span style={{ fontSize: 14, color: c.text2 }}>
+          Stock belongs to one workspace. Pick which one: here, or any time with the workspace picker at the top of the left sidebar.
+        </span>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+          {scope.owners.map((o) => (
+            <button key={o.id} onClick={() => scope.setOwnerId(o.id)} style={{ ...control, height: 64, fontSize: 16, fontWeight: 600 }}>
+              {o.name}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ fontFamily: c.font, color: c.text, background: c.bg, height: '100%', overflowY: 'auto', containerType: 'size', boxSizing: 'border-box', position: 'relative' }}>
       {sheet}
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 200, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 18, fontWeight: 600 }}>Stock</span>
+            <span style={{ fontSize: 18, fontWeight: 600 }}>Stock{scope.owner ? ` · ${scope.owner.name}` : ''}</span>
             <span style={{ fontSize: 13, color: c.text3 }}>What's in hand, every IN and OUT, and what to order next.</span>
           </div>
-          <OwnerSwitcher scope={scope} />
           <button onClick={() => chooseSimple(!simple)} style={{ ...control, color: c.text2 }} title={simple ? 'Show every tab and button' : 'Only the everyday buttons'}>
             {simple ? 'Show everything' : 'Simple view'}
           </button>
@@ -389,7 +408,7 @@ export const StockPage = () => {
                 onChanged={refresh}
               />
             ) : null}
-            {tab === 'orders' ? <OrdersTab orders={orders} items={items} movements={movements} lastPaid={lastPaid} ownerName={ownerName} owners={data.owners} statuses={statuses} leadDaysOf={(id) => ruleOf(id).leadDays ?? 0} today={today} ownerId={ownerId} onChanged={refresh} /> : null}
+            {tab === 'orders' ? <OrdersTab orders={orders} items={items} movements={movements} lastPaid={lastPaid} ownerName={ownerName} owners={data.owners.filter((o) => !ownerId || o.id === ownerId)} statuses={statuses} leadDaysOf={(id) => ruleOf(id).leadDays ?? 0} today={today} ownerId={ownerId} onChanged={refresh} /> : null}
             {tab === 'monthend' ? (
               <MonthEndTab items={items} movementsByItem={byItem} owner={owner} canClose={!!owner?.canManage} today={today} onStockTake={(date) => setOpen({ kind: 'take', date })} onChanged={refresh} />
             ) : null}

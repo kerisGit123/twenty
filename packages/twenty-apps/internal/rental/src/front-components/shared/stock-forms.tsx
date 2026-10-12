@@ -132,7 +132,7 @@ export const ItemSheet = ({ item, owners, defaultOwnerId, today, onClose, onDone
 
   return (
     <Shell title={item ? `Edit ${item.name}` : 'Add stock item'} onClose={onClose}>
-      {!item ? (
+      {!item && owners.length > 1 ? (
         <Field label="Workspace">
           <select value={form.ownerId} onChange={set('ownerId')} style={select}>
             {owners.map((o) => (
