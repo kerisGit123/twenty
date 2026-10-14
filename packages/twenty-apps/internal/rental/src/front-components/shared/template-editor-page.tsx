@@ -2,6 +2,7 @@ import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, us
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { AppPath, enqueueSnackbar, navigate } from 'twenty-sdk/front-component';
 
+import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { readValue } from 'src/front-components/shared/read-value';
 import { TemplatePreview } from 'src/front-components/shared/template-preview';
 import { ACCENTS } from 'src/logic-functions/utils/receipt-settings';
@@ -552,7 +553,9 @@ const KIND_WORD: Record<TemplateKind, { one: string; many: string }> = {
 export const TemplateDesigner = () => {
   const [kind, setKind] = useState<TemplateKind>('RECEIPT');
   // The workspace whose templates and letterhead are shown ('' = shared).
-  const [workspace, setWorkspace] = useState('');
+  // Locked to the workspace picked in the left sidebar; "All workspaces" there
+  // means the shared templates.
+  const { ownerId: workspace } = useOwnerScope();
   const [data, setData] = useState<ListResponse | null>(null);
   const [screen, setScreen] = useState<'library' | 'editor'>('library');
   const [draft, setDraft] = useState<Draft>(fromPreset('RECEIPT', 'EN'));
@@ -854,21 +857,9 @@ export const TemplateDesigner = () => {
             <div style={{ fontSize: 13, color: c.text3, marginTop: 2 }}>
               Design how your receipts and year statements look. Each workspace uses its own <b>★ default</b>, else the shared one.
             </div>
-            {(data.owners ?? []).length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12.5, color: c.text3 }}>Workspace</span>
-                <select
-                  value={workspace}
-                  onChange={(e) => setWorkspace(((e as unknown as { detail?: { value?: string }; target?: { value?: string } }).detail?.value ?? (e as unknown as { target?: { value?: string } }).target?.value) ?? '')}
-                  style={{ fontFamily: c.font, fontSize: 13, height: 30, borderRadius: 8, border: `1px solid ${c.border}`, padding: '0 8px', background: c.bg, color: c.text }}
-                >
-                  <option value="">Shared — every workspace</option>
-                  {(data.owners ?? []).map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.name}
-                    </option>
-                  ))}
-                </select>
+            {!workspace && (data.owners ?? []).length > 0 && (
+              <div style={{ fontSize: 12.5, color: c.text3, marginTop: 6 }}>
+                Showing the shared templates. Pick a workspace in the left sidebar to edit its own.
               </div>
             )}
           </div>

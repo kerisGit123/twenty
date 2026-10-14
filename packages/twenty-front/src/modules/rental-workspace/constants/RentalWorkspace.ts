@@ -23,6 +23,16 @@ export const RENTAL_WORKSPACE_SCOPED_OBJECTS = [
   'rentPayment',
   'expense',
   'document',
+  'income',
+  'campaign',
+  'contactActivity',
+  'savedAudience',
+  'documentTemplate',
+  'receiptSetting',
+  'stockItem',
+  'stockMovement',
+  'stockOrder',
+  'stockRequest',
 ];
 
 export const RENTAL_WORKSPACE_FIELD_NAME = 'owner';

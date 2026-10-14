@@ -7,7 +7,7 @@ import { readValue } from 'src/front-components/shared/read-value';
 import { CampaignEditor, repeatLabel } from 'src/front-components/shared/campaign-editor';
 import { ContactCleanup } from 'src/front-components/shared/contact-cleanup';
 import { SendPanel } from 'src/front-components/shared/campaign-send';
-import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
+import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import {
@@ -345,6 +345,7 @@ export const Campaigns = () => {
             key={editing.id ?? 'new'}
             initial={editing}
             owners={owners}
+            lockedOwnerId={scope.ownerId}
             canUseTags={canUseTags}
             audiences={audiences.filter((a) => scope.matches(a.ownerId))}
             pastCampaigns={pastCampaigns}
@@ -381,7 +382,6 @@ export const Campaigns = () => {
           <button onClick={() => setCleanup(true)} style={button()} title="People without a number, opted out, wrong numbers, languages">
             🧹 Contacts
           </button>
-          <OwnerSwitcher scope={scope} />
         </div>
 
         {/* What to do now comes first */}

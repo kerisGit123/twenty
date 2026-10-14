@@ -4,7 +4,7 @@ import { openSidePanelPage, SidePanelPages } from 'twenty-sdk/front-component';
 
 import { MONTHS } from 'src/shared/months';
 import { openList, openPage } from 'src/front-components/shared/open-page';
-import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
+import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { ReminderList } from 'src/front-components/shared/reminder-list';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import type { Contract, TodayData } from 'src/logic-functions/page-data/today-data';
@@ -602,7 +602,6 @@ export const Today = () => {
             : `${view.attention.length} thing${view.attention.length === 1 ? '' : 's'} need${view.attention.length === 1 ? 's' : ''} your attention.`}
         </span>
       </div>
-      <OwnerSwitcher scope={scope} />
       </div>
 
       {view && (

@@ -4,7 +4,7 @@ import { AppPath, enqueueSnackbar, navigate, openSidePanelPage, SidePanelPages }
 
 import { MONTHS } from 'src/shared/months';
 import { readValue } from 'src/front-components/shared/read-value';
-import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
+import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { FileDrop, filesFromEvent, type PickedFile, uploadFile } from 'src/front-components/shared/file-drop';
 import { FileViewer, type ViewerFile } from 'src/front-components/shared/file-viewer';
 import { Sheet } from 'src/front-components/shared/sheet';
@@ -413,7 +413,6 @@ export const ExpenseTracker = () => {
 
         {/* Workspace + period */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-          <OwnerSwitcher scope={scope} />
           {segmented(mode, [{ value: 'month', label: 'Month' }, { value: 'year', label: 'Year' }, { value: 'range', label: 'Range' }], setMode)}
           {mode === 'range' ? (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, color: c.text2, flexWrap: 'wrap' }}>

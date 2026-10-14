@@ -5,7 +5,7 @@ import { copyToClipboard, enqueueSnackbar } from 'twenty-sdk/front-component';
 
 import { readValue } from 'src/front-components/shared/read-value';
 import { YEAR_SUMMARY_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
-import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
+import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import type { YearData } from 'src/logic-functions/page-data/year-data';
 import { buildTaxPack } from 'src/shared/lhdn';
 import { summariseYear, yearSummaryCsv } from 'src/shared/year-summary';
@@ -125,7 +125,6 @@ const YearSummary = () => {
         <span style={{ fontSize: 18, fontWeight: 600 }}>Year summary</span>
         <span style={{ fontSize: 13, color: c.text3 }}>Rent received and money spent, by month, category and property.</span>
       </div>
-      <OwnerSwitcher scope={scope} />
       <select value={String(year)} onChange={(e) => setYear(Number(readValue(e)))} style={{ ...control, fontWeight: 600 }}>
         {years.map((y) => (
           <option key={y} value={String(y)}>

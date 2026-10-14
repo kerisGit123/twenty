@@ -5,7 +5,7 @@ import { AppPath, enqueueSnackbar, navigate } from 'twenty-sdk/front-component';
 import { MONTHS } from 'src/shared/months';
 import { readValue } from 'src/front-components/shared/read-value';
 import { ReceiptSettingsPanel } from 'src/front-components/shared/receipt-settings-panel';
-import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
+import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { ReceiptView, type ReceiptViewData } from 'src/front-components/shared/receipt-view';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { StatementPanel } from 'src/front-components/shared/statement-panel';
@@ -456,7 +456,6 @@ export const RentLedger = () => {
 
         {/* Workspace + period */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-          <OwnerSwitcher scope={scope} />
           {segmented(mode, [{ value: 'month', label: 'Month' }, { value: 'year', label: 'Year' }, { value: 'range', label: 'Range' }], setMode)}
           {mode === 'range' ? (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, color: c.text2, flexWrap: 'wrap' }}>

@@ -3,7 +3,7 @@ import { RestApiClient } from 'twenty-client-sdk/rest';
 import { enqueueSnackbar, openSidePanelPage, SidePanelPages } from 'twenty-sdk/front-component';
 
 import { type DateRange, DateRangePicker, presetRange } from 'src/front-components/shared/date-range-picker';
-import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
+import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { readValue } from 'src/front-components/shared/read-value';
 import { Sheet } from 'src/front-components/shared/sheet';
 import type { Expense, Option } from 'src/logic-functions/page-data/expenses-data';
@@ -647,7 +647,6 @@ export const Transactions = () => {
           <span style={{ fontSize: 18, fontWeight: 600 }}>Transactions</span>
           <span style={{ fontSize: 13, color: c.text3 }}>Money received and spent, and every receipt number.</span>
         </div>
-        <OwnerSwitcher scope={scope} />
       </div>
 
       <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${c.border}` }}>

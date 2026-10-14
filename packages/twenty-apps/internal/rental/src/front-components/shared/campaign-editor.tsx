@@ -220,6 +220,7 @@ const PhonePreview = ({ text, media, pending, recipient }: { text: string; media
 export const CampaignEditor = ({
   initial,
   owners,
+  lockedOwnerId = '',
   canUseTags,
   audiences = [],
   pastCampaigns = [],
@@ -228,6 +229,9 @@ export const CampaignEditor = ({
 }: {
   initial: Partial<CampaignRow>;
   owners: Owner[];
+  // The workspace picked in the left sidebar ('' = All workspaces). The
+  // audience and the campaign's own workspace follow it.
+  lockedOwnerId?: string;
   canUseTags: boolean;
   audiences?: SavedAudienceRow[];
   pastCampaigns?: Array<{ id: string; name: string }>;
@@ -239,7 +243,7 @@ export const CampaignEditor = ({
   const [occasion, setOccasion] = useState(initial.occasion ?? 'CUSTOM');
   const [name, setName] = useState(initial.name ?? '');
   const [sendOn, setSendOn] = useState(initial.sendOn ?? today);
-  const [ownerId, setOwnerId] = useState(initial.ownerId ?? owners[0]?.id ?? '');
+  const [ownerId, setOwnerId] = useState(lockedOwnerId || initial.ownerId || owners[0]?.id || '');
   const [audience, setAudience] = useState<Audience>(initial.audience ?? { ...EMPTY_AUDIENCE });
   const [messages, setMessages] = useState<Record<Language, string>>(initial.messages ?? { EN: '', MS: '', ZH: '' });
   const [content, setContent] = useState<NewsletterContent>(initial.content ?? { ...EMPTY_NEWSLETTER });
@@ -262,6 +266,21 @@ export const CampaignEditor = ({
   // Rent & receipts count messages: one tenant can get two receipts.
   const unit = (n: number) => (smart ? (n === 1 ? 'message' : 'messages') : n === 1 ? 'person' : 'people');
   const sourceInfo = sourceOf(smart ? source : 'NONE');
+
+  // Who is reached follows the left sidebar: its workspace, or every workspace
+  // on "All". Re-applied after anything (e.g. a saved audience) changes it.
+  const lockedOwnerIds = lockedOwnerId ? [lockedOwnerId] : [];
+  const sameIds = (ids: string[]) => ids.length === lockedOwnerIds.length && ids.every((id, i) => id === lockedOwnerIds[i]);
+
+  useEffect(() => {
+    if (!sameIds(audience.ownerIds)) setAudience({ ...audience, ownerIds: lockedOwnerIds });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audience, lockedOwnerId]);
+
+  useEffect(() => {
+    if (!sameIds(sourceOptions.ownerIds)) setSourceOptions({ ...sourceOptions, ownerIds: lockedOwnerIds });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceOptions, lockedOwnerId]);
 
   const occasionInfo = occasionOf(occasion);
   const occasionDate = (value: string) => {
@@ -812,19 +831,6 @@ export const CampaignEditor = ({
                       ))}
                     </div>
                   )}
-                  {owners.length > 1 && (
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                      <span style={{ fontSize: 12, color: c.text3 }}>in</span>
-                      <button onClick={() => setSourceOptions({ ...sourceOptions, ownerIds: [] })} style={{ ...chip(sourceOptions.ownerIds.length === 0), height: 28 }}>
-                        All workspaces
-                      </button>
-                      {owners.map((o) => (
-                        <button key={o.id} onClick={() => setSourceOptions({ ...sourceOptions, ownerIds: toggle(sourceOptions.ownerIds, o.id) })} style={{ ...chip(sourceOptions.ownerIds.includes(o.id)), height: 28 }}>
-                          {o.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )}
               {!smart && saved.length > 0 && (
@@ -853,19 +859,6 @@ export const CampaignEditor = ({
                   </button>
                 ))}
               </div>
-              {owners.length > 1 && audience.tenants !== 'none' && (
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ fontSize: 12, color: c.text3 }}>in</span>
-                  <button onClick={() => setAudience({ ...audience, ownerIds: [] })} style={{ ...chip(audience.ownerIds.length === 0), height: 28 }}>
-                    All workspaces
-                  </button>
-                  {owners.map((o) => (
-                    <button key={o.id} onClick={() => setAudience({ ...audience, ownerIds: toggle(audience.ownerIds, o.id) })} style={{ ...chip(audience.ownerIds.includes(o.id)), height: 28 }}>
-                      {o.name}
-                    </button>
-                  ))}
-                </div>
-              )}
               {canUseTags && (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                   <span style={{ fontSize: 12, color: c.text3 }}>plus</span>
@@ -1036,9 +1029,10 @@ export const CampaignEditor = ({
                 <input type="date" value={sendOn} onChange={(e) => { const v = readValue(e); if (v) setSendOn(v); }} style={{ ...control, width: 'auto', height: 32 }} />
               </div>
               )}
-              <div style={{ display: 'grid', gridTemplateColumns: owners.length > 1 ? 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))' : '1fr', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: owners.length > 1 && !lockedOwnerId ? 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))' : '1fr', gap: 8 }}>
                 <input value={name} onChange={(e) => setName(readValue(e))} placeholder={kind === 'GREETING' ? `${occasionInfo.label} ${sendOn.slice(0, 4)}` : 'Campaign name'} style={control} />
-                {owners.length > 1 && (
+                {/* Only on "All workspaces": which workspace the new campaign is filed under. */}
+                {owners.length > 1 && !lockedOwnerId && (
                   <select value={ownerId} onChange={(e) => setOwnerId(readValue(e))} style={control} title="Workspace it belongs to">
                     {owners.map((o) => (
                       <option key={o.id} value={o.id}>

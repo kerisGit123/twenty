@@ -2,6 +2,7 @@ import { type CSSProperties, type SyntheticEvent, useCallback, useEffect, useSta
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { AppPath, enqueueSnackbar, navigate } from 'twenty-sdk/front-component';
 
+import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { readValue } from 'src/front-components/shared/read-value';
 import { ReceiptView, type ReceiptViewData } from 'src/front-components/shared/receipt-view';
 import { presetTemplate } from 'src/shared/doc-template/presets';
@@ -80,7 +81,9 @@ const LOOKS = ['template', 'accentColor', 'rentTitle', 'depositTitle', 'footerTe
 // or one workspace's own — its name, address, bank details, logo and receipt
 // prefix; looks left empty follow the default.
 export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
-  const [ownerId, setOwnerId] = useState('');
+  // Locked to the workspace picked in the left sidebar; "All workspaces" there
+  // means the default settings.
+  const { ownerId } = useOwnerScope();
   const [values, setValues] = useState<ReceiptSettingsRecord>({ template: 'CLASSIC', accentColor: 'TEAL' });
   const [info, setInfo] = useState<SettingsResponse>({ success: false });
   const [fallbacks, setFallbacks] = useState({ workspaceName: '', receivedBy: '' });
@@ -181,23 +184,19 @@ export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
         <button onClick={save} disabled={saving || loading || !canEdit} style={button(true)}>{saving ? 'Saving…' : 'Save'}</button>
       </div>
       <div style={{ padding: '10px 16px', borderBottom: `1px solid ${c.border}`, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: c.bg2 }}>
-        <span style={{ fontSize: 12, color: c.text2 }}>Settings for</span>
-        <select value={ownerId} onChange={(e) => setOwnerId(readValue(e))} style={{ ...control, width: 'auto', minWidth: 200 }}>
-          {(info.canEditDefault || !ownerId) && <option value="">Default — every workspace without its own</option>}
-          {(info.owners ?? []).map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name}
-              {o.hasOwn ? ' · own settings' : ' · uses the default'}
-            </option>
-          ))}
-        </select>
+        <span style={{ fontSize: 12, color: c.text2 }}>
+          Settings for{' '}
+          <b style={{ color: c.text }}>
+            {ownerId ? (info.owners?.find((o) => o.id === ownerId)?.name ?? info.ownerName ?? 'this workspace') : 'Default — every workspace without its own'}
+          </b>
+        </span>
         <button onClick={openImages} disabled={!canEdit} style={{ ...button(), height: 30 }} title="Upload the logo, DuitNow QR and signature">
           Logo, QR &amp; signature →
         </button>
         <span style={{ fontSize: 11.5, color: c.text3, flex: '1 1 260px' }}>
           {ownerId
             ? 'This workspace prints its own name, address, bank details, logo and receipt numbers. Looks left empty follow the default.'
-            : 'Used by every workspace that has no settings of its own.'}
+            : 'Used by every workspace that has no settings of its own. Pick a workspace in the left sidebar to set its own.'}
           {!canEdit && ' You can view these but not change them.'}
         </span>
       </div>

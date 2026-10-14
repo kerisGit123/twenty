@@ -6,7 +6,7 @@ import { MONTHS } from 'src/shared/months';
 import { readValue } from 'src/front-components/shared/read-value';
 import { FileDrop, type PickedFile, uploadFile } from 'src/front-components/shared/file-drop';
 import { FileViewer, type ViewerFile } from 'src/front-components/shared/file-viewer';
-import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
+import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { DOC_TYPES, docType, formatBytes, guessDocType, isImage, type LibraryDoc } from 'src/shared/documents';
@@ -265,7 +265,6 @@ export const Documents = () => {
             <div style={{ fontSize: 20, fontWeight: 650 }}>Documents</div>
             <div style={{ fontSize: 13, color: c.text3 }}>Agreements, titles, insurance, IC copies, bills — filed, findable and viewable.</div>
           </div>
-          <OwnerSwitcher scope={scope} />
         </div>
 
         {/* Drop a pile of files */}

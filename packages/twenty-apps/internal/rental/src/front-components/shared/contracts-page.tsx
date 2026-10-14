@@ -6,7 +6,7 @@ import { MONTHS } from 'src/shared/months';
 import { readValue } from 'src/front-components/shared/read-value';
 import { ContractDocumentsPanel } from 'src/front-components/shared/contract-documents';
 import { filesFromEvent, type PickedFile } from 'src/front-components/shared/file-drop';
-import { OwnerSwitcher, useOwnerScope } from 'src/front-components/shared/owner-switcher';
+import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import {
@@ -297,10 +297,6 @@ export const Contracts = () => {
           <button onClick={() => setCreating(true)} style={{ ...button(true), height: 36 }}>
             ＋ New tenancy
           </button>
-        </div>
-
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <OwnerSwitcher scope={scope} />
         </div>
 
         {/* Two per row on a phone, four on a wide screen */}
