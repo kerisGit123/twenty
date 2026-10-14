@@ -16,10 +16,30 @@ import {
   sendTest,
 } from 'src/logic-functions/utils/notifications';
 import { resolveScope } from 'src/logic-functions/utils/scope';
-import { whatsappConfig } from 'src/logic-functions/utils/whatsapp';
+import { createTemplates, templateStatuses } from 'src/logic-functions/utils/twilio-templates';
+import { publicFileUrl, whatsappConfig } from 'src/logic-functions/utils/whatsapp';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+
+// A public link to the latest issued receipt PDF: WhatsApp reviews the receipt
+// template with a real sample file.
+const sampleReceiptUrl = async (client: ReturnType<typeof appClient>): Promise<string | null> => {
+  const { rentPayments } = await client.query({
+    rentPayments: {
+      __args: { filter: { receiptNumber: { is: 'NOT_NULL' } }, first: 5, orderBy: [{ updatedAt: 'DescNullsLast' }] },
+      edges: { node: { receiptFile: { url: true } } },
+    },
+  });
+
+  for (const { node } of rentPayments?.edges ?? []) {
+    const url = (node.receiptFile as unknown as Array<{ url?: string | null }> | null)?.[0]?.url;
+
+    if (url) return publicFileUrl(url);
+  }
+
+  return null;
+};
 
 const EDITABLE: Array<keyof NotificationSettings> = [
   'summaryEnabled',
@@ -41,6 +61,8 @@ const EDITABLE: Array<keyof NotificationSettings> = [
 //   runNow                 -> sends what's due now without waiting for the hour
 //   pending                -> today's reminders to send yourself (one tap each)
 //   markSent / skip { reminder } -> you sent it (or won't), so it isn't suggested again
+//   templates              -> the app's WhatsApp templates in Twilio and their approval status
+//   createTemplates        -> creates the missing templates and submits them to WhatsApp
 const handler = async (event: RoutePayload, context?: { workspaceMemberId?: string | null }): Promise<Response> => {
   const body = (event.body ?? {}) as {
     action?: string;
@@ -139,6 +161,19 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       );
 
       return json({ success: true });
+    }
+
+    if (body.action === 'templates') {
+      if (!whatsappConfig()) return json({ success: false, message: 'Add your Twilio details in Settings → Apps → Rental first.' }, 400);
+
+      return json({ success: true, templates: await templateStatuses() });
+    }
+
+    if (body.action === 'createTemplates') {
+      if (!whatsappConfig()) return json({ success: false, message: 'Add your Twilio details in Settings → Apps → Rental first.' }, 400);
+      const notes = await createTemplates(await sampleReceiptUrl(client));
+
+      return json({ success: true, message: notes.join(' ') || 'All templates already exist.', templates: await templateStatuses() });
     }
 
     if (body.action === 'runNow') {

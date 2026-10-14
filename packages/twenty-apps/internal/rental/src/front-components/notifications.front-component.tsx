@@ -5,6 +5,7 @@ import { enqueueSnackbar } from 'twenty-sdk/front-component';
 
 import { NOTIFICATIONS_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
 import { ReminderList } from 'src/front-components/shared/reminder-list';
+import { WhatsappTemplates } from 'src/front-components/shared/whatsapp-templates';
 import type { NotificationSettings } from 'src/logic-functions/utils/notifications';
 
 // Notifications: your WhatsApp assistant. A morning summary for you, rent
@@ -307,6 +308,7 @@ const Notifications = () => {
               <>
                 WhatsApp is connected, so the morning summary and reminders are sent for you at their hour (reminders at{' '}
                 {select(values.reminderHour, HOURS, (reminderHour) => set({ reminderHour }), hourLabel)}).
+                <WhatsappTemplates />
               </>
             ) : (
               <>
