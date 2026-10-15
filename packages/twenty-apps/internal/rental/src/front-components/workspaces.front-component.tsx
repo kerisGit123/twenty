@@ -341,7 +341,7 @@ const Workspaces = () => {
                 Properties
                 <br />
                 <b style={{ color: c.text, fontSize: 14 }}>{card.properties}</b>
-                <span> · {card.occupied} let</span>
+                <span> · {card.occupied} rented</span>
               </span>
               <span>
                 Rent
@@ -419,7 +419,7 @@ const Workspaces = () => {
                 <td style={{ ...cell, color: c.text2 }}>{card.hosts.join(', ') || '—'}</td>
                 <td style={num}>{card.members}</td>
                 <td style={num}>
-                  {card.properties} <span style={{ color: c.text3 }}>· {card.occupied} let</span>
+                  {card.properties} <span style={{ color: c.text3 }}>· {card.occupied} rented</span>
                 </td>
                 <td style={num}>{rm(card.rent)}</td>
                 <td style={num}>{rm(card.expenses)}</td>

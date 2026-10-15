@@ -109,6 +109,8 @@ const bookPurchaseExpense = async (
             expenseDate: info.date,
             amount: { amountMicros: Math.round(amount * 1_000_000), currencyCode: 'MYR' },
             category: 'STOCK_PURCHASE' as never,
+            // The delivery's own invoice / DO is the paperwork: do not nag for a bill.
+            noBillNeeded: true,
             method: 'OTHER' as never,
             paidTo: info.supplier,
             notes: [`stock:${batchId}`, ...list.map((l) => `${l.item.code} ${l.item.name}: ${cartonsAndUnits(l.units, l.item)}`)].join('\n'),

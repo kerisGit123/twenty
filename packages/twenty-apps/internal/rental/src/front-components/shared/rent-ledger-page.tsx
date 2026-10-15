@@ -436,7 +436,7 @@ export const RentLedger = () => {
           />
         </Sheet>
       )}
-      <div style={{ display: 'flex', flexDirection: 'column', padding: 'clamp(4px, 2vw, 16px)', gap: 14, maxWidth: 980 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', padding: 'clamp(4px, 2vw, 16px)', gap: 14, maxWidth: 1240 }}>
         {/* Title */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 200px', minWidth: 0 }}>
@@ -498,7 +498,7 @@ export const RentLedger = () => {
           >
             <span style={{ fontSize: 13, color: c.text3 }}>Still to collect</span>
             <span style={{ fontSize: 24, fontWeight: 700, color: totals.outstanding ? 'var(--t-color-amber11)' : c.text }}>{rm(totals.outstanding)}</span>
-            <span style={{ fontSize: 12, color: c.text3 }}>{unpaidCount} contract{unpaidCount === 1 ? '' : 's'} with unpaid months</span>
+            <span style={{ fontSize: 12, color: c.text3 }}>{unpaidCount} contract{unpaidCount === 1 ? '' : 's'} with unpaid months{totals.outstanding > 0 && totals.overdue >= totals.outstanding ? ' · all of it overdue' : ''}</span>
           </button>
           <button
             onClick={() => setStatus(status === 'overdue' ? '' : 'overdue')}
