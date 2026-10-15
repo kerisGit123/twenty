@@ -66,7 +66,7 @@ const tableTab = (tabId: string, widgetId: string, title: string, icon: string, 
 // workspace in one place — overview, properties, money, documents and members.
 export default definePageLayout({
   universalIdentifier: OWNER_PAGE_LAYOUT_ID,
-  name: 'Workspace Record Page',
+  name: 'Business Record Page',
   type: 'RECORD_PAGE',
   objectUniversalIdentifier: OWNER_OBJECT_ID,
   defaultTabToFocusOnMobileAndSidePanelUniversalIdentifier: OWNER_TAB_OVERVIEW_ID,

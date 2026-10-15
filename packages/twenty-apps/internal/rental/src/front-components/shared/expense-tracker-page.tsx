@@ -275,7 +275,7 @@ export const ExpenseTracker = () => {
           ? expenseCategory(e.category).group
           : groupBy === 'property'
             ? e.propertyName || 'Not for a property'
-            : e.ownerName || 'No workspace';
+            : e.ownerName || 'No business';
     const map = new Map<string, Expense[]>();
 
     for (const e of visible) map.set(keyOf(e), [...(map.get(keyOf(e)) ?? []), e]);
@@ -586,7 +586,7 @@ export const ExpenseTracker = () => {
             <option value="month">By month</option>
             <option value="category">By category</option>
             <option value="property">By property</option>
-            <option value="owner">By workspace</option>
+            <option value="owner">By business</option>
           </select>
           {anyFilter && (
             <button
@@ -1183,7 +1183,7 @@ const AddExpenseSheet = ({
                   </span>
                   <span style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                     <span style={{ fontSize: 14, fontWeight: 600 }}>{fixedOwner.name}</span>
-                    <span style={{ fontSize: 12, color: c.text3 }}>The workspace you’re in — switch it in the sidebar</span>
+                    <span style={{ fontSize: 12, color: c.text3 }}>The business you’re in — switch it in the sidebar</span>
                   </span>
                 </div>
               ) : (

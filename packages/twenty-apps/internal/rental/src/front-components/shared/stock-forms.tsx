@@ -180,7 +180,7 @@ export const ItemSheet = ({ item, owners, defaultOwnerId, today, onClose, onDone
         <Field label="Supplier">
           <input value={form.supplier} onChange={set('supplier')} placeholder="WeDrink" style={input} />
         </Field>
-        <Field label="Re-order below (months)" hint="Empty = the workspace rule">
+        <Field label="Re-order below (months)" hint="Empty = the business rule">
           <input value={form.reorderBelowMonths} onChange={set('reorderBelowMonths')} inputMode="decimal" placeholder="1.5" style={input} />
         </Field>
       </div>

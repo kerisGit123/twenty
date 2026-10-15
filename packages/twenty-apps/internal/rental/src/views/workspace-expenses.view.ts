@@ -17,7 +17,7 @@ import {
 // Table shown in the Expenses tab of a workspace.
 export default defineView({
   universalIdentifier: WORKSPACE_EXPENSES_VIEW_ID,
-  name: 'Workspace expenses',
+  name: 'Business expenses',
   objectUniversalIdentifier: EXPENSE_OBJECT_ID,
   type: ViewType.TABLE_WIDGET,
   fields: [

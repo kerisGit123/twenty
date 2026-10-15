@@ -65,7 +65,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     const client = appClient();
     const scope = await resolveScope(client, context?.workspaceMemberId);
 
-    if (ownerId && !inScope(scope, ownerId)) return plain("You don't have access to this workspace.", 403);
+    if (ownerId && !inScope(scope, ownerId)) return plain("You don't have access to this business.", 403);
 
     const data = await loadStockData(client, scope);
     const items = data.items.filter((item) => !ownerId || item.ownerId === ownerId);
@@ -76,7 +76,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
     if (kind !== 'xlsx' && kind.startsWith('xlsx')) {
       const owner = data.owners.find((o) => o.id === ownerId);
-      const company = owner?.name ?? (scope.all ? 'All workspaces' : 'My workspaces');
+      const company = owner?.name ?? (scope.all ? 'All businesses' : 'My businesses');
       const ruleOf = (id: string | null) => data.owners.find((o) => o.id === id)?.rule ?? DEFAULT_RULE;
       const movements = data.movements.filter((m) => !ownerId || m.ownerId === ownerId);
       // What is ordered and not yet arrived lowers what still needs ordering.
@@ -155,7 +155,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     if (kind === 'xlsx') {
       const owner = data.owners.find((o) => o.id === ownerId);
       const bytes = stockMonthWorkbook(items, byItem, month, (id) => data.owners.find((o) => o.id === id)?.rule ?? DEFAULT_RULE, {
-        company: owner?.name ?? (scope.all ? 'All workspaces' : 'My workspaces'),
+        company: owner?.name ?? (scope.all ? 'All businesses' : 'My businesses'),
         generatedOn: today,
       });
 

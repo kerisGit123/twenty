@@ -45,7 +45,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
     if (!inScope(scope, ownerId)) {
       return json(
-        scope.all ? NOT_ALLOWED : { ...NOT_ALLOWED, message: 'Pick one of your workspaces (or a property in one).' },
+        scope.all ? NOT_ALLOWED : { ...NOT_ALLOWED, message: 'Pick one of your businesses (or a property in one).' },
         403,
       );
     }
@@ -83,7 +83,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 export default defineLogicFunction({
   universalIdentifier: INCOME_CREATE_ROUTE_FUNCTION_ID,
   name: 'income-create-route',
-  description: "Records income (not a rent receipt) in one of the caller's workspaces.",
+  description: "Records income (not a rent receipt) in one of the caller's businesses.",
   timeoutSeconds: 30,
   handler,
   httpRouteTriggerSettings: { path: '/income/create', httpMethod: 'POST', isAuthRequired: true },

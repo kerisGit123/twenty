@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { Children, createElement, isValidElement, type CSSProperties, type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { enqueueSnackbar, openSidePanelPage, SidePanelPages } from 'twenty-sdk/front-component';
 
@@ -6,6 +6,7 @@ import { type DateRange, DateRangePicker, presetRange } from 'src/front-componen
 import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { readValue } from 'src/front-components/shared/read-value';
 import { Sheet } from 'src/front-components/shared/sheet';
+import { useNarrow } from 'src/front-components/shared/use-narrow';
 import type { Expense, Option } from 'src/logic-functions/page-data/expenses-data';
 import type { MoneyIn, TransactionsData } from 'src/logic-functions/page-data/transactions-data';
 import { todayIso } from 'src/logic-functions/utils/dates';
@@ -97,24 +98,60 @@ const sortRows = <T,>(rows: T[], sort: Sort, date: (row: T) => string, amount: (
     return sort.desc ? -diff : diff;
   });
 
-const Table = ({ head, children, empty }: { head: ReactNode; children: ReactNode[]; empty: string }) => (
-  <div style={{ overflowX: 'auto', border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg }}>
-    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
-      <thead>{head}</thead>
-      <tbody>
+const Table = ({ head, children, empty }: { head: ReactNode; children: ReactNode[]; empty: string }) => {
+  const narrow = useNarrow(820);
+
+  // On a phone each table row becomes a small card whose cells wrap, so nothing scrolls sideways.
+  if (narrow) {
+    type Part = ReactElement<{ style?: CSSProperties; children?: ReactNode }>;
+
+    return (
+      <div style={{ border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg }}>
         {children.length ? (
-          children
+          children.map((row, index) => {
+            if (!isValidElement(row)) return row;
+            const rowProps = (row as Part).props;
+
+            return createElement(
+              'div',
+              {
+                key: row.key ?? index,
+                style: { ...(rowProps.style ?? {}), display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '2px 12px', padding: '10px 12px', borderBottom: `1px solid ${c.border}` },
+              },
+              Children.map(rowProps.children, (cell) =>
+                isValidElement(cell)
+                  ? createElement('span', { style: { ...((cell as Part).props.style ?? {}), display: 'inline-block', padding: 0, border: 'none', textAlign: 'left' } }, (cell as Part).props.children)
+                  : cell,
+              ),
+            );
+          })
         ) : (
-          <tr>
-            <td colSpan={9} style={{ ...td, textAlign: 'center', color: c.text3, padding: 32 }}>
-              {empty}
-            </td>
-          </tr>
+          <div style={{ textAlign: 'center', color: c.text3, padding: 28 }}>{empty}</div>
         )}
-      </tbody>
-    </table>
-  </div>
-);
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ overflowX: 'auto', border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
+        <thead>{head}</thead>
+        <tbody>
+          {children.length ? (
+            children
+          ) : (
+            <tr>
+              <td colSpan={9} style={{ ...td, textAlign: 'center', color: c.text3, padding: 32 }}>
+                {empty}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 
 const receiptUrl = (id: string) => new RestApiClient().resolveUrl('/s/receipts/share', { query: { payment: id } });
 const openPayment = (id: string) => openSidePanelPage({ page: SidePanelPages.ViewRecord, recordId: id, objectNameSingular: 'rentPayment' });

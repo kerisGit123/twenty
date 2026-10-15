@@ -19,7 +19,7 @@ export default defineObject({
   namePlural: 'memberships',
   labelSingular: 'Membership',
   labelPlural: 'Memberships',
-  description: 'Links team members to rental workspaces',
+  description: 'Links team members to rental businesses',
   icon: 'IconUsersGroup',
   labelIdentifierFieldMetadataUniversalIdentifier: MEMBERSHIP_NAME_FIELD_ID,
   fields: [
@@ -43,8 +43,8 @@ export default defineObject({
       universalIdentifier: MEMBERSHIP_ALL_WORKSPACES_FIELD_ID,
       type: FieldType.BOOLEAN,
       name: 'allWorkspaces',
-      label: 'All workspaces',
-      description: 'This person sees every rental workspace (admins).',
+      label: 'All businesses',
+      description: 'This person sees every rental business (admins).',
       icon: 'IconWorld',
       defaultValue: false,
     },
@@ -53,7 +53,7 @@ export default defineObject({
       type: FieldType.SELECT,
       name: 'memberRole',
       label: 'Role',
-      description: 'Hosts can rename the workspace and add or remove its members.',
+      description: 'Hosts can rename the business and add or remove its members.',
       icon: 'IconCrown',
       defaultValue: "'MEMBER'",
       options: [

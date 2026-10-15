@@ -14,7 +14,7 @@ import { WORKSPACE_PROPERTIES_VIEW_ID } from 'src/constants/universal-identifier
 // Table shown in the Properties tab of a workspace.
 export default defineView({
   universalIdentifier: WORKSPACE_PROPERTIES_VIEW_ID,
-  name: 'Workspace properties',
+  name: 'Business properties',
   objectUniversalIdentifier: PROPERTY_OBJECT_ID,
   type: ViewType.TABLE_WIDGET,
   fields: [

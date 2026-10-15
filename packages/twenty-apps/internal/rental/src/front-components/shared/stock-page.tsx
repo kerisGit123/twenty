@@ -251,14 +251,14 @@ export const StockPage = () => {
   const rule = owner?.rule ?? DEFAULT_RULE;
   const ruleText = owner
     ? `Rule for ${owner.name}: re-order when stock lasts under ${rule.reorderBelow} months; order enough for ${rule.orderUpTo} months${rule.leadDays ? `; delivery takes ${rule.leadDays} days` : ''}.`
-    : 'Each workspace uses its own re-order rule (default: under 2 months, order enough for 2.5). Pick a workspace to change it.';
+    : 'Each business uses its own re-order rule (default: under 2 months, order enough for 2.5). Pick a business to change it.';
 
   if (needsWorkspace) {
     return (
       <div style={{ fontFamily: c.font, color: c.text, background: c.bg, height: '100%', overflowY: 'auto', boxSizing: 'border-box', padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
         <span style={{ fontSize: 18, fontWeight: 600 }}>Stock</span>
         <span style={{ fontSize: 14, color: c.text2 }}>
-          Stock belongs to one workspace. Pick which one: here, or any time with the workspace picker at the top of the left sidebar.
+          Stock belongs to one business. Pick which one: here, or any time with the business picker at the top of the left sidebar.
         </span>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
           {scope.owners.map((o) => (
@@ -372,9 +372,21 @@ export const StockPage = () => {
         </div>
 
         {error ? <span style={{ color: 'var(--t-color-red11)', fontSize: 13 }}>{error}</span> : null}
-        {!data && !error ? <span style={{ color: c.text3, fontSize: 13 }}>Loading…</span> : null}
+        {!data && !error ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }} aria-busy="true">
+            <span style={{ color: c.text3, fontSize: 13 }}>Loading your stock… the first load can take a few seconds.</span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+              {[0, 1, 2, 3].map((n) => (
+                <div key={n} style={{ height: 64, borderRadius: 12, background: c.bg2, border: `1px solid ${c.border}` }} />
+              ))}
+            </div>
+            {[0, 1, 2, 3, 4, 5].map((n) => (
+              <div key={n} style={{ height: 44, borderRadius: 8, background: c.bg2, opacity: 1 - n * 0.12 }} />
+            ))}
+          </div>
+        ) : null}
         {data && !items.length ? (
-          <span style={{ color: c.text3, fontSize: 13 }}>No stock items in this workspace yet. Use “⬆ Import Excel” to bring in your monthly stock sheet, or “+ Add item”.</span>
+          <span style={{ color: c.text3, fontSize: 13 }}>No stock items in this business yet. Use “⬆ Import Excel” to bring in your monthly stock sheet, or “+ Add item”.</span>
         ) : null}
         {data && items.length ? (
           <>

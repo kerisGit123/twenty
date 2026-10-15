@@ -87,7 +87,7 @@ const WorkspaceMembers = () => {
       if (!result.success) throw new Error(result.message ?? 'Could not invite.');
 
       if (result.joined) {
-        await enqueueSnackbar({ message: `${result.name ?? email} added to this workspace.`, variant: 'success' });
+        await enqueueSnackbar({ message: `${result.name ?? email} added to this business.`, variant: 'success' });
       } else {
         // Not on the team yet: send Twenty's invitation (needs invite
         // permission); the kept membership is linked when they join.
@@ -104,8 +104,8 @@ const WorkspaceMembers = () => {
         }
         await enqueueSnackbar({
           message: sent
-            ? `Invitation sent to ${email}. They'll get this workspace when they join.`
-            : `Saved ${email} for this workspace. An admin needs to invite them to the CRM (Settings → Members); they'll get this workspace when they join.`,
+            ? `Invitation sent to ${email}. They'll get this business when they join.`
+            : `Saved ${email} for this business. An admin needs to invite them to the CRM (Settings → Members); they'll get this business when they join.`,
           variant: sent ? 'success' : 'warning',
         });
       }
@@ -204,7 +204,7 @@ const WorkspaceMembers = () => {
   return (
     <div style={{ fontFamily: c.font, color: c.text, padding: 4, display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ fontSize: 13, color: c.text2, lineHeight: 1.5 }}>
-        People in this workspace see its properties, rent and expenses — nothing from other workspaces.
+        People in this business see its properties, rent and expenses — nothing from other businesses.
         {manage
           ? ' As a host you can add or remove people and choose who else hosts.'
           : ' Only the hosts can add or remove people.'}
@@ -250,7 +250,7 @@ const WorkspaceMembers = () => {
               whiteSpace: 'nowrap',
             }}
           >
-            {busy === 'invite' ? 'Inviting…' : 'Invite to this workspace'}
+            {busy === 'invite' ? 'Inviting…' : 'Invite to this business'}
           </button>
         </div>
       )}
@@ -294,7 +294,7 @@ const WorkspaceMembers = () => {
 
       {admins.length > 0 && (
         <div style={section}>
-          <div style={sectionTitle}>Admins — see every workspace · {admins.length}</div>
+          <div style={sectionTitle}>Admins — see every business · {admins.length}</div>
           {admins.map((admin) => (
             <div key={admin.membershipId} style={{ ...rowStyle, opacity: busy === admin.membershipId ? 0.5 : 1 }}>
               {person(admin.name, admin.email, tag('Admin', 'blue'))}
@@ -359,7 +359,7 @@ const WorkspaceMembers = () => {
 
       {manage && (
         <div style={{ fontSize: 12, color: c.text3, lineHeight: 1.5 }}>
-          Removing someone here takes this workspace away from them. A workspace always keeps at least one host.
+          Removing someone here takes this business away from them. A business always keeps at least one host.
         </div>
       )}
     </div>
@@ -369,6 +369,6 @@ const WorkspaceMembers = () => {
 export default defineFrontComponent({
   universalIdentifier: WORKSPACE_MEMBERS_FRONT_COMPONENT_ID,
   name: 'workspace-members',
-  description: "A rental workspace's members; its hosts add and remove people",
+  description: "A rental business's members; its hosts add and remove people",
   component: WorkspaceMembers,
 });

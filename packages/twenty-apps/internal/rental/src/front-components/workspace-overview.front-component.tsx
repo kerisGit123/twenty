@@ -179,6 +179,6 @@ const WorkspaceOverview = () => {
 export default defineFrontComponent({
   universalIdentifier: WORKSPACE_OVERVIEW_FRONT_COMPONENT_ID,
   name: 'workspace-overview',
-  description: "A workspace's year at a glance, with shortcuts into the rental pages",
+  description: "A business's year at a glance, with shortcuts into the rental pages",
   component: WorkspaceOverview,
 });

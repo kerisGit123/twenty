@@ -99,7 +99,7 @@ export const ImportSheet = ({ owners, defaultOwnerId, onClose, onDone }: { owner
       <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: c.font, color: c.text, overflowY: 'auto', height: '100%', boxSizing: 'border-box' }}>
         <span style={{ fontSize: 16, fontWeight: 600 }}>Import from Excel</span>
         <span style={{ fontSize: 13, color: c.text2 }}>
-          Start a workspace&apos;s stock from your monthly 订货单 sheet: products, prices, item/ctn, expiry and the stock in hand. After this, only key in purchases, take-outs and
+          Start a business&apos;s stock from your monthly 订货单 sheet: products, prices, item/ctn, expiry and the stock in hand. After this, only key in purchases, take-outs and
           wastage. Nothing is saved until you press Import.
         </span>
 

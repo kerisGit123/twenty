@@ -230,8 +230,8 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     if (!body.action || body.action === 'list') return await list(client, scope);
 
     if (body.action === 'create') {
-      if (!scope.all && !scope.memberId) return refuse('Sign in to add a workspace.');
-      if (!body.name?.trim()) return json({ success: false, message: 'Give the workspace a name.' }, 400);
+      if (!scope.all && !scope.memberId) return refuse('Sign in to add a business.');
+      if (!body.name?.trim()) return json({ success: false, message: 'Give the business a name.' }, 400);
 
       const { createOwner } = await client.mutation({
         createOwner: {
@@ -262,7 +262,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     }
 
     if (body.action === 'setAdmin') {
-      if (!scope.all) return refuse('Only admins can change who sees every workspace.');
+      if (!scope.all) return refuse('Only admins can change who sees every business.');
       if (!body.memberId) return json({ success: false, message: 'Pick a person.' }, 400);
       if (!body.on && body.memberId === scope.memberId) return refuse("You can't remove your own admin access.");
 
@@ -275,7 +275,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
         await client.mutation({
           createMembership: {
-            __args: { data: { memberId: body.memberId, allWorkspaces: true, name: `${name} (all workspaces)` } },
+            __args: { data: { memberId: body.memberId, allWorkspaces: true, name: `${name} (all businesses)` } },
             id: true,
           },
         });
@@ -289,9 +289,9 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     // Everything below is about one workspace.
     const ownerId = body.id;
 
-    if (!ownerId || !inScope(scope, ownerId)) return refuse("You don't have access to this workspace.");
+    if (!ownerId || !inScope(scope, ownerId)) return refuse("You don't have access to this business.");
     if (body.action === 'members') return await members(client, scope, ownerId);
-    if (!canManage(scope, ownerId)) return refuse('Only the workspace host can change this.');
+    if (!canManage(scope, ownerId)) return refuse('Only the business host can change this.');
 
     if (body.action === 'update') {
       const { owners } = await client.query({
@@ -341,13 +341,13 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
     const target = rows.find((row) => row.id === body.membershipId);
 
-    if (!target) return json({ success: false, message: 'That person is not in this workspace.' }, 400);
+    if (!target) return json({ success: false, message: 'That person is not in this business.' }, 400);
 
     const otherHosts = rows.filter((row) => row.role === 'HOST' && row.memberId && row.id !== target.id).length;
 
     if (body.action === 'remove') {
       if (target.role === 'HOST' && otherHosts === 0) {
-        return json({ success: false, message: 'A workspace needs a host. Make someone else host first.' }, 400);
+        return json({ success: false, message: 'A business needs a host. Make someone else host first.' }, 400);
       }
       await client.mutation({ deleteMembership: { __args: { id: target.id }, id: true } });
 
@@ -359,7 +359,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
       if (!target.memberId) return json({ success: false, message: 'They have to join first.' }, 400);
       if (role === 'MEMBER' && target.role === 'HOST' && otherHosts === 0) {
-        return json({ success: false, message: 'A workspace needs a host. Make someone else host first.' }, 400);
+        return json({ success: false, message: 'A business needs a host. Make someone else host first.' }, 400);
       }
       await client.mutation({ updateMembership: { __args: { id: target.id, data: { memberRole: role } as never }, id: true } });
 
@@ -368,7 +368,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
     return json({ success: false, message: `Unknown action: ${body.action}` }, 400);
   } catch (error) {
-    console.error('[rental] workspaces failed:', error);
+    console.error('[rental] businesses failed:', error);
 
     return json({ success: false, message: error instanceof Error ? error.message : String(error) }, 500);
   }
@@ -377,7 +377,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 export default defineLogicFunction({
   universalIdentifier: WORKSPACES_ROUTE_FUNCTION_ID,
   name: 'workspaces-route',
-  description: "Lists the caller's rental workspaces, adds them, and lets hosts rename them and manage members.",
+  description: "Lists the caller's rental businesses, adds them, and lets hosts rename them and manage members.",
   timeoutSeconds: 60,
   handler,
   httpRouteTriggerSettings: { path: '/workspaces', httpMethod: 'POST', isAuthRequired: true },

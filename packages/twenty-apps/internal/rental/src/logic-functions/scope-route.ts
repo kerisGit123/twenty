@@ -61,7 +61,7 @@ const handler = async (_event: RoutePayload, context?: { workspaceMemberId?: str
 export default defineLogicFunction({
   universalIdentifier: SCOPE_ROUTE_FUNCTION_ID,
   name: 'scope-route',
-  description: 'Lists the rental workspaces the caller may see.',
+  description: 'Lists the rental businesses the caller may see.',
   timeoutSeconds: 30,
   handler,
   httpRouteTriggerSettings: { path: '/scope', httpMethod: 'POST', isAuthRequired: true },

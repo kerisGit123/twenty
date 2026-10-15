@@ -270,7 +270,7 @@ const workspaceName = async () => {
 
     return result.currentWorkspace?.displayName ?? '';
   } catch (error) {
-    console.warn('[rental] could not read workspace name:', error);
+    console.warn('[rental] could not read business name:', error);
 
     return '';
   }

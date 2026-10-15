@@ -162,7 +162,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
         if (!name) return json({ success: false, message: 'Pick a property or name the new one.' }, 400);
         ownerId = body.newProperty?.ownerId ?? null;
-        if (!ownerId || !canManage(scope, ownerId)) return json({ success: false, message: 'Pick a workspace you manage for the new property.' }, 403);
+        if (!ownerId || !canManage(scope, ownerId)) return json({ success: false, message: 'Pick a business you manage for the new property.' }, 403);
         const { createProperty } = await client.mutation({
           createProperty: {
             __args: { data: { name, ownerId, monthlyRent: money(rent), depositAmount: money(depositValue), ...(body.newProperty?.address ? { notes: body.newProperty.address.slice(0, 500) } : {}) } as never },
@@ -261,7 +261,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
     const contract = data.contracts.find((c) => c.id === body.rentalId);
 
-    if (!contract) return json({ success: false, message: 'Contract not found in your workspaces.' }, 404);
+    if (!contract) return json({ success: false, message: 'Contract not found in your businesses.' }, 404);
 
     if (body.action === 'renew') {
       if (contract.renewedById) return json({ success: false, message: 'This contract has already been renewed.' }, 409);

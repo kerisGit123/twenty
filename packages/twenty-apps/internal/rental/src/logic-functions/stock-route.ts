@@ -303,7 +303,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const ownerId = text(body.ownerId, 64);
 
     if (!ownerId || !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
-    if (!canManage(scope, ownerId)) return fail("Only an admin or this workspace's host can import products. Ask them to do it.", 403);
+    if (!canManage(scope, ownerId)) return fail("Only an admin or this business's host can import products. Ask them to do it.", 403);
     const base64 = typeof body.fileBase64 === 'string' ? body.fileBase64 : '';
 
     if (!base64) return fail('Choose the Excel file first.');
@@ -534,7 +534,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
       if (!item) return fail('One of the items no longer exists.', 404);
       if (!inScope(scope, item.ownerId)) return json({ ...NOT_ALLOWED }, 403);
-      if (ownerId && item.ownerId !== ownerId) return fail('A request is for one workspace: remove the items that belong to another.');
+      if (ownerId && item.ownerId !== ownerId) return fail('A request is for one business: remove the items that belong to another.');
       ownerId = item.ownerId;
     }
     const lines = [...merged].map(([itemId, requestedUnits]) => ({ itemId, requestedUnits }));
@@ -662,7 +662,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
     if (!request) return fail('Request not found.', 404);
     if (!inScope(scope, request.ownerId)) return json({ ...NOT_ALLOWED }, 403);
-    if (!canManage(scope, request.ownerId)) return fail("Only an admin or this workspace's host can settle a short delivery.", 403);
+    if (!canManage(scope, request.ownerId)) return fail("Only an admin or this business's host can settle a short delivery.", 403);
     if (request.status !== 'SHORT') return fail('Nothing short to settle on this request.');
     const how = body.how === 'WRITE_OFF' ? 'WRITE_OFF' : 'RETURN';
     const date = isDate(body.date) ? body.date : todayIso();
@@ -733,7 +733,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const ownerId = existing?.ownerId ?? (text(body.ownerId, 64) || null);
 
     if (!ownerId || !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
-    if (!canManage(scope, ownerId)) return fail("Only an admin or this workspace's host can add or change items and prices. Ask them, or record the stock IN/OUT instead.", 403);
+    if (!canManage(scope, ownerId)) return fail("Only an admin or this business's host can add or change items and prices. Ask them, or record the stock IN/OUT instead.", 403);
 
     const data = {
       name,
@@ -782,7 +782,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
     if (!item) return fail('Item not found.', 404);
     if (!inScope(scope, item.ownerId)) return json({ ...NOT_ALLOWED }, 403);
-    if (!canManage(scope, item.ownerId)) return fail("Only an admin or this workspace's host can discontinue or reactivate items. Ask them, or record the stock IN/OUT instead.", 403);
+    if (!canManage(scope, item.ownerId)) return fail("Only an admin or this business's host can discontinue or reactivate items. Ask them, or record the stock IN/OUT instead.", 403);
     const status = body.status === 'DISCONTINUED' ? 'DISCONTINUED' : 'ACTIVE';
 
     if (status === 'DISCONTINUED') {
@@ -998,7 +998,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
     if (!movement) return fail('Movement not found.', 404);
     if (!inScope(scope, movement.ownerId)) return json({ ...NOT_ALLOWED }, 403);
-    if (!canManage(scope, movement.ownerId)) return fail("Only an admin or this workspace's host can remove recorded lines. Ask them, or record the stock IN/OUT instead.", 403);
+    if (!canManage(scope, movement.ownerId)) return fail("Only an admin or this business's host can remove recorded lines. Ask them, or record the stock IN/OUT instead.", 403);
     const removeLocked = lockedMessage(await loadLocks(client, [movement.ownerId ?? null]), movement.ownerId ?? null, movement.movementDate ?? '');
 
     if (removeLocked) return fail(removeLocked);
@@ -1227,9 +1227,9 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const ownerId = text(body.ownerId, 64);
     const month = text(body.month, 7);
 
-    if (!ownerId) return fail('Pick a workspace first: each workspace closes its own months.');
+    if (!ownerId) return fail('Pick a business first: each business closes its own months.');
     if (!inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
-    if (!canManage(scope, ownerId)) return fail("Only an admin or this workspace's host can close months. Ask them, or record the stock IN/OUT instead.", 403);
+    if (!canManage(scope, ownerId)) return fail("Only an admin or this business's host can close months. Ask them, or record the stock IN/OUT instead.", 403);
     if (!/^\d{4}-\d{2}$/.test(month)) return fail('Pick a month.');
     const end = monthEnd(month);
 
@@ -1246,9 +1246,9 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
   reopenMonth: async (client, scope, body) => {
     const ownerId = text(body.ownerId, 64);
 
-    if (!ownerId) return fail('Pick a workspace first.');
+    if (!ownerId) return fail('Pick a business first.');
     if (!inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
-    if (!canManage(scope, ownerId)) return fail("Only an admin or this workspace's host can reopen months. Ask them, or record the stock IN/OUT instead.", 403);
+    if (!canManage(scope, ownerId)) return fail("Only an admin or this business's host can reopen months. Ask them, or record the stock IN/OUT instead.", 403);
     const through = (await loadLocks(client, [ownerId])).get(ownerId);
 
     if (!through) return json({ success: true, message: 'No month is closed.' });
@@ -1267,7 +1267,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const leadDays = body.leadDays === undefined || body.leadDays === '' ? 0 : num(body.leadDays);
 
     if (!ownerId || !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
-    if (!canManage(scope, ownerId)) return fail("Only an admin or this workspace's host can change the re-order rule. Ask them, or record the stock IN/OUT instead.", 403);
+    if (!canManage(scope, ownerId)) return fail("Only an admin or this business's host can change the re-order rule. Ask them, or record the stock IN/OUT instead.", 403);
     if (!(reorderBelow > 0) || !(orderUpTo > 0)) return fail('Both numbers must be more than 0 months.');
     if (orderUpTo < reorderBelow) return fail('"Order enough for" must be at least the re-order level.');
     if (!(leadDays >= 0 && leadDays <= 120)) return fail('Delivery days must be between 0 and 120.');

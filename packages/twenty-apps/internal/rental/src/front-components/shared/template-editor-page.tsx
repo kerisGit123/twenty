@@ -855,11 +855,11 @@ export const TemplateDesigner = () => {
           <div style={{ flex: '1 1 220px', minWidth: 0 }}>
             <div style={{ fontSize: 20, fontWeight: 650 }}>Templates</div>
             <div style={{ fontSize: 13, color: c.text3, marginTop: 2 }}>
-              Design how your receipts and year statements look. Each workspace uses its own <b>★ default</b>, else the shared one.
+              Design how your receipts and year statements look. Each business uses its own <b>★ default</b>, else the shared one.
             </div>
             {!workspace && (data.owners ?? []).length > 0 && (
               <div style={{ fontSize: 12.5, color: c.text3, marginTop: 6 }}>
-                Showing the shared templates. Pick a workspace in the left sidebar to edit its own.
+                Showing the shared templates. Pick a business in the left sidebar to edit its own.
               </div>
             )}
           </div>
@@ -988,7 +988,7 @@ export const TemplateDesigner = () => {
               </div>
             ))}
         </div>
-        {!canEdit && <div style={{ fontSize: 12, color: c.text3 }}>{workspace ? 'Only this workspace’s hosts and admins can change its templates.' : 'Only admins can change shared templates.'}</div>}
+        {!canEdit && <div style={{ fontSize: 12, color: c.text3 }}>{workspace ? 'Only this business’s hosts and admins can change its templates.' : 'Only admins can change shared templates.'}</div>}
       </div>
     );
   }

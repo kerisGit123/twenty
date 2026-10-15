@@ -272,7 +272,7 @@ export const Documents = () => {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 13, color: c.text2 }}>
             <span>File under</span>
             {scope.ownerId ? (
-              <span style={{ fontWeight: 600, color: c.text }}>{scope.owner?.name ?? 'this workspace'}</span>
+              <span style={{ fontWeight: 600, color: c.text }}>{scope.owner?.name ?? 'this business'}</span>
             ) : (
               <select value={ownerForUpload} onChange={(e) => { setFileOwner(readValue(e)); setFileProperty(''); }} style={{ ...control, width: 'auto' }}>
                 {owners.map((o) => (

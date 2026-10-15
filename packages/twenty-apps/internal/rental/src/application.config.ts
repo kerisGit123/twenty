@@ -89,14 +89,14 @@ export default defineApplication({
     RECEIPT_ISSUER_NAME: {
       universalIdentifier: RECEIPT_ISSUER_NAME_VARIABLE_ID,
       description:
-        'Name printed at the top of receipts. Leave empty to use the workspace name.',
+        'Name printed at the top of receipts. Leave empty to use the business name.',
       value: '',
       isSecret: false,
     },
     API_KEYS_FULL_ACCESS: {
       universalIdentifier: 'b6c1f2a4-3e57-4d8c-9a1e-5f2d7c3b8e91',
       description:
-        'Set to "true" to let API keys call the app\'s routes with access to every workspace (for scripts). Leave empty: API keys get nothing.',
+        'Set to "true" to let API keys call the app\'s routes with access to every business (for scripts). Leave empty: API keys get nothing.',
       value: '',
       isSecret: false,
     },

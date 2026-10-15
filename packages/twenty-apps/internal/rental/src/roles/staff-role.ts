@@ -44,7 +44,7 @@ const NO_ACCESS = [
 export default defineRole({
   universalIdentifier: STAFF_ROLE_ID,
   label: 'Staff',
-  description: 'Works only in their rental workspaces, through the Today, Rent Ledger and Expenses pages.',
+  description: 'Works only in their rental businesses, through the Today, Rent Ledger and Expenses pages.',
   icon: 'IconUserShield',
   canUpdateAllSettings: false,
   canAccessAllTools: false,

@@ -56,7 +56,7 @@ const handler = async (
 export default defineLogicFunction({
   universalIdentifier: ON_MEMBER_JOINED_FUNCTION_ID,
   name: 'on-member-joined',
-  description: 'Gives a new team member a Personal workspace and links their pending invites.',
+  description: 'Gives a new team member a Personal business and links their pending invites.',
   timeoutSeconds: 60,
   databaseEventTriggerSettings: {
     eventName: 'workspaceMember.created',

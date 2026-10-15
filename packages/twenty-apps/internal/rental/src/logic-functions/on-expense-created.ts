@@ -23,7 +23,7 @@ const handler = async (
 export default defineLogicFunction({
   universalIdentifier: '0d6f3a41-6a3b-4f7e-9d1c-2b8e5f4a7c10',
   name: 'on-expense-created',
-  description: "Puts a new expense in its property's workspace, else Personal.",
+  description: "Puts a new expense in its property's business, else Personal.",
   timeoutSeconds: 60,
   databaseEventTriggerSettings: {
     eventName: 'expense.created',

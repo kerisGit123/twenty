@@ -28,7 +28,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     const client = appClient();
     const scope = await resolveScope(client, context?.workspaceMemberId);
 
-    if (ownerId && !inScope(scope, ownerId)) return text("You don't have access to this workspace.", 403);
+    if (ownerId && !inScope(scope, ownerId)) return text("You don't have access to this business.", 403);
 
     const data = await loadTransactionsData(client, scope, query.from, query.to);
     const mine = <T extends { ownerId: string | null }>(rows: T[]) => (ownerId ? rows.filter((row) => row.ownerId === ownerId) : rows);

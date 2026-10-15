@@ -121,7 +121,7 @@ export const MonthEndTab = ({
             ? lockedThrough
               ? <>🔒 {owner.name} is closed up to <b>{monthLabel(lockedThrough.slice(0, 7))}</b>. Stock dated on or before {lockedThrough} can&apos;t change.</>
               : <>No month is closed yet in {owner.name}.</>
-            : 'Pick a workspace (top right) to close months; each workspace closes its own.'}
+            : 'Pick a business (top right) to close months; each business closes its own.'}
         </span>
         <span style={{ flex: 1 }} />
         {view === 'months' ? <ExcelButton query={withOwner({ kind: 'xlsx-monthend' }, owner?.id ?? '')} title="Month-end summary as an Excel file" /> : null}

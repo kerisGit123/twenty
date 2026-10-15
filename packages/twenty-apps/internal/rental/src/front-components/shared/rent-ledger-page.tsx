@@ -551,7 +551,7 @@ export const RentLedger = () => {
                 </button>
               </>
             ) : scope.owner ? (
-              `No active contracts for ${scope.owner.name} in this period. Set ${scope.owner.name} as the workspace on its properties.`
+              `No active contracts for ${scope.owner.name} in this period. Set ${scope.owner.name} as the business on its properties.`
             ) : (
               'No active contracts in this period. Create a contract and set it to Active.'
             )}

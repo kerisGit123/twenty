@@ -30,7 +30,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     const client = appClient();
     const scope = await resolveScope(client, context?.workspaceMemberId);
 
-    if (ownerId && !inScope(scope, ownerId)) return html("<p>You don't have access to this workspace.</p>", 403);
+    if (ownerId && !inScope(scope, ownerId)) return html("<p>You don't have access to this business.</p>", 403);
 
     const [data, { owners }] = await Promise.all([
       loadYearData(client, scope, year),
@@ -39,7 +39,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         ? client.query({ owners: { __args: { filter: { id: { eq: ownerId } }, first: 1 }, edges: { node: { name: true } } } })
         : Promise.resolve({ owners: null }),
     ]);
-    const workspace = ownerId ? owners?.edges?.[0]?.node?.name ?? 'Workspace' : scope.all ? 'All workspaces' : 'All my workspaces';
+    const workspace = ownerId ? owners?.edges?.[0]?.node?.name ?? 'Workspace' : scope.all ? 'All businesses' : 'All my businesses';
     const s = summariseYear(data, ownerId);
     const net = (value: number) => `<td class="n ${value < 0 ? 'neg' : ''}">${rm(value)}</td>`;
     const change = (now: number, before: number) =>
@@ -95,7 +95,7 @@ ${s.properties.map((p) => `<tr><td>${escape(p.name)}</td><td class="n">${rm(p.re
 export default defineLogicFunction({
   universalIdentifier: YEAR_REPORT_ROUTE_FUNCTION_ID,
   name: 'year-report-route',
-  description: 'The Year summary as a printable page, limited to the caller\'s workspaces.',
+  description: 'The Year summary as a printable page, limited to the caller\'s businesses.',
   timeoutSeconds: 60,
   handler,
   httpRouteTriggerSettings: { path: '/reports/year', httpMethod: 'GET', isAuthRequired: true },

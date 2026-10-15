@@ -102,7 +102,7 @@ const YearSummary = () => {
 
   const summary = useMemo(() => (data ? summariseYear(data, scope.ownerId) : null), [data, scope.key]);
   const tax = useMemo(() => (data ? buildTaxPack(data, scope.ownerId) : null), [data, scope.key]);
-  const workspaceName = scope.owner?.name ?? (scope.restricted ? 'All my workspaces' : 'All workspaces');
+  const workspaceName = scope.owner?.name ?? (scope.restricted ? 'All my businesses' : 'All businesses');
 
   const copyCsv = async () => {
     if (!summary) return;
@@ -207,7 +207,7 @@ const YearSummary = () => {
 
       {isEmpty ? (
         <div style={{ ...card, color: c.text3, fontSize: 13 }}>
-          Nothing recorded for {workspaceName} in {year}. Pick another year or workspace.
+          Nothing recorded for {workspaceName} in {year}. Pick another year or business.
         </div>
       ) : (
         <>

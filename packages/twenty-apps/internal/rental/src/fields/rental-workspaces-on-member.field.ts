@@ -13,7 +13,7 @@ export default defineField({
   objectUniversalIdentifier: STANDARD_OBJECT.workspaceMember.universalIdentifier,
   type: FieldType.RELATION,
   name: 'rentalMemberships',
-  label: 'Rental workspaces',
+  label: 'Rental businesses',
   icon: 'IconBriefcase',
   relationTargetObjectMetadataUniversalIdentifier: MEMBERSHIP_OBJECT_ID,
   relationTargetFieldMetadataUniversalIdentifier: MEMBERSHIP_MEMBER_FIELD_ID,

@@ -192,7 +192,7 @@ const Workspaces = () => {
         type,
       });
 
-      if (!result.success || !result.id) throw new Error(result.message ?? 'Could not add the workspace.');
+      if (!result.success || !result.id) throw new Error(result.message ?? 'Could not add the business.');
       await enqueueSnackbar({ message: `${name.trim()} added — you're its host.`, variant: 'success' });
       setName('');
       setAdding(false);
@@ -375,7 +375,7 @@ const Workspaces = () => {
       <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: c.font }}>
         <thead>
           <tr>
-            <th style={head}>Workspace</th>
+            <th style={head}>Business</th>
             <th style={head}>Type</th>
             <th style={head}>You</th>
             <th style={head}>Host</th>
@@ -443,9 +443,9 @@ const Workspaces = () => {
     <div style={{ fontFamily: c.font, color: c.text, padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 220, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ fontSize: 18, fontWeight: 600 }}>Workspaces</span>
+          <span style={{ fontSize: 18, fontWeight: 600 }}>Businesses</span>
           <span style={{ fontSize: 13, color: c.text3 }}>
-            Everything — properties, rent, expenses and documents — belongs to a workspace. Only a workspace's hosts can
+            Everything — properties, rent, expenses and documents — belongs to a business. Only a business's hosts can
             rename it or change its members. Figures are for {data.year}.
           </span>
         </div>
@@ -455,7 +455,7 @@ const Workspaces = () => {
         </div>
         {!adding && (
           <button style={button(true)} onClick={() => setAdding(true)}>
-            + New workspace
+            + New business
           </button>
         )}
       </div>
@@ -471,7 +471,7 @@ const Workspaces = () => {
             ))}
           </select>
           <button style={button(true)} disabled={busy} onClick={create}>
-            {busy ? 'Adding…' : 'Add workspace'}
+            {busy ? 'Adding…' : 'Add business'}
           </button>
           <button style={{ ...button(), border: 'none', color: c.text3 }} onClick={() => setAdding(false)}>
             Cancel
@@ -481,7 +481,7 @@ const Workspaces = () => {
 
       {workspaces.length === 0 && (
         <div style={{ fontSize: 13, color: c.text3, border: `1px solid ${c.border}`, borderRadius: c.radius, padding: 16 }}>
-          You aren't in a workspace yet. Add one, or ask a host to add you to theirs.
+          You aren't in a business yet. Add one, or ask a host to add you to theirs.
         </div>
       )}
 
@@ -493,6 +493,6 @@ const Workspaces = () => {
 export default defineFrontComponent({
   universalIdentifier: WORKSPACES_FRONT_COMPONENT_ID,
   name: 'workspaces',
-  description: 'All your workspaces as cards or a grid; add one, and rename the ones you host',
+  description: 'All your businesses as cards or a grid; add one, and rename the ones you host',
   component: Workspaces,
 });

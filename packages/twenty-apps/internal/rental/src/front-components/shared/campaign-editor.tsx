@@ -1033,7 +1033,7 @@ export const CampaignEditor = ({
                 <input value={name} onChange={(e) => setName(readValue(e))} placeholder={kind === 'GREETING' ? `${occasionInfo.label} ${sendOn.slice(0, 4)}` : 'Campaign name'} style={control} />
                 {/* Only on "All workspaces": which workspace the new campaign is filed under. */}
                 {owners.length > 1 && !lockedOwnerId && (
-                  <select value={ownerId} onChange={(e) => setOwnerId(readValue(e))} style={control} title="Workspace it belongs to">
+                  <select value={ownerId} onChange={(e) => setOwnerId(readValue(e))} style={control} title="Business it belongs to">
                     {owners.map((o) => (
                       <option key={o.id} value={o.id}>
                         {o.name}

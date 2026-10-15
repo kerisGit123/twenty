@@ -44,7 +44,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     const kind = KINDS.includes(body.kind as TemplateKind) ? (body.kind as TemplateKind) : undefined;
 
     if (!body.action || body.action === 'list') {
-      if (ownerId && !inScope(scope, ownerId)) return json({ success: false, message: "You don't have access to this workspace." }, 403);
+      if (ownerId && !inScope(scope, ownerId)) return json({ success: false, message: "You don't have access to this business." }, 403);
       const [templates, settings, { owners }] = await Promise.all([
         loadTemplates(client, kind),
         loadReceiptSettings(client, ownerId),
@@ -74,13 +74,13 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     // The Receipt settings record (made if missing) of a workspace, or the
     // default one, where the logo, QR and signature are uploaded.
     if (body.action === 'settingsRecord') {
-      if (!mayChange(scope, ownerId)) return json({ success: false, message: ownerId ? 'Only the workspace’s hosts can change its settings.' : 'Only admins can change the default settings.' }, 403);
+      if (!mayChange(scope, ownerId)) return json({ success: false, message: ownerId ? 'Only the business’s hosts can change its settings.' : 'Only admins can change the default settings.' }, 403);
       const record = await loadReceiptSettingsRecord(client, ownerId);
 
       if (record?.id) return json({ success: true, id: record.id });
 
       const { createReceiptSetting } = await client.mutation({
-        createReceiptSetting: { __args: { data: { name: ownerId ? 'Receipt settings (workspace)' : 'Receipt settings', ...(ownerId ? { ownerId } : {}) } as never }, id: true },
+        createReceiptSetting: { __args: { data: { name: ownerId ? 'Receipt settings (business)' : 'Receipt settings', ...(ownerId ? { ownerId } : {}) } as never }, id: true },
       });
 
       return json({ success: true, id: createReceiptSetting?.id });
@@ -103,7 +103,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         },
       };
 
-      if (!mayChange(scope, ownerId)) return json({ success: false, message: ownerId ? 'Only the workspace’s hosts can change its templates.' : 'Only admins can change shared templates.' }, 403);
+      if (!mayChange(scope, ownerId)) return json({ success: false, message: ownerId ? 'Only the business’s hosts can change its templates.' : 'Only admins can change shared templates.' }, 403);
 
       const existing = await loadTemplates(client, kind);
 

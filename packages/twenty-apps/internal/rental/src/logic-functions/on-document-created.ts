@@ -23,7 +23,7 @@ const handler = async (
 export default defineLogicFunction({
   universalIdentifier: '44d36809-b368-41d6-8a65-e89e5aa7fab8',
   name: 'on-document-created',
-  description: "Puts a new document in its property's workspace, else Personal.",
+  description: "Puts a new document in its property's business, else Personal.",
   timeoutSeconds: 60,
   databaseEventTriggerSettings: {
     eventName: 'document.created',

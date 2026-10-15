@@ -53,7 +53,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 export default defineLogicFunction({
   universalIdentifier: PAGE_DATA_ROUTE_FUNCTION_ID,
   name: 'page-data-route',
-  description: "Loads the rental pages' data, limited to the caller's workspaces.",
+  description: "Loads the rental pages' data, limited to the caller's businesses.",
   timeoutSeconds: 60,
   handler,
   httpRouteTriggerSettings: { path: '/pages/data', httpMethod: 'POST', isAuthRequired: true },

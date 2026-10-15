@@ -28,7 +28,7 @@ const handler = async (event: RoutePayload, caller?: { workspaceMemberId?: strin
     if (!template) return html('<p>Save the template first.</p>', 404);
     // A workspace's template shows that workspace's letterhead: only to its members.
     if (template.ownerId && !inScope(await resolveScope(client, caller?.workspaceMemberId), template.ownerId)) {
-      return html("<p>You don't have access to this workspace.</p>", 403);
+      return html("<p>You don't have access to this business.</p>", 403);
     }
 
     const settings = await loadReceiptSettings(client, template.ownerId);

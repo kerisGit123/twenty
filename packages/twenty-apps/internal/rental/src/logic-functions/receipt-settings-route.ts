@@ -76,7 +76,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     }
 
     if (!allowed) {
-      return json({ success: false, message: ownerId ? 'Only the workspace’s hosts can change its settings.' : 'Only admins can change the default settings.' }, 403);
+      return json({ success: false, message: ownerId ? 'Only the business’s hosts can change its settings.' : 'Only admins can change the default settings.' }, 403);
     }
 
     const data: Record<string, string | null> = {};
@@ -99,7 +99,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       });
     } else {
       await client.mutation({
-        createReceiptSetting: { __args: { data: { name: ownerId ? 'Receipt settings (workspace)' : 'Receipt settings', ...data, ...(ownerId ? { ownerId } : {}) } as never }, id: true },
+        createReceiptSetting: { __args: { data: { name: ownerId ? 'Receipt settings (business)' : 'Receipt settings', ...data, ...(ownerId ? { ownerId } : {}) } as never }, id: true },
       });
     }
 
@@ -117,7 +117,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 export default defineLogicFunction({
   universalIdentifier: '0acd4b84-ed09-4366-bcc1-59656afd95ea',
   name: 'receipt-settings-route',
-  description: 'Loads and saves receipt settings: the default and each workspace’s own.',
+  description: 'Loads and saves receipt settings: the default and each business’s own.',
   timeoutSeconds: 30,
   handler,
   httpRouteTriggerSettings: { path: '/receipts/settings', httpMethod: 'POST', isAuthRequired: true },

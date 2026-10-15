@@ -171,7 +171,7 @@ export const StockTakeSheet = ({
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {groups.length ? null : <span style={{ fontSize: 13, color: c.text3 }}>{q || show !== 'all' ? 'Nothing matches.' : 'No products in this workspace yet. Use Import Excel or + Add item first.'}</span>}
+          {groups.length ? null : <span style={{ fontSize: 13, color: c.text3 }}>{q || show !== 'all' ? 'Nothing matches.' : 'No products in this business yet. Use Import Excel or + Add item first.'}</span>}
           {groups.map((g) => [
             <div key={`g-${g.value}`} style={{ fontSize: 12, fontWeight: 600, color: c.text3, padding: '10px 0 4px' }}>
               {g.label} · {g.rows.length}

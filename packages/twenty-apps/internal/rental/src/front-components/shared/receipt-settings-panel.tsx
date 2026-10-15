@@ -187,7 +187,7 @@ export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
         <span style={{ fontSize: 12, color: c.text2 }}>
           Settings for{' '}
           <b style={{ color: c.text }}>
-            {ownerId ? (info.owners?.find((o) => o.id === ownerId)?.name ?? info.ownerName ?? 'this workspace') : 'Default — every workspace without its own'}
+            {ownerId ? (info.owners?.find((o) => o.id === ownerId)?.name ?? info.ownerName ?? 'this business') : 'Default — every business without its own'}
           </b>
         </span>
         <button onClick={openImages} disabled={!canEdit} style={{ ...button(), height: 30 }} title="Upload the logo, DuitNow QR and signature">
@@ -195,8 +195,8 @@ export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
         </button>
         <span style={{ fontSize: 11.5, color: c.text3, flex: '1 1 260px' }}>
           {ownerId
-            ? 'This workspace prints its own name, address, bank details, logo and receipt numbers. Looks left empty follow the default.'
-            : 'Used by every workspace that has no settings of its own. Pick a workspace in the left sidebar to set its own.'}
+            ? 'This business prints its own name, address, bank details, logo and receipt numbers. Looks left empty follow the default.'
+            : 'Used by every business that has no settings of its own. Pick a business in the left sidebar to set its own.'}
           {!canEdit && ' You can view these but not change them.'}
         </span>
       </div>
@@ -206,7 +206,7 @@ export const ReceiptSettingsPanel = ({ onClose }: { onClose: () => void }) => {
           <div style={{ ...field, background: c.bg2, borderRadius: 8, padding: '8px 10px' }}>
             Layout
             <span style={{ fontSize: 12, color: c.text3 }}>
-              Receipts and statements are designed in <b>Setup → Templates</b> (a ★ default per workspace, in English, Malay or Chinese). The name,
+              Receipts and statements are designed in <b>Setup → Templates</b> (a ★ default per business, in English, Malay or Chinese). The name,
               colour and wording below fill them in.
             </span>
           </div>

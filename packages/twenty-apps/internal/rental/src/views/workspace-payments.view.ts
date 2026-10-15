@@ -18,7 +18,7 @@ import {
 // Table shown in the Payments tab of a workspace.
 export default defineView({
   universalIdentifier: WORKSPACE_PAYMENTS_VIEW_ID,
-  name: 'Workspace payments',
+  name: 'Business payments',
   objectUniversalIdentifier: PAYMENT_OBJECT_ID,
   type: ViewType.TABLE_WIDGET,
   fields: [

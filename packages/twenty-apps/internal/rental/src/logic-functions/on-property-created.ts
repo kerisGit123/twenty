@@ -23,7 +23,7 @@ const handler = async (
 export default defineLogicFunction({
   universalIdentifier: 'b81f2467-bd59-4997-b4fb-b065f9bf4539',
   name: 'on-property-created',
-  description: "Puts a new property without a workspace in Personal.",
+  description: "Puts a new property without a business in Personal.",
   timeoutSeconds: 60,
   databaseEventTriggerSettings: {
     eventName: 'property.created',

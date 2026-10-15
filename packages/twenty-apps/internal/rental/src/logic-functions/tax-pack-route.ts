@@ -32,7 +32,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     const client = appClient();
     const scope = await resolveScope(client, context?.workspaceMemberId);
 
-    if (ownerId && !inScope(scope, ownerId)) return html("<p>You don't have access to this workspace.</p>", 403);
+    if (ownerId && !inScope(scope, ownerId)) return html("<p>You don't have access to this business.</p>", 403);
 
     const [data, settings, { owners }] = await Promise.all([
       loadYearData(client, scope, year),
@@ -42,7 +42,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         ? client.query({ owners: { __args: { filter: { id: { eq: ownerId } }, first: 1 }, edges: { node: { name: true } } } })
         : Promise.resolve({ owners: null }),
     ]);
-    const workspace = ownerId ? owners?.edges?.[0]?.node?.name ?? 'Workspace' : scope.all ? 'All workspaces' : 'All my workspaces';
+    const workspace = ownerId ? owners?.edges?.[0]?.node?.name ?? 'Workspace' : scope.all ? 'All businesses' : 'All my businesses';
     const pack = buildTaxPack(data, ownerId);
     const propertyName = (id: string | null) => data.properties.find((p) => p.id === id)?.name ?? '—';
     const notes = TAX_CLASSES.filter((c) => c.note && pack.properties.some((p) => p.lines.some((l) => l.key === c.key)));

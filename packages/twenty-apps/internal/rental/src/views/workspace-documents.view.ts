@@ -14,7 +14,7 @@ import {
 // Table shown in the Documents tab of a workspace.
 export default defineView({
   universalIdentifier: WORKSPACE_DOCUMENTS_VIEW_ID,
-  name: 'Workspace documents',
+  name: 'Business documents',
   objectUniversalIdentifier: DOCUMENT_OBJECT_ID,
   type: ViewType.TABLE_WIDGET,
   fields: [

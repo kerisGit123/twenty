@@ -48,5 +48,5 @@ export const canManage = (scope: Scope, ownerId: string | null | undefined) =>
 export const NOT_ALLOWED = {
   success: false,
   status: 403,
-  message: "You don't have access to this workspace.",
+  message: "You don't have access to this business.",
 } as const;

@@ -10,7 +10,7 @@ import {
 
 export default defineNavigationMenuItem({
   universalIdentifier: WORKSPACES_NAV_ITEM_ID,
-  name: 'Workspaces',
+  name: 'Businesses',
   icon: 'IconBriefcase',
   position: 1,
   type: NavigationMenuItemType.PAGE_LAYOUT,

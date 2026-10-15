@@ -55,7 +55,7 @@ export default defineObject({
       type: FieldType.TEXT,
       name: 'businessName',
       label: 'Business name',
-      description: 'Shown at the top of receipts. Empty = workspace name.',
+      description: 'Shown at the top of receipts. Empty = business name.',
       icon: 'IconBuildingStore',
       isNullable: true,
     },
