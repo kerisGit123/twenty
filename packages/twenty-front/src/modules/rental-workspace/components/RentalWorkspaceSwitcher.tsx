@@ -77,7 +77,7 @@ const RentalWorkspaceMenu = () => {
   const navigationMenuItems = useAtomStateValue(navigationMenuItemsSelector);
   // The Rental app's Workspaces page (cards, hosts, new workspace).
   const workspacesPageLayoutId = navigationMenuItems.find(
-    (item) => item.name === 'Workspaces' && isDefined(item.pageLayoutId),
+    (item) => item.name === 'Businesses' && isDefined(item.pageLayoutId),
   )?.pageLayoutId;
 
   const pick = (workspaceId: string) => {
@@ -98,16 +98,6 @@ const RentalWorkspaceMenu = () => {
   return (
     <LegacyDropdownContent>
       <DropdownMenuItemsContainer>
-        <ListItem
-          startIcon={<IconBriefcase size={16} />}
-          onClick={() => pick('')}
-          role="option"
-          aria-selected={!selected}
-          indicator="check"
-          selected={!selected}
-        >
-          All workspaces
-        </ListItem>
         {workspaces.map((workspace) => (
           <ListItem
             key={workspace.id}
@@ -135,7 +125,7 @@ const RentalWorkspaceMenu = () => {
             );
           }}
         >
-          Manage workspaces
+          Manage businesses
         </ListItem>
       </DropdownMenuItemsContainer>
     </LegacyDropdownContent>
@@ -165,8 +155,8 @@ export const RentalWorkspaceSwitcher = () => {
               <IconBriefcase size={theme.icon.size.md} stroke={theme.icon.stroke.sm} />
             )}
             <StyledText>
-              <StyledCaption>Workspace</StyledCaption>
-              <StyledName>{selected?.name ?? 'All workspaces'}</StyledName>
+              <StyledCaption>Business</StyledCaption>
+              <StyledName>{selected?.name ?? 'Loading…'}</StyledName>
             </StyledText>
             <IconChevronDown size={theme.icon.size.md} stroke={theme.icon.stroke.sm} />
           </StyledTrigger>

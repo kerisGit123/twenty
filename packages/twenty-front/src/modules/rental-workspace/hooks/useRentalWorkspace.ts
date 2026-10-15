@@ -102,6 +102,21 @@ export const useRentalWorkspace = () => {
     };
   }, [rentalApp]);
 
+  // One business holds one set of data: nothing picked yet (or a business that
+  // is gone) falls back to the first one, Personal, instead of "all".
+  useEffect(() => {
+    if (!isDefined(storageKey) || workspaces === null || workspaces.length === 0) return;
+    if (workspaces.some((workspace) => workspace.id === selectedId)) return;
+    const fallback = workspaces[0].id;
+    try {
+      window.localStorage.setItem(storageKey, fallback);
+    } catch {
+      // Storage can be unavailable; the picker just shows the first business.
+    }
+    setSelectedId(fallback);
+    window.dispatchEvent(new Event(RENTAL_WORKSPACE_CHANGED_EVENT));
+  }, [workspaces, selectedId, storageKey]);
+
   const select = useCallback(
     (workspaceId: string) => {
       if (!isDefined(storageKey)) return;
