@@ -255,3 +255,4 @@ export const INCOME_METHOD_OPTION_IDS = [
   '470c532a-a493-4b2b-b0ea-cbd90ea22f4c', '7f7b797f-c0c4-4978-bbd9-909e5c525676', '86075cf9-3f4b-4b21-bff2-69e92f17a85d',
 ];
 export const DOCUMENT_FILE_SIZES_FIELD_ID = 'f3e10a4e-7cfd-4b42-b9db-86585d64b692';
+export const MEMBER_ROLE_ID = '8f5f3f24-a411-47a1-b5d2-e07f89933abb';

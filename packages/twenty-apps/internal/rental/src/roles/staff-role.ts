@@ -19,7 +19,7 @@ import { RECEIPT_SETTING_OBJECT_ID } from 'src/objects/receipt-setting.object';
 // open the rental tables at all; the Today, Rent Ledger and Expenses pages
 // fetch through the app's server routes, which return only the workspaces the
 // person is a member of. People and companies stay usable.
-const NO_ACCESS = [
+export const NO_ACCESS = [
   PROPERTY_OBJECT_ID,
   RENTAL_OBJECT_ID,
   PAYMENT_OBJECT_ID,
