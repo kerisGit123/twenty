@@ -3,6 +3,7 @@ import { Response } from 'twenty-sdk/logic-function';
 
 import { SCOPE_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers-v3';
 import { appClient } from 'src/logic-functions/utils/app-client';
+import { memberPersonalOwnerId } from 'src/logic-functions/utils/owner-sync';
 import { inScope, resolveScope } from 'src/logic-functions/utils/scope';
 import { workspaceLabel } from 'src/logic-functions/utils/workspace-label';
 
@@ -11,7 +12,26 @@ import { workspaceLabel } from 'src/logic-functions/utils/workspace-label';
 const handler = async (_event: RoutePayload, context?: { workspaceMemberId?: string | null }): Promise<Response> => {
   try {
     const client = appClient();
-    const scope = await resolveScope(client, context?.workspaceMemberId);
+    let scope = await resolveScope(client, context?.workspaceMemberId);
+    const memberId = context?.workspaceMemberId;
+
+    // The background job that gives a new member a Personal business needs the
+    // worker, which this server may not run. A member with no business yet gets
+    // theirs here, on their first load.
+    if (memberId && !scope.all && scope.ownerIds.size === 0) {
+      const { workspaceMembers } = await client.query({
+        workspaceMembers: {
+          __args: { filter: { id: { eq: memberId } }, first: 1 },
+          edges: { node: { userEmail: true, name: { firstName: true, lastName: true } } },
+        },
+      });
+      const member = workspaceMembers?.edges?.[0]?.node;
+      const name =
+        [member?.name?.firstName, member?.name?.lastName].filter(Boolean).join(' ') || member?.userEmail || 'Member';
+
+      await memberPersonalOwnerId(client, memberId, name);
+      scope = await resolveScope(client, memberId);
+    }
     const [{ owners }, { memberships }] = await Promise.all([
       client.query({
         owners: {
