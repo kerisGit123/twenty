@@ -184,41 +184,64 @@ const handler = async (
 
     const result = await receiptHandler(action, paymentId, context?.workspaceMemberId ?? undefined);
 
-    if (!result.success || !extraPlan.length) return json({ ...result, paymentId }, result.success ? 200 : (result.status ?? 400));
+    // A delivery failure still leaves the receipt issued: the extra goes ahead.
+    const issuedAnyway = 'receiptNumber' in result && Boolean(result.receiptNumber);
+
+    if ((!result.success && !issuedAnyway) || !extraPlan.length) return json({ ...result, paymentId }, result.success ? 200 : (result.status ?? 400));
 
     // The extra, month by month (issued; send them from the ledger if wanted).
     const extraReceipts: string[] = [];
+    const extraFailures: string[] = [];
 
     for (const row of extraPlan) {
-      const existing = (await rentPaymentsForMonth(client, rental.id, row.month)).find((p) => p.status === 'DRAFT');
-      const extraId = existing?.id ?? (await createDraftRentPayment(client, rental, row.month, body.method));
+      const label = row.month.slice(0, 7);
 
-      if (!extraId) continue;
-      await client.mutation({
-        updateRentPayment: {
-          __args: {
-            id: extraId,
-            data: {
-              amount: money(row.amount),
-              paidOn: body.paidOn || null,
-              ...(body.method ? { method: body.method } : {}),
-              notes: `Part of ${rmText(amount)} received${body.paidOn ? ` on ${body.paidOn}` : ''}`,
-              receiptDate: /^\d{4}-\d{2}-\d{2}$/.test(body.receiptDate ?? '') ? body.receiptDate : null,
-            } as never,
+      try {
+        const existing = (await rentPaymentsForMonth(client, rental.id, row.month)).find((p) => p.status === 'DRAFT');
+        const extraId = existing?.id ?? (await createDraftRentPayment(client, rental, row.month, body.method));
+
+        if (!extraId) {
+          extraFailures.push(`${label} (could not create the payment)`);
+          continue;
+        }
+        await client.mutation({
+          updateRentPayment: {
+            __args: {
+              id: extraId,
+              data: {
+                amount: money(row.amount),
+                paidOn: body.paidOn || null,
+                ...(body.method ? { method: body.method } : {}),
+                notes: `Part of ${rmText(amount)} received${body.paidOn ? ` on ${body.paidOn}` : ''}`,
+                receiptDate: /^\d{4}-\d{2}-\d{2}$/.test(body.receiptDate ?? '') ? body.receiptDate : null,
+              } as never,
+            },
+            id: true,
           },
-          id: true,
-        },
-      });
-      const issued = await receiptHandler(action === 'preview' ? 'preview' : 'issue', extraId, context?.workspaceMemberId ?? undefined);
+        });
+        const issued = await receiptHandler(action === 'preview' ? 'preview' : 'issue', extraId, context?.workspaceMemberId ?? undefined);
 
-      if (issued.success && 'receiptNumber' in issued && issued.receiptNumber) extraReceipts.push(`${issued.receiptNumber} (${row.month.slice(0, 7)})`);
+        if (issued.success && 'receiptNumber' in issued && issued.receiptNumber) extraReceipts.push(`${issued.receiptNumber} (${label})`);
+        else extraFailures.push(`${label} (${issued.message ?? 'no receipt was issued'})`);
+      } catch (error) {
+        console.error('[rental] ledger spread failed:', error);
+        extraFailures.push(`${label} (${error instanceof Error ? error.message : 'unknown error'})`);
+      }
     }
+
+    const extraText = [
+      extraReceipts.length ? `The extra went towards the next months: ${extraReceipts.join(', ')}.` : '',
+      extraFailures.length ? `The extra could NOT be recorded for: ${extraFailures.join('; ')}. Record ${extraFailures.length === 1 ? 'that month' : 'those months'} from the ledger.` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
 
     return json({
       ...result,
       paymentId,
-      message: `${result.message ?? 'Saved.'} The extra went towards the next months: ${extraReceipts.join(', ')}.`,
-    });
+      partial: extraFailures.length > 0,
+      message: `${result.message ?? 'Saved.'} ${extraText}`,
+    }, result.success ? 200 : (result.status ?? 400));
   } catch (error) {
     console.error('[rental] ledger record failed:', error);
 

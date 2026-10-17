@@ -87,18 +87,21 @@ export const StatementPanel = ({
   const [note, setNote] = useState('');
   const [saved, setSaved] = useState({ tenantDetails: '', note: '' });
   const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [attempt, setAttempt] = useState(0);
   const thisYear = new Date().getFullYear();
 
   useEffect(() => {
     let cancelled = false;
 
     setSource(null);
+    setLoadError('');
     new RestApiClient()
       .post<StatementResponse>('/s/statements/year', { rentalId, year })
       .then(async (result) => {
         if (cancelled) return;
         if (!result.success || !result.source) {
-          await enqueueSnackbar({ message: result.message ?? 'Could not load the statement.', variant: 'error' });
+          setLoadError(result.message ?? 'Could not load the statement.');
 
           return;
         }
@@ -111,12 +114,14 @@ export const StatementPanel = ({
         setNote(result.source.rental.statementNote);
         setSaved({ tenantDetails: result.source.rental.tenantDetails, note: result.source.rental.statementNote });
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : 'Could not load the statement.');
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [rentalId, year]);
+  }, [rentalId, year, attempt]);
 
   // The chosen template (else the English sample), filled with the letter as
   // it stands with the unsaved edits.
@@ -254,7 +259,14 @@ export const StatementPanel = ({
         </div>
         {dirty && <div style={{ fontSize: 12, color: c.text3 }}>Save first — the PDF uses what's saved on the contract.</div>}
 
-        {!context ? (
+        {loadError ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start', fontSize: 13 }}>
+            <span style={{ color: 'var(--t-color-red11)' }}>{loadError}</span>
+            <button onClick={() => setAttempt(attempt + 1)} style={button()}>
+              Try again
+            </button>
+          </div>
+        ) : !context ? (
           <div style={{ fontSize: 13, color: c.text3 }}>Loading {year}…</div>
         ) : (
           <TemplatePreview template={template} context={context} />

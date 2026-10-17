@@ -1,7 +1,7 @@
 import { type CSSProperties, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 
-import { isImage } from 'src/shared/documents';
+import { isHeic, isShowableImage } from 'src/shared/documents';
 
 // In-app viewer: PDFs (every page) and photos, with previous / next for a
 // document's files and a link to open the file on its own. Render inside a
@@ -75,10 +75,18 @@ export const FileViewer = ({ files, start = 0, title, onClose }: { files: Viewer
         </button>
       </div>
 
-      {isImage(file.extension) && !/heic|heif/.test(file.extension ?? '') ? (
+      {isShowableImage(file.extension) ? (
         // Photos show straight away.
         <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'auto', padding: 8 }}>
-          <img key={file.url} src={file.url} alt={file.label} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+          <img key={file.url} src={file.url} alt={file.label} decoding="async" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+        </div>
+      ) : isHeic(file.extension) ? (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: '#a9abb1', fontSize: 13 }}>
+          <span style={{ fontSize: 40 }}>📷</span>
+          HEIC photo — this browser can’t show it here.
+          <a href={file.url} target="_blank" rel="noreferrer" style={darkButton}>
+            Open
+          </a>
         </div>
       ) : (
         <>
@@ -114,7 +122,15 @@ export const FileViewer = ({ files, start = 0, title, onClose }: { files: Viewer
                 fontSize: 20,
               }}
             >
-              {isImage(f.extension) ? <img src={f.url} alt={f.label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : f.extension === 'pdf' ? '📕' : '📄'}
+              {isShowableImage(f.extension) ? (
+                <img src={f.url} alt={f.label} loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : isHeic(f.extension) ? (
+                '📷'
+              ) : f.extension === 'pdf' ? (
+                '📕'
+              ) : (
+                '📄'
+              )}
             </button>
           ))}
         </div>

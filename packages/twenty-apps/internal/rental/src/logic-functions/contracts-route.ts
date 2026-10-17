@@ -9,14 +9,17 @@ import { todayIso } from 'src/logic-functions/utils/dates';
 import {
   createDraftRentPayment,
   endRenewedContracts,
+  fillRentalDefaults,
   loadRental,
+  rentalName,
   rentalRentForMonth,
   rentMonthOf,
   rentPaymentsForMonth,
+  syncPropertyStatus,
   unpaidRentMonths,
 } from 'src/logic-functions/utils/rental-service';
 import { isRentMonth, settleMonth } from 'src/shared/rent-month';
-import { type Deduction, depositHeld, deductionLine, type DepositSettlement, planSettlement } from 'src/shared/contracts';
+import { type ContractCard, type Deduction, depositHeld, deductionLine, type DepositSettlement, planSettlement } from 'src/shared/contracts';
 import { receiptHandler } from 'src/logic-functions/handlers/send-receipt-handler';
 
 type Body = {
@@ -52,6 +55,26 @@ const json = (body: unknown, status = 200) =>
 
 const isIsoDate = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 const money = (rm: number) => ({ amountMicros: Math.round(rm * 1_000_000), currencyCode: 'MYR' });
+// +65 9123 4567 -> +65 / 91234567; 012-345 6789 and 60123456789 -> +60 / 123456789.
+const CALLING_CODES = ['60', '65', '62', '66', '63', '84', '86', '852', '853', '91', '44', '61', '81', '82', '1'];
+
+const parsePhone = (raw: string): { code: string; number: string } | null => {
+  const text = raw.trim();
+  const digits = text.replace(/\D/g, '');
+
+  if (!digits) return null;
+  if (text.startsWith('+') || digits.startsWith('00')) {
+    const full = digits.startsWith('00') ? digits.slice(2) : digits;
+    const code = CALLING_CODES.filter((x) => full.startsWith(x)).sort((a, b) => b.length - a.length)[0] ?? full.slice(0, 2);
+    const number = full.slice(code.length).replace(/^0+/, '');
+
+    return number ? { code: `+${code}`, number } : null;
+  }
+  const local = digits.startsWith('60') ? digits.slice(2) : digits.replace(/^0/, '');
+
+  return local ? { code: '+60', number: local } : null;
+};
+
 const rm = (value: number) => `RM ${value.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 // POST /contracts: list contracts (page data), renew one, or settle its
@@ -62,9 +85,34 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
   try {
     const client = appClient();
     const scope = await resolveScope(client, context?.workspaceMemberId);
+    const isList = !body.action || body.action === 'list';
+
+    // No worker on the server: a renewal that has started ends its old tenancy here.
+    if (isList) await endRenewedContracts(client).catch(() => 0);
     const data = await loadContractsData(client, scope);
 
-    if (!body.action || body.action === 'list') return json({ success: true, data });
+    if (isList) return json({ success: true, data });
+
+    // The property's Occupied/Vacant + tenant follows its tenancies (the
+    // database trigger does the same when a worker runs).
+    const syncProperty = async (propertyId: string | null | undefined) => {
+      if (!propertyId) return;
+      try {
+        await syncPropertyStatus(client, propertyId);
+      } catch (error) {
+        console.error('[rental] property status sync failed:', error);
+      }
+    };
+    const fillDefaults = async (rentalId: string | null | undefined) => {
+      if (!rentalId) return;
+      try {
+        const rental = await loadRental(client, rentalId);
+
+        if (rental) await fillRentalDefaults(client, rental);
+      } catch (error) {
+        console.error('[rental] tenancy defaults failed:', error);
+      }
+    };
 
     // ---- new tenancy: what to pick from
     if (body.action === 'newOptions') {
@@ -77,7 +125,19 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         }),
         client.query({ owners: { __args: { first: 200, orderBy: [{ name: 'AscNullsLast' }] }, edges: { node: { id: true, name: true } } } }),
       ]);
-      const letTo = new Map(data.contracts.filter((x) => x.status === 'ACTIVE' && x.propertyId).map((x) => [x.propertyId as string, x]));
+      // Of a property's active tenancies, the one running today (else the next to start).
+      const today = todayIso();
+      const started = (x: ContractCard) => !x.startDate || x.startDate <= today;
+      const letTo = new Map<string, ContractCard>();
+
+      for (const x of data.contracts) {
+        if (x.status !== 'ACTIVE' || !x.propertyId) continue;
+        const have = letTo.get(x.propertyId);
+
+        if (!have || (started(x) && !started(have)) || (started(x) === started(have) && (started(x) ? (x.startDate ?? '') > (have.startDate ?? '') : (x.startDate ?? '') < (have.startDate ?? '')))) {
+          letTo.set(x.propertyId, x);
+        }
+      }
 
       return json({
         success: true,
@@ -95,19 +155,23 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
               letTo: current ? { tenantName: current.tenantName, endDate: current.endDate } : null,
             };
           }),
-        owners: (owners?.edges ?? []).filter(({ node }) => canManage(scope, node.id)).map(({ node }) => ({ id: node.id, name: node.name ?? 'Workspace' })),
+        owners: (owners?.edges ?? []).filter(({ node }) => canManage(scope, node.id)).map(({ node }) => ({ id: node.id, name: node.name ?? 'Business' })),
       });
     }
 
-    // Find a tenant: admins search everyone; others their workspaces' tenants.
+    // Find a tenant by full name, first or last name, or phone. Admins search
+    // everyone; others the tenants of their businesses (someone with no
+    // tenancy yet is found again by phone when the tenancy is made).
     if (body.action === 'people') {
       const term = (body.query ?? '').trim();
 
       if (term.length < 2) return json({ success: true, people: [] });
-      const like = `%${term.replace(/[%_]/g, '')}%`;
+      const tokens = term.split(/\s+/).map((t) => t.replace(/[%_]/g, '')).filter(Boolean).slice(0, 4);
+      const digits = term.replace(/\D/g, '').replace(/^(60|0)/, '');
+      const byName = { and: tokens.map((t) => ({ or: [{ name: { firstName: { ilike: `%${t}%` } } }, { name: { lastName: { ilike: `%${t}%` } } }] })) };
       const { people } = await client.query({
         people: {
-          __args: { filter: { or: [{ name: { firstName: { ilike: like } } }, { name: { lastName: { ilike: like } } }] } as never, first: 25 },
+          __args: { filter: { or: [byName, ...(digits.length >= 4 ? [{ phones: { primaryPhoneNumber: { ilike: `%${digits}%` } } }] : [])] } as never, first: 50 },
           edges: { node: { id: true, name: { firstName: true, lastName: true }, phones: { primaryPhoneNumber: true, primaryPhoneCallingCode: true } } },
         },
       });
@@ -127,7 +191,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     }
 
     // ---- new tenancy: tenant (new or existing), property (new or existing),
-    // the contract, and deposit receipts if it's already been paid.
+    // the tenancy, and deposit receipts if it's already been paid.
     if (body.action === 'create') {
       if (!isIsoDate(body.startDate) || !isIsoDate(body.endDate) || body.endDate <= body.startDate) return json({ success: false, message: 'Pick the start and end dates.' }, 400);
       const rent = Number(body.rent);
@@ -138,10 +202,49 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       if (![depositValue, utility].every((v) => Number.isFinite(v) && v >= 0 && v < 10_000_000)) return json({ success: false, message: 'Check the deposit amounts.' }, 400);
       const dueDay = Math.min(31, Math.max(1, Math.round(Number(body.dueDay) || Number(body.startDate.slice(8, 10)))));
 
+      // Check everything first, so nothing is made for a request that fails.
+      // Tenant: someone picked, or the person with the same phone, or new.
+      let tenantId = body.tenantId ?? null;
+      let tenantName = '';
+      let newPerson: { firstName: string; lastName: string; phone: { code: string; number: string } | null } | null = null;
+
+      if (tenantId) {
+        const { people } = await client.query({ people: { __args: { filter: { id: { eq: tenantId } }, first: 1 }, edges: { node: { id: true, name: { firstName: true, lastName: true } } } } });
+        const person = people?.edges?.[0]?.node;
+
+        if (!person) return json({ success: false, message: 'Tenant not found.' }, 404);
+        tenantName = [person.name?.firstName, person.name?.lastName].filter(Boolean).join(' ');
+      } else {
+        const firstName = (body.newTenant?.firstName ?? '').trim().slice(0, 100);
+        const lastName = (body.newTenant?.lastName ?? '').trim().slice(0, 100);
+        const phone = parsePhone(body.newTenant?.phone ?? '');
+
+        if (!firstName) return json({ success: false, message: 'Pick the tenant or enter their name.' }, 400);
+        // Already in People under that number (even if another business added them): reuse, don't duplicate.
+        const { people: same } = phone
+          ? await client.query({
+              people: {
+                __args: { filter: { phones: { primaryPhoneNumber: { eq: phone.number } } } as never, first: 10 },
+                edges: { node: { id: true, name: { firstName: true, lastName: true }, phones: { primaryPhoneCallingCode: true } } },
+              },
+            })
+          : { people: null };
+        const match = (same?.edges ?? []).map(({ node }) => node).find((node) => !node.phones?.primaryPhoneCallingCode || node.phones.primaryPhoneCallingCode === phone?.code);
+
+        if (match) {
+          tenantId = match.id;
+          tenantName = [match.name?.firstName, match.name?.lastName].filter(Boolean).join(' ') || [firstName, lastName].filter(Boolean).join(' ');
+        } else {
+          newPerson = { firstName, lastName, phone };
+          tenantName = [firstName, lastName].filter(Boolean).join(' ');
+        }
+      }
+
       // Property
       let propertyId = body.propertyId ?? null;
       let ownerId: string | null = null;
       let propertyName = '';
+      let newPropertyName = '';
 
       if (propertyId) {
         const { properties } = await client.query({ properties: { __args: { filter: { id: { eq: propertyId } }, first: 1 }, edges: { node: { id: true, name: true, ownerId: true } } } });
@@ -156,118 +259,155 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
           (x) => x.propertyId === propertyId && x.status === 'ACTIVE' && (!x.endDate || x.endDate >= (body.startDate as string)) && (!x.startDate || x.startDate <= (body.endDate as string)),
         );
 
-        if (clash) return json({ success: false, message: `${propertyName} is let to ${clash.tenantName} until ${clash.endDate ?? 'no end date'}. End or renew that contract first.` }, 409);
+        if (clash) return json({ success: false, message: `${propertyName} is let to ${clash.tenantName} until ${clash.endDate ?? 'no end date'}. End or renew that tenancy first.` }, 409);
       } else {
         const name = (body.newProperty?.name ?? '').trim().slice(0, 200);
 
         if (!name) return json({ success: false, message: 'Pick a property or name the new one.' }, 400);
         ownerId = body.newProperty?.ownerId ?? null;
         if (!ownerId || !canManage(scope, ownerId)) return json({ success: false, message: 'Pick a business you manage for the new property.' }, 403);
-        const { createProperty } = await client.mutation({
-          createProperty: {
-            __args: { data: { name, ownerId, monthlyRent: money(rent), depositAmount: money(depositValue), ...(body.newProperty?.address ? { notes: body.newProperty.address.slice(0, 500) } : {}) } as never },
-            id: true,
-          },
-        });
-
-        propertyId = createProperty?.id ?? null;
+        newPropertyName = name;
         propertyName = name;
       }
-      if (!propertyId) return json({ success: false, message: 'Could not save the property.' }, 500);
 
-      // Tenant
-      let tenantId = body.tenantId ?? null;
-      let tenantName = '';
+      // Make them; if the tenancy can't be saved, take back what this call made (soft delete).
+      const made: { propertyId?: string; personId?: string } = {};
+      let rentalId: string | null | undefined;
 
-      if (tenantId) {
-        const { people } = await client.query({ people: { __args: { filter: { id: { eq: tenantId } }, first: 1 }, edges: { node: { id: true, name: { firstName: true, lastName: true } } } } });
-        const person = people?.edges?.[0]?.node;
+      try {
+        if (newPropertyName) {
+          const { createProperty } = await client.mutation({
+            createProperty: {
+              __args: { data: { name: newPropertyName, ownerId, monthlyRent: money(rent), depositAmount: money(depositValue), ...(body.newProperty?.address ? { notes: body.newProperty.address.slice(0, 500) } : {}) } as never },
+              id: true,
+            },
+          });
 
-        if (!person) return json({ success: false, message: 'Tenant not found.' }, 404);
-        tenantName = [person.name?.firstName, person.name?.lastName].filter(Boolean).join(' ');
-      } else {
-        const firstName = (body.newTenant?.firstName ?? '').trim().slice(0, 100);
-        const lastName = (body.newTenant?.lastName ?? '').trim().slice(0, 100);
-        const digits = (body.newTenant?.phone ?? '').replace(/[^\d]/g, '');
-
-        if (!firstName) return json({ success: false, message: 'Pick the tenant or enter their name.' }, 400);
-        // Malaysian numbers: 012-345 6789 -> +60 123456789; 60123456789 -> +60 123456789.
-        const local = digits.startsWith('60') ? digits.slice(2) : digits.startsWith('0') ? digits.slice(1) : digits;
-        const { createPerson } = await client.mutation({
-          createPerson: {
-            __args: { data: { name: { firstName, lastName }, ...(local ? { phones: { primaryPhoneNumber: local, primaryPhoneCallingCode: '+60' } } : {}) } as never },
-            id: true,
-          },
-        });
-
-        tenantId = createPerson?.id ?? null;
-        tenantName = [firstName, lastName].filter(Boolean).join(' ');
-      }
-      if (!tenantId) return json({ success: false, message: 'Could not save the tenant.' }, 500);
-
-      const { createRental } = await client.mutation({
-        createRental: {
-          __args: {
-            data: {
-              name: `${propertyName} · ${tenantName}`.slice(0, 200),
-              status: 'ACTIVE',
-              propertyId,
-              tenantId,
-              ownerId,
-              startDate: body.startDate,
-              endDate: body.endDate,
-              dueDay,
-              monthlyRent: money(rent),
-              depositAmount: money(depositValue),
-              utilityDeposit: money(utility),
-              depositStatus: 'NOT_RECEIVED',
-            } as never,
-          },
-          id: true,
-        },
-      });
-      const rentalId = createRental?.id;
-
-      if (!rentalId) return json({ success: false, message: 'Could not save the contract.' }, 500);
-
-      // Deposits already paid: receipts now.
-      const receipts: string[] = [];
-
-      if (isIsoDate(body.depositReceivedOn)) {
-        for (const [type, amount] of [['DEPOSIT', depositValue], ['UTILITY_DEPOSIT', utility]] as const) {
-          if (!(amount > 0)) continue;
-          const { createRentPayment } = await client.mutation({
-            createRentPayment: {
+          if (!createProperty?.id) throw new Error('Could not save the property.');
+          made.propertyId = createProperty.id;
+          propertyId = createProperty.id;
+        }
+        if (newPerson) {
+          const { createPerson } = await client.mutation({
+            createPerson: {
               __args: {
-                data: { status: 'DRAFT', paymentType: type, rentalId, propertyId, tenantId, ownerId, amount: money(amount), paidOn: body.depositReceivedOn } as never,
+                data: {
+                  name: { firstName: newPerson.firstName, lastName: newPerson.lastName },
+                  ...(newPerson.phone ? { phones: { primaryPhoneNumber: newPerson.phone.number, primaryPhoneCallingCode: newPerson.phone.code } } : {}),
+                } as never,
               },
               id: true,
             },
           });
 
-          if (!createRentPayment?.id) continue;
-          const issued = await receiptHandler('issue', createRentPayment.id, context?.workspaceMemberId ?? undefined);
-
-          if (issued.success && 'receiptNumber' in issued && issued.receiptNumber) receipts.push(String(issued.receiptNumber));
+          if (!createPerson?.id) throw new Error('Could not save the tenant.');
+          made.personId = createPerson.id;
+          tenantId = createPerson.id;
         }
+
+        const { createRental } = await client.mutation({
+          createRental: {
+            __args: {
+              data: {
+                name: rentalName(propertyName, tenantName),
+                status: 'ACTIVE',
+                propertyId,
+                tenantId,
+                ownerId,
+                startDate: body.startDate,
+                endDate: body.endDate,
+                dueDay,
+                monthlyRent: money(rent),
+                depositAmount: money(depositValue),
+                utilityDeposit: money(utility),
+                depositStatus: 'NOT_RECEIVED',
+              } as never,
+            },
+            id: true,
+          },
+        });
+
+        rentalId = createRental?.id;
+        if (!rentalId) throw new Error('Could not save the tenancy.');
+      } catch (error) {
+        if (made.propertyId) await client.mutation({ deleteProperty: { __args: { id: made.propertyId }, id: true } }).catch(() => null);
+        if (made.personId) await client.mutation({ deletePerson: { __args: { id: made.personId }, id: true } }).catch(() => null);
+        throw error;
       }
+
+      await fillDefaults(rentalId);
+      await syncProperty(propertyId);
+
+      // Deposits already paid: receipts now.
+      const receipts: string[] = [];
+      const missed: string[] = [];
+      let issuedAny = false;
+
+      if (isIsoDate(body.depositReceivedOn)) {
+        for (const [type, amount, label] of [['DEPOSIT', depositValue, 'security deposit'], ['UTILITY_DEPOSIT', utility, 'utility deposit']] as const) {
+          if (!(amount > 0)) continue;
+          try {
+            const { createRentPayment } = await client.mutation({
+              createRentPayment: {
+                __args: {
+                  data: { status: 'DRAFT', paymentType: type, rentalId, propertyId, tenantId, ownerId, amount: money(amount), paidOn: body.depositReceivedOn } as never,
+                },
+                id: true,
+              },
+            });
+
+            if (!createRentPayment?.id) {
+              missed.push(label);
+              continue;
+            }
+            const issued = await receiptHandler('issue', createRentPayment.id, context?.workspaceMemberId ?? undefined);
+
+            if (!issued.success) {
+              missed.push(label);
+              continue;
+            }
+            issuedAny = true;
+            if ('receiptNumber' in issued && issued.receiptNumber) receipts.push(String(issued.receiptNumber));
+          } catch (error) {
+            console.error('[rental] deposit receipt failed:', error);
+            missed.push(label);
+          }
+        }
+        if (issuedAny) await client.mutation({ updateRental: { __args: { id: rentalId, data: { depositStatus: 'HELD' } as never }, id: true } }).catch(() => null);
+      }
+
+      const warning = missed.length ? `The ${missed.join(' and ')} receipt was NOT recorded — add the payment from the Rent Ledger.` : undefined;
 
       return json({
         success: true,
         id: rentalId,
-        message: `Contract made for ${tenantName} at ${propertyName}.${receipts.length ? ` Deposit receipt${receipts.length > 1 ? 's' : ''} ${receipts.join(', ')} issued.` : ''} Stamp the agreement within 30 days.`,
+        ...(warning ? { warning } : {}),
+        message: `Tenancy started for ${tenantName} at ${propertyName}.${receipts.length ? ` Deposit receipt${receipts.length > 1 ? 's' : ''} ${receipts.join(', ')} issued.` : ''}${warning ? ` ${warning}` : ''} Stamp the agreement within 30 days.`,
       });
     }
 
     const contract = data.contracts.find((c) => c.id === body.rentalId);
 
-    if (!contract) return json({ success: false, message: 'Contract not found in your businesses.' }, 404);
+    if (!contract) return json({ success: false, message: 'Tenancy not found in your businesses.' }, 404);
 
     if (body.action === 'renew') {
-      if (contract.renewedById) return json({ success: false, message: 'This contract has already been renewed.' }, 409);
+      if (contract.renewedById) return json({ success: false, message: 'This tenancy has already been renewed.' }, 409);
+      if (contract.status !== 'ACTIVE') return json({ success: false, message: 'Only a running tenancy can be renewed.' }, 400);
       if (!isIsoDate(body.startDate) || !isIsoDate(body.endDate) || body.endDate <= body.startDate) {
         return json({ success: false, message: 'Pick the new start and end dates.' }, 400);
       }
+      if (contract.startDate && body.startDate < contract.startDate) {
+        return json({ success: false, message: `The renewal can't start before this tenancy started (${contract.startDate}).` }, 400);
+      }
+      // From the day it ends (or the next) or later; earlier overlaps the tenancy it renews.
+      if (contract.endDate && body.startDate < contract.endDate) {
+        return json({ success: false, message: `This tenancy runs until ${contract.endDate}. Start the renewal on ${contract.endDate} or later — or mark the tenant moved out first.` }, 400);
+      }
+      const overlap = data.contracts.find(
+        (x) => x.id !== contract.id && x.propertyId === contract.propertyId && x.status === 'ACTIVE' && (!x.endDate || x.endDate >= (body.startDate as string)) && (!x.startDate || x.startDate <= (body.endDate as string)),
+      );
+
+      if (overlap) return json({ success: false, message: `Those dates overlap ${overlap.tenantName}'s tenancy (${overlap.startDate ?? '?'} to ${overlap.endDate ?? 'no end date'}).` }, 409);
 
       const rent = Number(body.rent);
 
@@ -278,6 +418,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         createRental: {
           __args: {
             data: {
+              name: rentalName(contract.propertyName, contract.tenantName),
               status: 'ACTIVE',
               propertyId: contract.propertyId,
               tenantId: contract.tenantId,
@@ -290,7 +431,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
               utilityDeposit: money(contract.deposit.utilityAgreed),
               depositCarriedIn: money(held),
               depositStatus: held > 0 ? 'HELD' : 'NOT_RECEIVED',
-              depositNotes: held > 0 ? `Carried over from the previous contract (${contract.startDate ?? '?'} to ${contract.endDate ?? '?'}): ${rm(held)}` : '',
+              depositNotes: held > 0 ? `Carried over from the previous tenancy (${contract.startDate ?? '?'} to ${contract.endDate ?? '?'}): ${rm(held)}` : '',
               tenantDetails: contract.tenantDetails,
               renewalOfId: contract.id,
             } as never,
@@ -311,8 +452,10 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       if (createRental?.id && first && first.id !== createRental.id) {
         await client.mutation({ deleteRental: { __args: { id: createRental.id }, id: true } });
 
-        return json({ success: false, message: 'This contract has already been renewed.' }, 409);
+        return json({ success: false, message: 'This tenancy has already been renewed.' }, 409);
       }
+
+      await fillDefaults(createRental?.id);
 
       if (held > 0) {
         await client.mutation({
@@ -329,10 +472,14 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         });
       }
 
+      const ended = body.startDate <= todayIso() ? await endRenewedContracts(client) : undefined;
+
+      await syncProperty(contract.propertyId);
+
       return json({
         success: true,
         id: createRental?.id,
-        ...(body.startDate <= todayIso() ? { ended: await endRenewedContracts(client) } : {}),
+        ...(ended !== undefined ? { ended } : {}),
         message: `Renewed from ${new Date(`${body.startDate}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}. Stamp the new agreement within 30 days.`,
       });
     }
@@ -347,9 +494,10 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     // are kept (rental income); the rest is refunded. What the deposit
     // doesn't cover, the tenant still owes.
     if (body.action === 'settleDeposit') {
+      if (contract.status !== 'ENDED') return json({ success: false, message: 'Mark the tenant moved out first, then settle the deposit.' }, 400);
       const held = depositHeld(contract.deposit);
 
-      if (held <= 0) return json({ success: false, message: 'No deposit is held for this contract.' }, 400);
+      if (held <= 0) return json({ success: false, message: 'No deposit is held for this tenancy.' }, 400);
 
       const deductions = (body.deductions ?? [])
         .map((d) => ({ label: String(d.label ?? '').trim().replace(/\n/g, ' ').slice(0, 120) || 'Deduction', amount: Math.round(Number(d.amount) * 100) / 100 }))
@@ -397,6 +545,8 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         },
       });
 
+      await syncProperty(contract.propertyId);
+
       const parts = [
         plan.rentTaken ? `${rm(plan.rentTaken)} unpaid rent taken (receipts made)` : '',
         plan.kept ? `${rm(plan.kept)} kept for deductions` : '',
@@ -409,17 +559,18 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       });
     }
 
-    // The tenant moved out: the contract ends on that day, so no rent is
+    // The tenant moved out: the tenancy ends on that day, so no rent is
     // owed after it. The last part-month can be left uncharged (waived).
     if (body.action === 'moveOut') {
-      if (contract.status !== 'ACTIVE') return json({ success: false, message: 'Only an active contract can be ended.' }, 400);
-      if (contract.renewedById) return json({ success: false, message: 'This contract was renewed — end the renewal instead.' }, 400);
+      if (contract.status !== 'ACTIVE') return json({ success: false, message: 'Only an active tenancy can be ended.' }, 400);
+      if (contract.renewedById) return json({ success: false, message: 'This tenancy was renewed — end the renewal instead.' }, 400);
       if (!isIsoDate(body.movedOutOn)) return json({ success: false, message: 'Pick the move-out date.' }, 400);
-      if (contract.startDate && body.movedOutOn < contract.startDate) return json({ success: false, message: 'The move-out date is before the contract starts.' }, 400);
+      if (contract.startDate && body.movedOutOn < contract.startDate) return json({ success: false, message: 'The move-out date is before the tenancy starts.' }, 400);
 
       await client.mutation({
         updateRental: { __args: { id: contract.id, data: { status: 'ENDED', endDate: body.movedOutOn } as never }, id: true },
       });
+      await syncProperty(contract.propertyId);
 
       let waived = '';
       const term = { startDate: contract.startDate, endDate: body.movedOutOn };
@@ -471,7 +622,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       return json({
         success: true,
         depositHeld: held,
-        message: `Contract ended on ${body.movedOutOn}.${waived}${held > 0 ? ` Settle the deposit (${rm(held)}) next.` : ''}`,
+        message: `Tenant moved out on ${body.movedOutOn}.${waived}${held > 0 ? ` Settle the deposit (${rm(held)}) next.` : ''}`,
       });
     }
 
@@ -487,9 +638,16 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         return json({ success: false, message: 'This deposit was carried to the renewal — it’s held there now.' }, 400);
       }
       // Undo: the rent receipts made from the deposit are voided.
+      const notVoided: string[] = [];
+
       for (const row of contract.deposit.settlement?.rent ?? []) {
-        if (row.paymentId) await receiptHandler('void', row.paymentId, context?.workspaceMemberId ?? undefined);
+        if (!row.paymentId) continue;
+        const voided = await receiptHandler('void', row.paymentId, context?.workspaceMemberId ?? undefined);
+
+        // Already void from an earlier try is fine.
+        if (!voided.success && !/is void/i.test(String(voided.message ?? ''))) notVoided.push(`${row.month.slice(0, 7)}: ${voided.message ?? 'failed'}`);
       }
+      if (notVoided.length) return json({ success: false, message: `Could not void the rent receipts made from the deposit (${notVoided.join('; ')}). The deposit was not reopened.` }, 500);
       await client.mutation({
         updateRental: {
           __args: {
@@ -499,6 +657,8 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
           id: true,
         },
       });
+
+      await syncProperty(contract.propertyId);
 
       return json({ success: true, message: 'Deposit marked as held again.' });
     }
@@ -514,7 +674,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 export default defineLogicFunction({
   universalIdentifier: CONTRACTS_ROUTE_FUNCTION_ID,
   name: 'contracts-route',
-  description: 'Contracts page: list, renew, and settle deposits at move-out.',
+  description: 'Tenancies page: list, start, renew, and settle deposits at move-out.',
   timeoutSeconds: 60,
   handler,
   httpRouteTriggerSettings: { path: '/contracts', httpMethod: 'POST', isAuthRequired: true },

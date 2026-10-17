@@ -40,7 +40,7 @@ const toBase64 = async (blob: Blob) => {
   return btoa(text);
 };
 
-export type UploadResult = { success: boolean; message?: string; documentId?: string; fileId?: string; expenseId?: string };
+export type UploadResult = { success: boolean; message?: string; documentId?: string; fileId?: string; expenseId?: string; full?: boolean };
 
 // Uploads one file; `target` says where it goes: { documentId } |
 // { newDocument: {...} } | { expenseId }.
@@ -66,7 +66,7 @@ export const FileDrop = ({
   hint = 'or tap to choose — PDF or photos, up to 20 MB each',
   compact = false,
   disabled = false,
-  accept = 'application/pdf,image/*,.doc,.docx,.xls,.xlsx',
+  accept = 'application/pdf,image/*,.heic,.heif,.doc,.docx,.xls,.xlsx,.txt',
   children,
 }: {
   onFiles: (files: PickedFile[]) => void;
@@ -78,6 +78,7 @@ export const FileDrop = ({
   children?: ReactNode;
 }) => {
   const [over, setOver] = useState(false);
+  const [waitNote, setWaitNote] = useState(false);
   const box: CSSProperties = {
     position: 'relative',
     display: 'flex',
@@ -106,17 +107,26 @@ export const FileDrop = ({
       onDragLeave={() => setOver(false)}
       onDrop={(event) => {
         setOver(false);
-        if (disabled) return;
 
         const files = filesFromEvent(event);
 
+        if (disabled) {
+          if (files.length) {
+            setWaitNote(true);
+            setTimeout(() => setWaitNote(false), 4000);
+          }
+
+          return;
+        }
         if (files.length) onFiles(files);
       }}
     >
       <span style={{ fontSize: compact ? 20 : 28 }}>{over ? '📥' : '📎'}</span>
       <span style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: compact ? 'left' : 'center' }}>
         <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--t-font-color-primary)' }}>{over ? 'Drop to upload' : title}</span>
-        <span style={{ fontSize: 12 }}>{hint}</span>
+        <span style={{ fontSize: 12, ...(waitNote ? { color: 'var(--t-color-red11)' } : {}) }}>
+          {waitNote ? 'Wait for the current upload to finish, then drop again.' : hint}
+        </span>
       </span>
       {children}
       <input

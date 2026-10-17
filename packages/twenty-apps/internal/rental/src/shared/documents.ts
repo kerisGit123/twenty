@@ -58,10 +58,12 @@ export type LibraryDoc = ContractDoc & {
 
 // Guess the type from a file name, e.g. "Perjanjian sewa.pdf" → Agreement.
 export const guessDocType = (fileName: string, fallback = 'OTHER') => {
-  const name = fileName.toLowerCase();
+  // "IC_Ahmad-2.pdf" → "ic ahmad 2 pdf": _ - . count as spaces, so \b works.
+  const name = fileName.toLowerCase().replace(/[_\-.]+/g, ' ');
 
-  if (/stamp|setem|duti|e-?duti|sijil/.test(name)) return 'STAMP_DUTY';
-  if (/agreement|perjanjian|tenancy|sewa|contract|kontrak/.test(name)) return 'AGREEMENT';
+  if (/stamp|setem|\be ?duti\b|\bduti\b|sijil (setem|penyetem)/.test(name)) return 'STAMP_DUTY';
+  if (/loan agreement|perjanjian (pinjaman|pembiayaan)|pinjaman|pembiayaan|mortgage/.test(name)) return 'LOAN';
+  if (/agreement|perjanjian|tenancy|contract|kontrak/.test(name)) return 'AGREEMENT';
   if (/\b(ic|mykad|passport|pasport|kad pengenalan|nric)\b/.test(name)) return 'ID';
   if (/inventory|condition|handover|inventori|checklist/.test(name)) return 'HANDOVER';
   if (/addendum|letter|surat/.test(name)) return 'ADDENDUM';
@@ -69,10 +71,10 @@ export const guessDocType = (fileName: string, fallback = 'OTHER') => {
   if (/move.?in|masuk/.test(name)) return 'MOVE_IN';
   if (/insurance|insurans|takaful|policy|polisi/.test(name)) return 'INSURANCE';
   if (/cukai|assessment|taksiran|quit.?rent|tax/.test(name)) return 'TAX';
-  if (/geran|title|hakmilik|spa\b|s&p/.test(name)) return 'TITLE';
-  if (/loan|pinjaman|bank|statement|penyata/.test(name)) return 'LOAN';
+  if (/geran|title|hakmilik|\bspa\b|s&p/.test(name)) return 'TITLE';
+  if (/\bloan\b|bank statement|penyata bank/.test(name)) return 'LOAN';
   if (/\btnb\b|\bbil\b|\bbill|water|\bair\b|\biwk\b|indah water|unifi|maxis|celcom|\bdigi\b/.test(name)) return 'BILL';
-  if (/license|lesen|permit|permit/.test(name)) return 'LICENSE';
+  if (/license|lesen|permit/.test(name)) return 'LICENSE';
 
   return fallback;
 };
@@ -87,6 +89,11 @@ export const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'heic', 
 export const extensionOf = (fileName: string) => (fileName.includes('.') ? fileName.split('.').pop()!.toLowerCase() : '');
 
 export const isImage = (extension: string | null | undefined) => ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif'].includes((extension ?? '').toLowerCase());
+
+export const isHeic = (extension: string | null | undefined) => ['heic', 'heif'].includes((extension ?? '').toLowerCase());
+
+// Photos a browser can draw in an <img> (HEIC/HEIF can't be, outside Safari).
+export const isShowableImage = (extension: string | null | undefined) => isImage(extension) && !isHeic(extension);
 
 export const formatBytes = (bytes: number) =>
   bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;

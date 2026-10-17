@@ -90,7 +90,7 @@ const correctReceipt = async (paymentId: string, memberId?: string) => {
   return {
     success: true,
     draftPaymentId,
-    message: `${payment.receiptNumber} is void. A draft copy is ready in Payments: fix it, then send the new receipt.`,
+    message: `${payment.receiptNumber} is void. A draft copy is ready on the month in the Rent Ledger: fix it there, then send the new receipt.`,
   };
 };
 

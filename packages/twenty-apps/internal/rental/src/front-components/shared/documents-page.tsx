@@ -1,4 +1,4 @@
-import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { AppPath, enqueueSnackbar, navigate, openSidePanelPage, SidePanelPages } from 'twenty-sdk/front-component';
 
@@ -9,7 +9,7 @@ import { FileViewer, type ViewerFile } from 'src/front-components/shared/file-vi
 import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { todayIso } from 'src/logic-functions/utils/dates';
-import { DOC_TYPES, docType, formatBytes, guessDocType, isImage, type LibraryDoc } from 'src/shared/documents';
+import { DOC_TYPES, docType, formatBytes, guessDocType, isHeic, isShowableImage, type LibraryDoc } from 'src/shared/documents';
 
 // Documents: every paper in your workspaces in one place. Drop a pile of
 // files to file them (each becomes a document, typed from its name), find
@@ -17,7 +17,33 @@ import { DOC_TYPES, docType, formatBytes, guessDocType, isImage, type LibraryDoc
 
 type Option = { id: string; name: string; ownerId?: string | null };
 type Filter = 'ALL' | 'EXPIRING' | 'NO_FILES' | string; // or a document type
-type QueueItem = { key: string; file: PickedFile; type: string; state: 'waiting' | 'uploading' | 'done' | 'failed'; message?: string };
+type QueueItem = {
+  key: string;
+  file: PickedFile;
+  type: string;
+  ownerId: string | null;
+  propertyId: string | null;
+  state: 'waiting' | 'uploading' | 'done' | 'failed';
+  message?: string;
+};
+type DeletedDoc = { id: string; name: string; type: string; files: number; deletedAt: string };
+
+const PAGE_SIZE = 60;
+const fileSignature = (file: PickedFile) => `${file.name.toLowerCase()}|${file.size}`;
+
+// The picture (or icon) for one file; HEIC can't be drawn by most browsers.
+const fileFace = (file: { url: string; label: string; extension: string | null }, name = file.label) =>
+  isShowableImage(file.extension) ? (
+    <img src={file.url} alt={name} loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+  ) : isHeic(file.extension) ? (
+    <span style={{ fontSize: 11, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, lineHeight: 1.2 }}>
+      📷<span>HEIC photo</span>
+    </span>
+  ) : file.extension === 'pdf' ? (
+    '📕'
+  ) : (
+    '📄'
+  );
 
 const day = (iso: string | null) => (iso ? `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : '');
 const daysUntil = (today: string, iso: string) => Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
@@ -130,6 +156,11 @@ export const Documents = () => {
   const [fileOwner, setFileOwner] = useState('');
   const [fileProperty, setFileProperty] = useState('');
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [limit, setLimit] = useState(PAGE_SIZE);
+  const [deleted, setDeleted] = useState<DeletedDoc[] | null>(null);
+  const [undo, setUndo] = useState<{ id: string; name: string } | null>(null);
+  // name+size of files already filed in this session (re-dropping them would duplicate).
+  const filed = useRef(new Set<string>());
 
   const reload = useCallback(async () => {
     try {
@@ -149,6 +180,36 @@ export const Documents = () => {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  const loadDeleted = useCallback(async () => {
+    try {
+      const result = await post<{ deleted?: DeletedDoc[] }>({ action: 'listDeleted' });
+
+      if (!result.success) throw new Error(result.message ?? 'Could not load deleted documents.');
+      setDeleted(result.deleted ?? []);
+    } catch (error) {
+      await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not load deleted documents.', variant: 'error' });
+    }
+  }, []);
+
+  const restore = async (id: string) => {
+    const result = await post<Record<string, never>>({ action: 'restore', documentId: id });
+
+    await enqueueSnackbar({ message: result.message ?? (result.success ? 'Restored.' : 'Could not restore.'), variant: result.success ? 'success' : 'error' });
+    if (result.success) {
+      setUndo((current) => (current?.id === id ? null : current));
+      await Promise.all([reload(), deleted ? loadDeleted() : Promise.resolve()]);
+    }
+  };
+
+  // The undo bar goes away by itself.
+  useEffect(() => {
+    if (!undo) return undefined;
+
+    const timer = setTimeout(() => setUndo(null), 15000);
+
+    return () => clearTimeout(timer);
+  }, [undo]);
 
   const mine = useMemo(() => docs.filter((d) => scope.matches(d.ownerId)), [docs, scope.key]);
   const expiring = mine.filter((d) => d.expiresOn && daysUntil(today, d.expiresOn) <= 60);
@@ -183,22 +244,45 @@ export const Documents = () => {
   const ownerForUpload = scope.ownerId || fileOwner || owners.find((o) => /^personal$/i.test(o.name))?.id || owners[0]?.id || '';
   const propertyChoices = properties.filter((p) => !ownerForUpload || p.ownerId === ownerForUpload);
 
-  // Each dropped file becomes its own document, typed from its name.
-  const fileAll = async (files: PickedFile[]) => {
-    const items: QueueItem[] = files.map((file, index) => ({ key: `${Date.now()}-${index}`, file, type: guessDocType(file.name, 'OTHER'), state: 'waiting' }));
+  // A filter that no longer has anything behind it, or a business switch, resets the view.
+  useEffect(() => {
+    if (loading) return;
+    if (
+      (filter === 'EXPIRING' && expiring.length === 0) ||
+      (filter === 'NO_FILES' && empty.length === 0) ||
+      (!['ALL', 'EXPIRING', 'NO_FILES'].includes(filter) && !typeCounts.some((t) => t.value === filter))
+    ) {
+      setFilter('ALL');
+    }
+    if (propertyFilter && propertyFilter !== '__none' && !properties.some((p) => p.id === propertyFilter && scope.matches(p.ownerId ?? null))) setPropertyFilter('');
+    if (fileProperty && !propertyChoices.some((p) => p.id === fileProperty)) setFileProperty('');
+  }, [loading, filter, expiring.length, empty.length, typeCounts, propertyFilter, properties, fileProperty, propertyChoices.length, scope.key]);
 
-    setQueue((current) => [...current.filter((q) => q.state !== 'done'), ...items]);
+  useEffect(() => {
+    setFilter('ALL');
+    setPropertyFilter('');
+    setFileProperty('');
+  }, [scope.key]);
 
+  useEffect(() => {
+    setLimit(PAGE_SIZE);
+  }, [filter, propertyFilter, search, scope.key]);
+
+  // Files go up one by one, each as its own document.
+  const runItems = async (items: QueueItem[]) => {
     let added = 0;
 
     for (const item of items) {
-      setQueue((current) => current.map((q) => (q.key === item.key ? { ...q, state: 'uploading' } : q)));
+      setQueue((current) => current.map((q) => (q.key === item.key ? { ...q, state: 'uploading', message: undefined } : q)));
 
       const result = await uploadFile(item.file, {
-        newDocument: { type: item.type, name: titleFromFile(item.file.name), ownerId: ownerForUpload || null, propertyId: fileProperty || null },
+        newDocument: { type: item.type, name: titleFromFile(item.file.name), ownerId: item.ownerId, propertyId: item.propertyId },
       });
 
-      if (result.success) added += 1;
+      if (result.success) {
+        added += 1;
+        filed.current.add(fileSignature(item.file));
+      }
       setQueue((current) => current.map((q) => (q.key === item.key ? { ...q, state: result.success ? 'done' : 'failed', message: result.message } : q)));
     }
     if (added) {
@@ -207,11 +291,50 @@ export const Documents = () => {
     }
   };
 
+  // Each dropped file becomes its own document, typed from its name.
+  const fileAll = async (files: PickedFile[]) => {
+    const seen = new Set<string>();
+    const fresh = files.filter((file) => {
+      const signature = fileSignature(file);
+
+      if (filed.current.has(signature) || seen.has(signature)) return false;
+      seen.add(signature);
+
+      return true;
+    });
+    const skipped = files.length - fresh.length;
+
+    if (skipped > 0) {
+      await enqueueSnackbar({
+        message: `Skipped ${skipped} file${skipped === 1 ? '' : 's'} already filed in this session (same name and size).`,
+        variant: 'warning',
+      });
+    }
+    if (fresh.length === 0) return;
+
+    const items: QueueItem[] = fresh.map((file, index) => ({
+      key: `${Date.now()}-${index}`,
+      file,
+      type: guessDocType(file.name, 'OTHER'),
+      ownerId: ownerForUpload || null,
+      propertyId: fileProperty || null,
+      state: 'waiting',
+    }));
+
+    setQueue((current) => [...current.filter((q) => q.state !== 'done'), ...items]);
+    await runItems(items);
+  };
+
+  const retry = async (item: QueueItem) => {
+    setQueue((current) => current.map((q) => (q.key === item.key ? { ...q, state: 'waiting', message: undefined } : q)));
+    await runItems([item]);
+  };
+
   const openDoc = docs.find((d) => d.id === open) ?? null;
   const busy = queue.some((q) => q.state === 'waiting' || q.state === 'uploading');
 
   const thumb = (d: LibraryDoc, size: number) => {
-    const image = d.files.find((f) => isImage(f.extension));
+    const image = d.files.find((f) => isShowableImage(f.extension));
 
     return (
       <span
@@ -229,7 +352,7 @@ export const Documents = () => {
           fontSize: size * 0.4,
         }}
       >
-        {image ? <img src={image.url} alt={d.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : docType(d.type).icon}
+        {image ? fileFace(image, d.name) : docType(d.type).icon}
       </span>
     );
   };
@@ -255,6 +378,10 @@ export const Documents = () => {
             onClose={() => setOpen(null)}
             onView={(start) => setViewing({ files: openDoc.files, start, title: openDoc.name })}
             onChanged={reload}
+            onDeleted={() => {
+              setUndo({ id: openDoc.id, name: openDoc.name });
+              if (deleted) loadDeleted();
+            }}
           />
         </Sheet>
       )}
@@ -305,8 +432,18 @@ export const Documents = () => {
                 <div key={q.key} style={{ display: 'flex', gap: 8, fontSize: 12.5, alignItems: 'center' }}>
                   <span style={{ width: 18 }}>{q.state === 'done' ? '✅' : q.state === 'failed' ? '⚠️' : q.state === 'uploading' ? '⏳' : '·'}</span>
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: q.state === 'failed' ? 'var(--t-color-red11)' : c.text2 }}>
-                    {q.state === 'failed' ? q.message : `${q.file.name} · ${formatBytes(q.file.size)} → ${docType(q.type).label}`}
+                    {q.state === 'failed' ? q.message ?? `${q.file.name}: upload failed.` : `${q.file.name} · ${formatBytes(q.file.size)} → ${docType(q.type).label}`}
                   </span>
+                  {q.state === 'failed' && (
+                    <>
+                      <button onClick={() => retry(q)} disabled={busy} style={{ ...button(), height: 26, padding: '0 8px', fontSize: 12 }}>
+                        Retry
+                      </button>
+                      <button onClick={() => setQueue((current) => current.filter((x) => x.key !== q.key))} disabled={busy} style={{ ...button(), height: 26, padding: '0 8px', fontSize: 12 }}>
+                        Dismiss
+                      </button>
+                    </>
+                  )}
                 </div>
               ))}
               {!busy && (
@@ -379,7 +516,7 @@ export const Documents = () => {
           </div>
         ) : view === 'grid' ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(160px, calc(50% - 5px)), 1fr))', gap: 10 }}>
-            {rows.map((d) => {
+            {rows.slice(0, limit).map((d) => {
               const badge = expiryBadge(d, today);
 
               return (
@@ -390,11 +527,11 @@ export const Documents = () => {
                 >
                   <span style={{ display: 'block', position: 'relative' }}>
                     {(() => {
-                      const image = d.files.find((f) => isImage(f.extension));
+                      const image = d.files.find((f) => isShowableImage(f.extension));
 
                       return (
                         <span style={{ display: 'flex', aspectRatio: '4 / 3', borderRadius: 8, background: c.bg2, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', fontSize: 34 }}>
-                          {image ? <img src={image.url} alt={d.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : docType(d.type).icon}
+                          {image ? fileFace(image, d.name) : docType(d.type).icon}
                         </span>
                       );
                     })()}
@@ -413,7 +550,7 @@ export const Documents = () => {
           </div>
         ) : (
           <div style={{ border: `1px solid ${c.border}`, borderRadius: 12, overflow: 'hidden' }}>
-            {rows.map((d, index) => {
+            {rows.slice(0, limit).map((d, index) => {
               const badge = expiryBadge(d, today);
 
               return (
@@ -434,9 +571,58 @@ export const Documents = () => {
           </div>
         )}
 
+        {!loading && rows.length > limit && (
+          <button onClick={() => setLimit((n) => n + PAGE_SIZE)} style={{ ...button(), alignSelf: 'center' }}>
+            Show more ({rows.length - limit} left)
+          </button>
+        )}
+
+        {/* Recently deleted */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <button
+            onClick={() => (deleted ? setDeleted(null) : loadDeleted())}
+            style={{ ...button(), alignSelf: 'flex-start', border: 'none', background: 'transparent', fontSize: 12, color: c.text3 }}
+          >
+            {deleted ? '▾' : '▸'} Recently deleted
+          </button>
+          {deleted && (
+            <div style={{ border: `1px solid ${c.border}`, borderRadius: 12, overflow: 'hidden' }}>
+              {deleted.length === 0 ? (
+                <div style={{ padding: 14, fontSize: 13, color: c.text3 }}>Nothing deleted.</div>
+              ) : (
+                deleted.map((d, index) => (
+                  <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderTop: index ? `1px solid ${c.border}` : 'none' }}>
+                    <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: 13.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {docType(d.type).icon} {d.name || docType(d.type).label}
+                      </span>
+                      <span style={{ fontSize: 12, color: c.text3 }}>
+                        {docType(d.type).label} · {d.files} file{d.files === 1 ? '' : 's'}
+                        {d.deletedAt ? ` · deleted ${day(d.deletedAt.slice(0, 10))}` : ''}
+                      </span>
+                    </span>
+                    <button onClick={() => restore(d.id)} style={button()}>
+                      Restore
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+
         <button onClick={() => navigate(AppPath.RecordIndexPage, { objectNamePlural: 'documents' })} style={{ ...button(), alignSelf: 'flex-start', border: 'none', background: 'transparent', fontSize: 12, color: c.text3 }}>
           Open as a table →
         </button>
+
+        {undo && (
+          <div style={{ position: 'sticky', bottom: 8, alignSelf: 'center', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 10, background: '#1f2023', color: '#e8e8ea', fontSize: 13, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+            <span>Deleted “{undo.name || 'document'}”.</span>
+            <button onClick={() => restore(undo.id)} style={{ ...button(), height: 28, background: '#2f3136', color: '#8ab4f8', border: '1px solid #44464c' }}>
+              Undo
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -450,17 +636,56 @@ const DocumentSheet = ({
   onClose,
   onView,
   onChanged,
+  onDeleted,
 }: {
   doc: LibraryDoc;
   properties: Option[];
   onClose: () => void;
   onView: (start: number) => void;
   onChanged: () => Promise<void>;
+  onDeleted: () => void;
 }) => {
   const [name, setName] = useState(doc.name);
   const [notes, setNotes] = useState(doc.notes);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmFile, setConfirmFile] = useState<string | null>(null);
+
+  // Title and notes save when you click away (and when the sheet closes).
+  const latest = useRef({ name, notes });
+  const savedText = useRef({ name: doc.name, notes: doc.notes });
+
+  latest.current = { name, notes };
+
+  const commitText = async () => {
+    const { name: n, notes: t } = latest.current;
+    const data: Record<string, unknown> = {};
+
+    if (n.trim() && n.trim() !== savedText.current.name) data.name = n.trim();
+    if (t !== savedText.current.notes) data.notes = t;
+    if (Object.keys(data).length === 0) return;
+
+    const before = savedText.current;
+
+    savedText.current = { name: (data.name as string | undefined) ?? before.name, notes: (data.notes as string | undefined) ?? before.notes };
+    try {
+      const result = await post<Record<string, never>>({ action: 'update', documentId: doc.id, ...data });
+
+      if (!result.success) throw new Error(result.message ?? 'Could not save.');
+      await enqueueSnackbar({ message: 'Saved.', variant: 'success' });
+      await onChanged();
+    } catch (error) {
+      savedText.current = before;
+      await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not save.', variant: 'error' });
+    }
+  };
+
+  useEffect(
+    () => () => {
+      void commitText();
+    },
+    [],
+  );
 
   const save = async (data: Record<string, unknown>, done?: string) => {
     setBusy(true);
@@ -492,18 +717,29 @@ const DocumentSheet = ({
     setBusy(true);
 
     let added = 0;
+    let full = false;
+    const problems: string[] = [];
 
     for (const file of files) {
+      if (full) break;
+
       const result = await uploadFile(file, { documentId: doc.id });
 
       if (result.success) added += 1;
-      else await enqueueSnackbar({ message: result.message ?? 'Upload failed.', variant: 'error' });
+      else if (result.full) full = true;
+      else problems.push(result.message ?? `${file.name}: upload failed.`);
     }
     setBusy(false);
-    if (added) {
-      await enqueueSnackbar({ message: `Added ${added} file${added === 1 ? '' : 's'}.`, variant: 'success' });
-      await onChanged();
-    }
+
+    const skipped = files.length - added - problems.length;
+    const parts = [
+      added ? `Added ${added} file${added === 1 ? '' : 's'}.` : '',
+      full ? `This document is full (20 files)${skipped ? ` — ${skipped} not added` : ''}. Drop them on the page to start a new document.` : '',
+      problems.length ? (problems.length === 1 ? problems[0] : `${problems.length} files failed (${problems[0]}).`) : '',
+    ].filter(Boolean);
+
+    if (parts.length) await enqueueSnackbar({ message: parts.join(' '), variant: full || problems.length ? 'error' : 'success' });
+    if (added) await onChanged();
   };
 
   const label = (text: string) => <span style={{ fontSize: 12, fontWeight: 600, color: c.text3, textTransform: 'uppercase', letterSpacing: 0.4 }}>{text}</span>;
@@ -537,17 +773,49 @@ const DocumentSheet = ({
                     title={`View ${file.label}`}
                     style={{ padding: 0, cursor: 'pointer', aspectRatio: '1', borderRadius: 10, border: `1px solid ${c.border}`, background: c.bg2, overflow: 'hidden', fontSize: 28, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
-                    {isImage(file.extension) ? <img src={file.url} alt={file.label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : file.extension === 'pdf' ? '📕' : '📄'}
+                    {fileFace(file)}
                   </button>
                   <span style={{ fontSize: 11, color: c.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.label}</span>
-                  <button
-                    onClick={() => act({ action: 'removeFile', fileId: file.fileId })}
-                    disabled={busy}
-                    title="Remove this file"
-                    style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 11, border: 'none', background: 'rgba(0,0,0,0.55)', color: '#fff', cursor: 'pointer', fontSize: 13, padding: 0 }}
-                  >
-                    ×
-                  </button>
+                  {confirmFile === file.fileId ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: c.text2 }}>
+                      <span>{doc.files.length === 1 ? 'Last file — the document will be empty.' : 'Remove?'}</span>
+                      <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        <button
+                          onClick={() => {
+                            setConfirmFile(null);
+                            act({ action: 'removeFile', fileId: file.fileId });
+                          }}
+                          disabled={busy}
+                          style={{ ...button(), height: 24, padding: '0 8px', fontSize: 11.5, color: 'var(--t-color-red11)' }}
+                        >
+                          Yes
+                        </button>
+                        {doc.files.length === 1 && (
+                          <button
+                            onClick={() => {
+                              setConfirmFile(null);
+                              setConfirmDelete(true);
+                            }}
+                            style={{ ...button(), height: 24, padding: '0 8px', fontSize: 11.5 }}
+                          >
+                            Delete doc instead
+                          </button>
+                        )}
+                        <button onClick={() => setConfirmFile(null)} style={{ ...button(), height: 24, padding: '0 8px', fontSize: 11.5 }}>
+                          No
+                        </button>
+                      </span>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmFile(file.fileId)}
+                      disabled={busy}
+                      title="Remove this file"
+                      style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 11, border: 'none', background: 'rgba(0,0,0,0.55)', color: '#fff', cursor: 'pointer', fontSize: 13, padding: 0 }}
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -564,12 +832,7 @@ const DocumentSheet = ({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {label('Details')}
           <div style={{ display: 'flex', gap: 6 }}>
-            <input value={name} onChange={(e) => setName(readValue(e))} placeholder="Title" style={{ ...control, flex: 1 }} />
-            {name.trim() && name.trim() !== doc.name && (
-              <button onClick={() => save({ name }, 'Renamed.')} disabled={busy} style={button(true)}>
-                Save
-              </button>
-            )}
+            <input value={name} onChange={(e) => setName(readValue(e))} onBlur={commitText} placeholder="Title" style={{ ...control, flex: 1 }} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))', gap: 8 }}>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: c.text2 }}>
@@ -608,16 +871,12 @@ const DocumentSheet = ({
           <textarea
             value={notes}
             onChange={(e) => setNotes(readValue(e))}
+            onBlur={commitText}
             placeholder="Notes (policy no., where the original is kept…)"
             rows={3}
             style={{ ...control, height: 'auto', padding: '8px 10px', resize: 'vertical' }}
           />
-          {notes !== doc.notes && (
-            <button onClick={() => save({ notes }, 'Notes saved.')} disabled={busy} style={{ ...button(true), alignSelf: 'flex-start' }}>
-              Save notes
-            </button>
-          )}
-          <span style={{ fontSize: 12, color: c.text3 }}>With an expiry date it shows on Today 30 days before.</span>
+          <span style={{ fontSize: 12, color: c.text3 }}>Title and notes save when you click away. With an expiry date, the document turns amber here 60 days before and red within 30.</span>
         </div>
       </div>
 
@@ -628,7 +887,10 @@ const DocumentSheet = ({
         {confirmDelete ? (
           <button
             onClick={async () => {
-              if (await act({ action: 'delete' })) onClose();
+              if (await act({ action: 'delete' })) {
+                onDeleted();
+                onClose();
+              }
             }}
             disabled={busy}
             style={{ ...button(), flex: 1, height: 40, background: 'var(--t-color-red9)', color: '#fff', border: '1px solid var(--t-color-red9)' }}

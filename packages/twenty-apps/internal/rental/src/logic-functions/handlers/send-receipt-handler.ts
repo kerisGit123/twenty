@@ -680,6 +680,6 @@ export const receiptHandler = async (
     message:
       delivered.length > 0
         ? `Receipt ${receiptNumber} sent by ${delivered.join(' and ')}.${issuesText}`
-        : `Receipt ${receiptNumber} issued.${issuesText}`,
+        : `Receipt ${receiptNumber} saved but not sent — send it from the month's receipt.${issuesText}`,
   };
 };

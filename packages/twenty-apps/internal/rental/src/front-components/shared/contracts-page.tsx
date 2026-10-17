@@ -45,7 +45,7 @@ const addDays = (iso: string, days: number) => {
 
 const openContract = (id: string) => openSidePanelPage({ page: SidePanelPages.ViewRecord, recordId: id, objectNameSingular: 'rental' });
 
-type Filter = 'active' | 'ending' | 'deposits' | 'ended' | 'all';
+type Filter = 'active' | 'ending' | 'deposits' | 'unstamped' | 'ended' | 'all';
 
 // ---------------------------------------------------------------- styles
 
@@ -148,10 +148,10 @@ export const Contracts = () => {
     try {
       const result = await post<{ data?: ContractsData }>({ action: 'list' });
 
-      if (!result.success || !result.data) throw new Error(result.message ?? 'Could not load contracts.');
+      if (!result.success || !result.data) throw new Error(result.message ?? 'Could not load tenancies.');
       setContracts(result.data.contracts);
     } catch (error) {
-      await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not load contracts.', variant: 'error' });
+      await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not load tenancies.', variant: 'error' });
     } finally {
       setLoading(false);
     }
@@ -162,20 +162,26 @@ export const Contracts = () => {
   }, [reload]);
 
   const mine = useMemo(() => contracts.filter((x) => scope.matches(x.ownerId)), [contracts, scope.key]);
-  const active = mine.filter((x) => x.status === 'ACTIVE');
+  // A tenancy whose renewal has started is over; a renewal that starts later
+  // isn't counted (or its rent) until then, so a pair is never counted twice.
+  const started = (x: ContractCard) => !x.startDate || x.startDate <= today;
+  const live = mine.filter((x) => x.status === 'ACTIVE' && !(x.renewedById && contracts.some((y) => y.id === x.renewedById && y.status === 'ACTIVE' && started(y))));
+  const active = live.filter(started);
   const ending = active.filter((x) => endingStage(x, today) !== 'none');
   const withDeposit = mine.filter((x) => depositHeld(x.deposit) > 0);
   const heldTotal = withDeposit.reduce((sum, x) => sum + depositHeld(x.deposit), 0);
-  const notStamped = active.filter((x) => !x.stampedOn);
+  const notStamped = live.filter((x) => !x.stampedOn);
 
   const rows = useMemo(() => {
     const term = search.trim().toLowerCase();
     const base =
       filter === 'active'
-        ? mine.filter((x) => x.status === 'ACTIVE')
+        ? live
         : filter === 'ending'
-          ? mine.filter((x) => x.status === 'ACTIVE' && endingStage(x, today) !== 'none')
-          : filter === 'deposits'
+          ? ending
+          : filter === 'unstamped'
+            ? notStamped
+            : filter === 'deposits'
             ? mine.filter((x) => depositHeld(x.deposit) > 0 || x.deposit.status === 'PARTLY_REFUNDED' || x.deposit.status === 'REFUNDED' || x.deposit.status === 'FORFEITED')
             : filter === 'ended'
               ? mine.filter((x) => x.status === 'ENDED')
@@ -184,7 +190,7 @@ export const Contracts = () => {
     return base
       .filter((x) => !term || `${x.propertyName} ${x.tenantName}`.toLowerCase().includes(term))
       .sort((a, b) => (a.endDate ?? '9999').localeCompare(b.endDate ?? '9999'));
-  }, [mine, filter, search, today]);
+  }, [mine, live, ending, notStamped, filter, search, today]);
 
   const kpi = (label: string, value: string, hint: string, target: Filter, color: string) => (
     <button
@@ -301,19 +307,20 @@ export const Contracts = () => {
 
         {/* Two per row on a phone, four on a wide screen */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(150px, calc(50% - 5px)), 1fr))', gap: 10 }}>
-          {kpi('Active contracts', String(active.length), `${rm(active.reduce((s, x) => s + rentForMonth(x, today), 0))}/month in rent`, 'active', 'green')}
+          {kpi('Active tenancies', String(active.length), `${rm(active.reduce((s, x) => s + rentForMonth(x, today), 0))}/month in rent${live.length > active.length ? ` · ${live.length - active.length} starting later` : ''}`, 'active', 'green')}
           {kpi('Ending soon', String(ending.length), 'within 120 days', 'ending', ending.length ? 'amber' : 'gray')}
-          {kpi('Deposits held', rm(heldTotal), `${withDeposit.length} contract${withDeposit.length === 1 ? '' : 's'} · not your income`, 'deposits', 'sky')}
-          {kpi('Not stamped', String(notStamped.length), 'active agreements', 'active', notStamped.length ? 'orange' : 'gray')}
+          {kpi('Deposits held', rm(heldTotal), `${withDeposit.length} tenanc${withDeposit.length === 1 ? 'y' : 'ies'} · not your income`, 'deposits', 'sky')}
+          {kpi('Not stamped', String(notStamped.length), 'active agreements', 'unstamped', notStamped.length ? 'orange' : 'gray')}
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'thin', paddingBottom: 2, maxWidth: '100%' }}>
             {(
               [
-                ['active', 'Active', active.length],
+                ['active', 'Active', live.length],
                 ['ending', 'Ending soon', ending.length],
                 ['deposits', 'Deposits', withDeposit.length],
+                ['unstamped', 'Not stamped', notStamped.length],
                 ['ended', 'Ended', mine.filter((x) => x.status === 'ENDED').length],
                 ['all', 'All', mine.length],
               ] as Array<[Filter, string, number]>
@@ -331,7 +338,7 @@ export const Contracts = () => {
           <div style={{ color: c.text3, fontSize: 13, padding: 24, textAlign: 'center' }}>Loading…</div>
         ) : rows.length === 0 ? (
           <div style={{ ...card, color: c.text3, fontSize: 14, padding: '32px 16px', textAlign: 'center' }}>
-            {filter === 'ending' ? 'Nothing ends in the next 120 days. 🎉' : filter === 'deposits' ? 'No deposits held.' : 'No contracts here.'}
+            {filter === 'ending' ? 'Nothing ends in the next 120 days. 🎉' : filter === 'deposits' ? 'No deposits held.' : filter === 'unstamped' ? 'Every active agreement is stamped. 🎉' : 'No tenancies here.'}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -427,7 +434,7 @@ const ContractRow = ({
   );
 
   return (
-    // Drop files anywhere on the card to file them on this contract.
+    // Drop files anywhere on the card to file them on this tenancy.
     <div
       onDragOver={() => !dropping && setDropping(true)}
       onDragEnter={() => setDropping(true)}
@@ -448,7 +455,7 @@ const ContractRow = ({
         ...(dropping ? { border: '2px dashed var(--t-color-blue8)', background: 'var(--t-color-blue2)' } : {}),
       }}
     >
-      {dropping && <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--t-color-blue11)' }}>📥 Drop to add to this contract’s documents</div>}
+      {dropping && <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--t-color-blue11)' }}>📥 Drop to add to this tenancy’s documents</div>}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <span style={{ width: 40, height: 40, borderRadius: 10, background: c.bg2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
           {x.propertyType === 'SHOP' ? '🏪' : x.propertyType === 'LANDED' ? '🏡' : x.propertyType === 'ROOM' ? '🛏️' : '🏢'}
@@ -512,7 +519,7 @@ const ContractRow = ({
           </button>
         )}
         {x.status === 'ACTIVE' && !renewal && (
-          <button onClick={onMoveOut} style={button()} title="The tenant left: end the contract and settle the deposit">
+          <button onClick={onMoveOut} style={button()} title="The tenant left: end the tenancy and settle the deposit">
             Moved out
           </button>
         )}
@@ -562,7 +569,7 @@ const RenewPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard; 
 
   return (
     <div style={{ height: '100%', background: c.bg, display: 'flex', flexDirection: 'column', fontFamily: c.font, color: c.text }}>
-      <SheetHeader title="Renew contract" sub={`${x.propertyName} · ${x.tenantName}`} onClose={onClose} />
+      <SheetHeader title="Renew tenancy" sub={`${x.propertyName} · ${x.tenantName}`} onClose={onClose} />
       <div style={{ flex: 1, overflow: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 18 }}>
         <div style={{ fontSize: 13, color: c.text2, background: c.bg2, borderRadius: 10, padding: 12 }}>
           Current: {day(x.startDate)} – {day(x.endDate)} · {rm(rentForMonth(x, today))}/month
@@ -633,12 +640,12 @@ const RenewPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard; 
             <span style={{ width: 40, height: 22, borderRadius: 11, background: carry ? c.accent : c.border2, position: 'relative', flexShrink: 0 }}>
               <span style={{ position: 'absolute', top: 2, left: carry ? 20 : 2, width: 18, height: 18, borderRadius: 9, background: '#fff' }} />
             </span>
-            Carry the deposit ({rm(held)}) over to the new contract
+            Carry the deposit ({rm(held)}) over to the new tenancy
           </button>
         )}
 
         <div style={{ fontSize: 12.5, color: c.text3, lineHeight: 1.5 }}>
-          Creates a new contract for the new term. This one stays as it is (with its payments) until it ends. The new agreement
+          Creates a new tenancy for the new term. This one stays as it is (with its payments) until it ends. The new agreement
           needs stamping within 30 days — it shows on Today.
         </div>
       </div>
@@ -720,7 +727,7 @@ const NewTenancyPanel = ({ ownerId, onClose, onDone }: { ownerId: string; onClos
   const create = async () => {
     setBusy(true);
     try {
-      const result = await post<{ id?: string }>({
+      const result = await post<{ id?: string; warning?: string }>({
         action: 'create',
         ...(propertyId ? { propertyId } : { newProperty }),
         ...(tenant ? { tenantId: tenant.id } : { newTenant }),
@@ -733,10 +740,10 @@ const NewTenancyPanel = ({ ownerId, onClose, onDone }: { ownerId: string; onClos
         depositReceivedOn: depositPaid ? paidOn : null,
       });
 
-      await enqueueSnackbar({ message: result.message ?? (result.success ? 'Contract made.' : 'Could not make it.'), variant: result.success ? 'success' : 'error' });
+      await enqueueSnackbar({ message: result.message ?? (result.success ? 'Tenancy started.' : 'Could not start it.'), variant: result.success ? (result.warning ? 'warning' : 'success') : 'error' });
       if (result.success && result.id) await onDone(result.id);
     } catch (error) {
-      await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not make it.', variant: 'error' });
+      await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not start it.', variant: 'error' });
     } finally {
       setBusy(false);
     }
@@ -766,13 +773,13 @@ const NewTenancyPanel = ({ ownerId, onClose, onDone }: { ownerId: string; onClos
             ))}
           </select>
           {property?.letTo && (
-            <span style={{ fontSize: 12.5, color: 'var(--t-color-amber11)' }}>Let to {property.letTo.tenantName} — end (Moved out) or renew that contract first.</span>
+            <span style={{ fontSize: 12.5, color: 'var(--t-color-amber11)' }}>Let to {property.letTo.tenantName} — mark the tenant moved out or renew that tenancy first.</span>
           )}
           {!propertyId && (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <input value={newProperty.name} onChange={(e) => setNewProperty({ ...newProperty, name: readValue(e) })} placeholder="Name, e.g. Block A-3-2, Residensi Mawar" style={{ ...control, flex: '2 1 220px' }} />
               {(options?.owners ?? []).length > 1 && (
-                <select value={newProperty.ownerId} onChange={(e) => setNewProperty({ ...newProperty, ownerId: readValue(e) })} style={{ ...control, flex: '1 1 140px' }} title="Workspace">
+                <select value={newProperty.ownerId} onChange={(e) => setNewProperty({ ...newProperty, ownerId: readValue(e) })} style={{ ...control, flex: '1 1 140px' }} title="Business">
                   {(options?.owners ?? []).map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.name}
@@ -894,7 +901,7 @@ const NewTenancyPanel = ({ ownerId, onClose, onDone }: { ownerId: string; onClos
           Cancel
         </button>
         <button onClick={create} disabled={busy || !ready} style={{ ...button(true), flex: 1.6, height: 44, opacity: ready ? 1 : 0.6 }}>
-          {busy ? 'Saving…' : 'Make the contract'}
+          {busy ? 'Saving…' : 'Start tenancy'}
         </button>
       </div>
     </div>
@@ -923,7 +930,7 @@ const MoveOutPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard
     try {
       const result = await post<{ depositHeld?: number }>({ action: 'moveOut', rentalId: x.id, movedOutOn: date, waiveLastMonth: waive });
 
-      await enqueueSnackbar({ message: result.message ?? (result.success ? 'Contract ended.' : 'Could not end it.'), variant: result.success ? 'success' : 'error' });
+      await enqueueSnackbar({ message: result.message ?? (result.success ? 'Tenant moved out.' : 'Could not end it.'), variant: result.success ? 'success' : 'error' });
       if (result.success) await onDone();
     } catch (error) {
       await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not end it.', variant: 'error' });
@@ -937,12 +944,12 @@ const MoveOutPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard
       <SheetHeader title="Tenant moved out" sub={`${x.propertyName} · ${x.tenantName}`} onClose={onClose} />
       <div style={{ flex: 1, overflow: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 18 }}>
         <div style={{ fontSize: 13, color: c.text2, background: c.bg2, borderRadius: 10, padding: 12 }}>
-          Contract: {day(x.startDate)} – {day(x.endDate)} · {rm(rentForMonth(x, today))}/month
+          Tenancy: {day(x.startDate)} – {day(x.endDate)} · {rm(rentForMonth(x, today))}/month
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <Label>Moved out on</Label>
           <input type="date" value={date} onChange={(e) => { const v = readValue(e); if (v) setDate(v); }} style={{ ...control, width: 'auto' }} />
-          {early && <span style={{ fontSize: 12.5, color: 'var(--t-color-amber11)' }}>Before the contract’s end ({day(x.endDate)}) — it ends early on this day.</span>}
+          {early && <span style={{ fontSize: 12.5, color: 'var(--t-color-amber11)' }}>Before the tenancy’s end ({day(x.endDate)}) — it ends early on this day.</span>}
           {x.endDate && date > x.endDate && <span style={{ fontSize: 12.5, color: c.text3 }}>After the end date — rent is owed up to this day.</span>}
         </div>
         <button onClick={() => setWaive(!waive)} style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13.5 }}>
@@ -952,7 +959,7 @@ const MoveOutPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard
           Don’t charge the last part-month ({monthYear(`${periodMonth}-01`)}) if it’s unpaid
         </button>
         <div style={{ fontSize: 12.5, color: c.text3, lineHeight: 1.5 }}>
-          Ends the contract on this day: no rent is owed after it, reminders stop, and the unit shows as vacant. Unpaid months up to
+          Ends the tenancy on this day: no rent is owed after it, reminders stop, and the unit shows as vacant. Unpaid months up to
           this day stay owed.{held > 0 ? ` Next you settle the deposit (${rm(held)}).` : ''}
         </div>
       </div>
@@ -961,7 +968,7 @@ const MoveOutPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard
           Cancel
         </button>
         <button onClick={end} disabled={busy} style={{ ...button(true), flex: 1.6, height: 44 }}>
-          {busy ? 'Ending…' : `End contract on ${day(date)}`}
+          {busy ? 'Saving…' : `Tenant moved out on ${day(date)}`}
         </button>
       </div>
     </div>
@@ -976,6 +983,7 @@ const DepositPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard
   const d = x.deposit;
   const held = depositHeld(d);
   const settled = isDepositSettled(d);
+  const canSettle = x.status === 'ENDED';
   const [rows, setRows] = useState<Array<{ label: string; amount: string }>>([]);
   const [refundedOn, setRefundedOn] = useState(todayIso());
   const [busy, setBusy] = useState(false);
@@ -987,14 +995,14 @@ const DepositPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard
   const result = { refund: plan.refund, deducted: plan.rentTaken + plan.kept };
 
   useEffect(() => {
-    if (settled || held <= 0) return;
+    if (settled || held <= 0 || !canSettle) return;
     post<{ unpaid?: Array<{ month: string; amount: number }> }>({ action: 'depositOptions', rentalId: x.id }).then((r) => {
       const list = r.unpaid ?? [];
 
       setUnpaid(list);
       setPicked(new Set(list.map((u) => u.month)));
     });
-  }, [x.id, settled, held]);
+  }, [x.id, settled, held, canSettle]);
   const settlement = d.settlement;
   const recorded = parseDeductions(d.notes);
   const statementUrl = (lang: 'EN' | 'MS') => new RestApiClient().resolveUrl('/s/contracts/deposit-statement', { query: { rental: x.id, lang } });
@@ -1072,13 +1080,15 @@ const DepositPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard
               </button>
             )}
           </div>
+        ) : held > 0 && !canSettle ? (
+          <div style={{ fontSize: 13, color: 'var(--t-color-amber11)' }}>Mark moved out first — the deposit is settled after the tenant leaves.</div>
         ) : held > 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <Label>Unpaid rent</Label>
             {unpaid === null ? (
               <span style={{ fontSize: 13, color: c.text3 }}>Checking the ledger…</span>
             ) : unpaid.length === 0 ? (
-              <span style={{ fontSize: 13, color: c.text3 }}>✅ No rent owed on this contract.</span>
+              <span style={{ fontSize: 13, color: c.text3 }}>✅ No rent owed on this tenancy.</span>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {unpaid.map((u) => {
@@ -1152,7 +1162,7 @@ const DepositPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard
           <div style={{ fontSize: 13, color: c.text3 }}>No deposit is held. Record the deposit as a payment (type Security deposit) to track it here.</div>
         )}
       </div>
-      {!settled && held > 0 && (
+      {!settled && held > 0 && canSettle && (
         <div style={{ display: 'flex', gap: 8, padding: '12px 16px', borderTop: `1px solid ${c.border}` }}>
           <button onClick={onClose} style={{ ...button(), flex: 1, height: 44 }}>
             Cancel

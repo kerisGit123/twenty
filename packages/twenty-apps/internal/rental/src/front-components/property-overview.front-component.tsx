@@ -5,6 +5,7 @@ import { AppPath, navigate, useRecordId } from 'twenty-sdk/front-component';
 
 import { MONTHS } from 'src/shared/months';
 import { PROPERTY_OVERVIEW_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
+import { openPage } from 'src/front-components/shared/open-page';
 import { dueDateInMonth, monthStart, todayIso } from 'src/logic-functions/utils/dates';
 
 // ---------------------------------------------------------------- types
@@ -422,7 +423,12 @@ const PropertyOverview = () => {
               )}
             </>
           ) : (
-            <span style={{ fontSize: 13, color: c.text3 }}>No contract yet. Add one in the Contracts tab.</span>
+            <>
+              <span style={{ fontSize: 13, color: c.text3 }}>No tenancy yet. Start one with New tenancy on the Contracts page.</span>
+              <button style={{ ...linkButton, fontSize: 13, textAlign: 'left' }} onClick={() => openPage('Contracts')}>
+                Open Contracts →
+              </button>
+            </>
           )}
         </Card>
 

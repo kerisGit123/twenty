@@ -1,4 +1,4 @@
-import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { AppPath, enqueueSnackbar, navigate } from 'twenty-sdk/front-component';
 
@@ -81,6 +81,34 @@ const monthsBetween = (fromIso: string, toIso: string, cap = 24) => {
   }
 
   return months;
+};
+
+const RANGE_CAP = 36;
+
+const monthCount = (fromIso: string, toIso: string) => {
+  const [fromYear, fromMonth] = fromIso.split('-').map(Number);
+  const [toYear, toMonth] = toIso.split('-').map(Number);
+
+  return (toYear - fromYear) * 12 + (toMonth - fromMonth) + 1;
+};
+
+const ordinal = (day: number) => {
+  const teen = day % 100 >= 11 && day % 100 <= 13;
+  const suffix = teen ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[day % 10] ?? 'th';
+
+  return `${day}${suffix}`;
+};
+
+// A failed request still carries the server's message in its body.
+const postRoute = async <T extends { message?: string }>(path: string, body: unknown): Promise<T> => {
+  try {
+    return await new RestApiClient().post<T>(path, body);
+  } catch (error) {
+    const detail = (error as { body?: unknown }).body;
+
+    if (detail && typeof detail === 'object' && typeof (detail as { message?: unknown }).message === 'string') return detail as T;
+    throw error;
+  }
 };
 
 const shiftMonth = (iso: string, delta: number) => {
@@ -181,6 +209,9 @@ type RecordResponse = {
   message?: string;
   fileUrl?: string;
   receiptNumber?: string;
+  emailed?: boolean;
+  whatsapped?: boolean;
+  partial?: boolean;
 };
 
 export const RentLedger = () => {
@@ -195,6 +226,9 @@ export const RentLedger = () => {
   const [rentals, setRentals] = useState<Rental[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
+  // The period changed and its payments haven't arrived yet.
+  const [stale, setStale] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [selection, setSelection] = useState<Selection | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Contract whose year statement is open.
@@ -212,11 +246,28 @@ export const RentLedger = () => {
     if (mode === 'month') return [monthStart(anchor)];
     if (mode === 'year') return monthsBetween(`${anchor.slice(0, 4)}-01-01`, `${anchor.slice(0, 4)}-12-01`);
 
-    return monthsBetween(rangeFrom, rangeTo);
+    return monthsBetween(rangeFrom, rangeTo, RANGE_CAP);
   }, [mode, anchor, rangeFrom, rangeTo]);
+  const rangeInvalid = mode === 'range' && monthStart(rangeTo) < monthStart(rangeFrom);
+  const rangeTruncated = mode === 'range' && !rangeInvalid && monthCount(monthStart(rangeFrom), monthStart(rangeTo)) > RANGE_CAP;
+  const latestLoad = useRef(0);
 
-  const reload = useCallback(async () => {
-    if (months.length === 0) return;
+  // fresh: the period changed, so what is shown belongs to another period.
+  const reload = useCallback(async (fresh?: boolean) => {
+    const load = ++latestLoad.current;
+
+    if (months.length === 0) {
+      setPayments([]);
+      setStale(false);
+      setLoading(false);
+
+      return;
+    }
+    if (fresh === true) {
+      setPayments([]);
+      setStale(true);
+      setLoadError('');
+    }
     setLoading(true);
     try {
       // The server reads the ledger and keeps only the caller's workspaces.
@@ -226,20 +277,26 @@ export const RentLedger = () => {
       );
 
       if (!result.success || !result.data) throw new Error(result.message ?? 'Could not load the ledger.');
+      if (load !== latestLoad.current) return;
       setRentals(result.data.rentals);
       setPayments(result.data.payments);
+      setLoadError('');
     } catch (error) {
-      await enqueueSnackbar({
-        message: error instanceof Error ? error.message : 'Could not load the ledger.',
-        variant: 'error',
-      });
+      if (load !== latestLoad.current) return;
+      const message = error instanceof Error ? error.message : 'Could not load the ledger.';
+
+      if (fresh === true) setLoadError(message);
+      await enqueueSnackbar({ message, variant: 'error' });
     } finally {
-      setLoading(false);
+      if (load === latestLoad.current) {
+        setLoading(false);
+        setStale(false);
+      }
     }
   }, [months]);
 
   useEffect(() => {
-    reload();
+    reload(true);
   }, [reload]);
 
   const paymentsByCell = useMemo(() => {
@@ -427,7 +484,7 @@ export const RentLedger = () => {
         <Sheet width={500} onClose={() => setSelection(null)}>
           <PaymentPanel
             // Remounts after each saved payment, so the form starts from what's left.
-            key={`${selection.rental.id}|${selection.month}|${cellFor(selection.rental, selection.month).payments.length}`}
+            key={`${selection.rental.id}|${selection.month}|${cellFor(selection.rental, selection.month).payments.map((p) => `${p.id}:${p.status}:${p.amount}`).join(',')}`}
             selection={selection}
             cell={cellFor(selection.rental, selection.month)}
             lastMethod={[...payments].reverse().find((p) => p.rentalId === selection.rental.id && p.method)?.method ?? 'BANK_TRANSFER'}
@@ -476,6 +533,8 @@ export const RentLedger = () => {
             </div>
           )}
         </div>
+        {rangeInvalid && <div style={{ fontSize: 13, color: 'var(--t-color-red11)' }}>The end month is before the start month. Pick an end month that is the same or later.</div>}
+        {rangeTruncated && <div style={{ fontSize: 13, color: 'var(--t-color-amber11)' }}>A range shows at most {RANGE_CAP} months, so this stops at {monthLabel(months[months.length - 1], true)}. Pick a shorter range to see the rest.</div>}
 
         {/* Totals: tap to filter */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))', gap: 10 }}>
@@ -484,12 +543,12 @@ export const RentLedger = () => {
             style={{ ...card, all: 'unset', boxSizing: 'border-box', cursor: 'pointer', border: `1px solid ${status === 'paid' ? c.accent : c.border}`, borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}
           >
             <span style={{ fontSize: 13, color: c.text3 }}>Collected</span>
-            <span style={{ fontSize: 24, fontWeight: 700, color: 'var(--t-color-green11)' }}>{rm(totals.collected)}</span>
+            <span style={{ fontSize: 24, fontWeight: 700, color: 'var(--t-color-green11)' }}>{stale ? '…' : rm(totals.collected)}</span>
             <span style={{ height: 6, background: c.bg2, borderRadius: 3, display: 'block' }}>
               <span style={{ display: 'block', height: 6, width: `${collectedShare * 100}%`, background: 'var(--t-color-green9)', borderRadius: 3 }} />
             </span>
             <span style={{ fontSize: 12, color: c.text3 }}>
-              {Math.round(collectedShare * 100)}% of {rm(totals.expected)} expected
+              {stale ? 'Loading…' : `${Math.round(collectedShare * 100)}% of ${rm(totals.expected)} expected`}
             </span>
           </button>
           <button
@@ -497,7 +556,7 @@ export const RentLedger = () => {
             style={{ all: 'unset', boxSizing: 'border-box', cursor: 'pointer', border: `1px solid ${status === 'unpaid' ? c.accent : c.border}`, borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}
           >
             <span style={{ fontSize: 13, color: c.text3 }}>Still to collect</span>
-            <span style={{ fontSize: 24, fontWeight: 700, color: totals.outstanding ? 'var(--t-color-amber11)' : c.text }}>{rm(totals.outstanding)}</span>
+            <span style={{ fontSize: 24, fontWeight: 700, color: totals.outstanding ? 'var(--t-color-amber11)' : c.text }}>{stale ? '…' : rm(totals.outstanding)}</span>
             <span style={{ fontSize: 12, color: c.text3 }}>{unpaidCount} contract{unpaidCount === 1 ? '' : 's'} with unpaid months{totals.outstanding > 0 && totals.overdue >= totals.outstanding ? ' · all of it overdue' : ''}</span>
           </button>
           <button
@@ -516,9 +575,9 @@ export const RentLedger = () => {
             }}
           >
             <span style={{ fontSize: 13, color: c.text3 }}>Overdue</span>
-            <span style={{ fontSize: 24, fontWeight: 700, color: totals.overdue ? 'var(--t-color-red11)' : c.text }}>{rm(totals.overdue)}</span>
+            <span style={{ fontSize: 24, fontWeight: 700, color: totals.overdue ? 'var(--t-color-red11)' : c.text }}>{stale ? '…' : rm(totals.overdue)}</span>
             <span style={{ fontSize: 12, color: c.text3 }}>
-              {totals.overdueCount ? `${totals.overdueCount} month${totals.overdueCount === 1 ? '' : 's'} late` : 'Nothing late 🎉'}
+              {stale ? 'Loading…' : totals.overdueCount ? `${totals.overdueCount} month${totals.overdueCount === 1 ? '' : 's'} late` : 'Nothing late 🎉'}
             </span>
           </button>
         </div>
@@ -538,7 +597,14 @@ export const RentLedger = () => {
         </div>
 
         {/* Contracts */}
-        {loading && rows.length === 0 ? (
+        {rangeInvalid ? null : loadError && !stale ? (
+          <div style={{ ...card, color: 'var(--t-color-red11)', fontSize: 14, padding: '24px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+            {loadError}
+            <button onClick={() => reload(true)} style={button()}>
+              Try again
+            </button>
+          </div>
+        ) : stale || (loading && rows.length === 0) ? (
           <div style={{ color: c.text3, fontSize: 13, padding: 24, textAlign: 'center' }}>Loading…</div>
         ) : rows.length === 0 ? (
           <div style={{ ...card, color: c.text3, fontSize: 14, padding: '32px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
@@ -562,6 +628,9 @@ export const RentLedger = () => {
               const focus = cells.find((cell) => cell.month === focusMonth) ?? cells[cells.length - 1];
               const unpaid = cells.filter(isOwing);
               const oldestUnpaid = unpaid[0];
+              // The primary action is the month in focus (this month, or the one shown); older unpaid months get their own button.
+              const target = focus && focus.status !== 'none' ? focus : oldestUnpaid;
+              const olderUnpaid = oldestUnpaid && oldestUnpaid !== target ? oldestUnpaid : null;
               const owed = unpaid.reduce((sum, cell) => sum + cell.settlement.remaining, 0);
               const collected = cells.reduce((sum, cell) => sum + cell.settlement.received, 0);
               const rentNow = rentForMonth(rental, focusMonth ?? monthStart(today));
@@ -601,8 +670,7 @@ export const RentLedger = () => {
                     <div style={{ flex: '1 1 160px', minWidth: 0 }}>
                       <div style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rental.propertyName}</div>
                       <div style={{ fontSize: 13, color: c.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {rental.tenantName} · {rm(rentNow)}/month · due on the {rental.dueDay}
-                        {rental.dueDay === 1 ? 'st' : rental.dueDay === 2 ? 'nd' : rental.dueDay === 3 ? 'rd' : 'th'}
+                        {rental.tenantName} · {rm(rentNow)}/month · due on the {ordinal(rental.dueDay)}
                       </div>
                       {rentChange && (
                         <div style={{ fontSize: 12, color: 'var(--t-color-iris11)', marginTop: 2 }}>
@@ -697,9 +765,14 @@ export const RentLedger = () => {
                     >
                       Statement
                     </button>
-                    {(oldestUnpaid ?? focus) && (oldestUnpaid ?? focus).status !== 'none' && (
-                      <button onClick={() => setSelection({ rental, month: (oldestUnpaid ?? focus).month })} style={{ ...button(Boolean(oldestUnpaid)), height: 34 }}>
-                        {oldestUnpaid ? `Record ${monthLabel(oldestUnpaid.month)}` : focus?.status === 'waived' ? 'View' : 'View receipt'}
+                    {olderUnpaid && (
+                      <button onClick={() => setSelection({ rental, month: olderUnpaid.month })} style={{ ...button(), height: 34 }} title="Oldest month still owing">
+                        Record {monthLabel(olderUnpaid.month, true)}
+                      </button>
+                    )}
+                    {target && (
+                      <button onClick={() => setSelection({ rental, month: target.month })} style={{ ...button(isOwing(target)), height: 34 }}>
+                        {isOwing(target) || target.status === 'upcoming' ? `Record ${monthLabel(target.month)}` : target.status === 'waived' ? 'View' : 'View receipt'}
                       </button>
                     )}
                   </div>
@@ -756,10 +829,10 @@ const PaymentPanel = ({
   const isPartial = status === 'partial';
   const settled = isPaid || isWaived;
   const dueIso = dueDateInMonth(month, rental.dueDay);
-  // A past month is usually entered after the fact: start from its due date.
+  // A past month can be dated back to its due date, but that is a choice.
   const pastMonth = month < monthStart(todayIso());
   const [amount, setAmount] = useState(String(settlement.remaining || cell.rent || ''));
-  const [paidOn, setPaidOn] = useState(pastMonth && !isPartial ? dueIso : todayIso());
+  const [paidOn, setPaidOn] = useState(todayIso());
   const [method, setMethod] = useState(payment?.method ?? lastMethod);
   const [waiving, setWaiving] = useState(false);
   const [waiveReason, setWaiveReason] = useState('');
@@ -768,7 +841,7 @@ const PaymentPanel = ({
   // More than this month owes: put the rest towards the next months.
   const [spread, setSpread] = useState(true);
   // Back-dated payments: the receipt can carry the payment date instead of today.
-  const [receiptOnPaidDate, setReceiptOnPaidDate] = useState(month < monthStart(todayIso()));
+  const [receiptOnPaidDate, setReceiptOnPaidDate] = useState(false);
   const [busy, setBusy] = useState<'' | 'preview' | 'save' | 'correct' | 'waive'>('');
   const [paymentId, setPaymentId] = useState<string | null>(payment?.id ?? null);
   const [receipt, setReceipt] = useState<ReceiptViewData | null>(null);
@@ -802,7 +875,7 @@ const PaymentPanel = ({
   const waive = async (action: 'waive' | 'unwaive') => {
     setBusy('waive');
     try {
-      const result = await new RestApiClient().post<RecordResponse>('/s/ledger/record', {
+      const result = await postRoute<RecordResponse>('/s/ledger/record', {
         rentalId: rental.id,
         month,
         notes: waiveReason,
@@ -828,7 +901,7 @@ const PaymentPanel = ({
   const submit = async (action: 'preview' | 'issue' | 'send') => {
     setBusy(action === 'preview' ? 'preview' : 'save');
     try {
-      const result = await new RestApiClient().post<RecordResponse>('/s/ledger/record', {
+      const result = await postRoute<RecordResponse>('/s/ledger/record', {
         rentalId: rental.id,
         month,
         amount: Number(amount.replace(/[^\d.]/g, '')),
@@ -842,17 +915,24 @@ const PaymentPanel = ({
 
       if (result.paymentId) setPaymentId(result.paymentId);
       if (result.success && action === 'preview' && result.paymentId) await loadReceipt(result.paymentId);
+      // Saved, but nobody was messaged: no channel is set up, or delivery failed.
+      const savedNotSent = action === 'send' && Boolean(result.receiptNumber) && (!result.success || (!result.emailed && !result.whatsapped));
+
       await enqueueSnackbar({
         message:
           action === 'preview' && result.success
             ? 'Draft receipt below. Save and send when it looks right.'
             : result.message ?? (result.success ? 'Saved.' : 'Could not save.'),
-        variant: result.success ? 'success' : 'error',
+        variant: savedNotSent || result.partial ? 'warning' : result.success ? 'success' : 'error',
       });
-      if (result.success && action !== 'preview') await onSaved();
     } catch (error) {
-      await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not save.', variant: 'error' });
+      await enqueueSnackbar({
+        message: `${error instanceof Error ? error.message : 'Could not save.'} The receipt may still have been saved: check the ledger.`,
+        variant: 'error',
+      });
     } finally {
+      // Whatever happened, the ledger shows what is really saved.
+      if (action !== 'preview') await onSaved();
       setBusy('');
     }
   };
@@ -861,13 +941,15 @@ const PaymentPanel = ({
     if (!payment) return;
     setBusy('correct');
     try {
-      const result = await new RestApiClient().post<RecordResponse>('/s/receipts/correct', { recordId: payment.id });
+      const result = await postRoute<RecordResponse>('/s/receipts/correct', { recordId: payment.id });
 
       await enqueueSnackbar({ message: result.message ?? 'Done.', variant: result.success ? 'success' : 'error' });
       if (result.success) {
         await onSaved();
         onClose();
       }
+    } catch (error) {
+      await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not correct the receipt.', variant: 'error' });
     } finally {
       setBusy('');
     }
@@ -1157,7 +1239,7 @@ const PaymentPanel = ({
           <>
             {paymentId && (
               <button onClick={() => navigate(AppPath.RecordShowPage, { objectNameSingular: 'rentPayment', objectRecordId: paymentId })} style={{ ...button(), flex: 1, height: 44 }}>
-                Open (PDF)
+                Open receipt
               </button>
             )}
             <button onClick={correct} disabled={busy !== ''} style={{ ...button(), flex: 1, height: 44 }}>
@@ -1195,7 +1277,7 @@ const CatchUpPanel = ({
   onSaved,
 }: {
   rental: Rental;
-  months: Array<{ month: string; status: CellStatus }>;
+  months: Array<{ month: string; status: CellStatus; rent: number }>;
   lastMethod: string;
   onClose: () => void;
   onSaved: () => Promise<void>;
@@ -1203,18 +1285,23 @@ const CatchUpPanel = ({
   const today = todayIso();
   const open = months.filter((m) => m.status === 'due' || m.status === 'overdue' || m.status === 'upcoming');
   const [picked, setPicked] = useState<string[]>(open.filter((m) => m.status !== 'upcoming').map((m) => m.month));
-  const [amount, setAmount] = useState(String(rental.rent || ''));
+  // Empty: each month is recorded at its own rent (a rent change part-way through is followed).
+  const [amount, setAmount] = useState('');
   const [dateMode, setDateMode] = useState<'same' | 'due'>('same');
   const [paidOn, setPaidOn] = useState(today);
   const [method, setMethod] = useState(lastMethod);
-  const [receiptOnPaidDate, setReceiptOnPaidDate] = useState(true);
-  const [sendToTenant, setSendToTenant] = useState(false);
+  const [receiptOnPaidDate, setReceiptOnPaidDate] = useState(false);
+  const [sendToTenant, setSendToTenant] = useState(true);
   const [progress, setProgress] = useState<Record<string, 'waiting' | 'saving' | 'done' | 'failed'>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [running, setRunning] = useState(false);
 
-  const amountValue = Number(amount.replace(/[^\d.]/g, ''));
+  const override = Number(amount.replace(/[^\d.]/g, ''));
   const ordered = open.map((m) => m.month).filter((month) => picked.includes(month));
+  const amountFor = (month: string) => (override > 0 ? override : (open.find((m) => m.month === month)?.rent ?? 0));
+  const rents = [...new Set(open.filter((m) => picked.includes(m.month)).map((m) => m.rent))];
+  const total = ordered.reduce((sum, month) => sum + amountFor(month), 0);
+  const canRun = ordered.length > 0 && ordered.every((month) => amountFor(month) > 0);
   const paidOnFor = (month: string) => (dateMode === 'same' ? paidOn : dueDateInMonth(month, rental.dueDay));
   const finished = ordered.length > 0 && ordered.every((month) => progress[month] === 'done' || progress[month] === 'failed');
 
@@ -1234,7 +1321,7 @@ const CatchUpPanel = ({
   const label: CSSProperties = { fontSize: 12, fontWeight: 600, color: c.text3, textTransform: 'uppercase', letterSpacing: 0.4 };
 
   const run = async () => {
-    if (!(amountValue > 0) || ordered.length === 0) return;
+    if (!canRun) return;
     setRunning(true);
     setProgress(Object.fromEntries(ordered.map((month) => [month, 'waiting'])));
     setErrors({});
@@ -1242,10 +1329,10 @@ const CatchUpPanel = ({
       setProgress((current) => ({ ...current, [month]: 'saving' }));
       try {
         const date = paidOnFor(month);
-        const result = await new RestApiClient().post<RecordResponse>('/s/ledger/record', {
+        const result = await postRoute<RecordResponse>('/s/ledger/record', {
           rentalId: rental.id,
           month,
-          amount: amountValue,
+          amount: amountFor(month),
           paidOn: date,
           method,
           notes: '',
@@ -1333,11 +1420,15 @@ const CatchUpPanel = ({
           <>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <span style={label}>Amount each month</span>
+              <span style={{ fontSize: 12, color: c.text3 }}>
+                {override > 0 ? 'Same amount for every month.' : rents.length > 1 ? 'Each month at its own rent (the rent changes in these months). Type an amount to override.' : 'Each month at its rent. Type an amount to override.'}
+              </span>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, borderBottom: `2px solid ${c.accent}`, paddingBottom: 4 }}>
                 <span style={{ fontSize: 18, fontWeight: 600, color: c.text3 }}>RM</span>
                 <input
                   value={amount}
                   inputMode="decimal"
+                  placeholder={rents.length === 1 ? String(rents[0]) : rents.length > 1 ? 'varies' : ''}
                   disabled={running}
                   onChange={(e) => setAmount(readValue(e))}
                   style={{ fontFamily: c.font, fontSize: 26, fontWeight: 700, color: c.text, border: 'none', outline: 'none', background: 'transparent', width: '100%', minWidth: 0, padding: 0 }}
@@ -1412,9 +1503,9 @@ const CatchUpPanel = ({
         ) : (
           <>
             <span style={{ flex: 1, fontSize: 13, color: c.text2 }}>
-              {ordered.length} receipt{ordered.length === 1 ? '' : 's'} · {rm(ordered.length * (amountValue || 0))}
+              {ordered.length} receipt{ordered.length === 1 ? '' : 's'} · {rm(total)}
             </span>
-            <button onClick={run} disabled={running || ordered.length === 0 || !(amountValue > 0)} style={{ ...button(true), flex: 1.4, height: 44, opacity: ordered.length && amountValue > 0 ? 1 : 0.55 }}>
+            <button onClick={run} disabled={running || !canRun} style={{ ...button(true), flex: 1.4, height: 44, opacity: canRun ? 1 : 0.55 }}>
               {running ? `Recording ${doneCount + 1} of ${ordered.length}…` : `Record ${ordered.length} month${ordered.length === 1 ? '' : 's'}`}
             </button>
           </>

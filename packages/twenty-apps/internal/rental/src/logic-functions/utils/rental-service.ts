@@ -120,19 +120,21 @@ export const fillRentalDefaults = async (client: CoreApiClient, rental: RentalRe
 };
 
 // Property is Occupied (with that tenant) while it has an Active rental,
-// otherwise Vacant with no tenant.
+// otherwise Vacant with no tenant. Of several, the one running today.
 export const syncPropertyStatus = async (client: CoreApiClient, propertyId: string) => {
   const { rentals } = await client.query({
     rentals: {
       __args: {
         filter: { propertyId: { eq: propertyId }, status: { eq: 'ACTIVE' } },
         orderBy: [{ startDate: 'DescNullsLast' }],
-        first: 1,
+        first: 20,
       },
-      edges: { node: { id: true, tenantId: true } },
+      edges: { node: { id: true, tenantId: true, startDate: true } },
     },
   });
-  const active = rentals?.edges?.[0]?.node;
+  const today = todayIso();
+  const list = (rentals?.edges ?? []).map(({ node }) => node);
+  const active = list.find((x) => !x.startDate || x.startDate <= today) ?? list[0];
 
   await client.mutation({
     updateProperty: {
@@ -146,6 +148,9 @@ export const syncPropertyStatus = async (client: CoreApiClient, propertyId: stri
     },
   });
 };
+
+// "Property · Tenant", the name every tenancy gets.
+export const rentalName = (propertyName: string, tenantName: string) => `${propertyName} · ${tenantName}`.slice(0, 200);
 
 type RentPaymentSummary = { id: string; rentPeriod?: string | null; method?: string | null };
 

@@ -13,7 +13,7 @@ import {
   OWNER_TYPE_NGO_OPTION_ID,
   OWNER_TYPE_OTHER_OPTION_ID,
 } from 'src/constants/universal-identifiers-v2';
-import { OWNER_TYPE_PERSONAL_OPTION_ID } from 'src/constants/universal-identifiers-v3';
+import { OWNER_PAID_PLAN_FIELD_ID, OWNER_TYPE_PERSONAL_OPTION_ID } from 'src/constants/universal-identifiers-v3';
 
 // A rental workspace — the top of the hierarchy: Personal, Family, Company A,
 // NGO C... Properties, payments, expenses and documents all belong to one, and
@@ -50,6 +50,15 @@ export default defineObject({
         { id: OWNER_TYPE_NGO_OPTION_ID, value: 'NGO', label: 'NGO / Society', position: 4, color: 'green' },
         { id: OWNER_TYPE_OTHER_OPTION_ID, value: 'OTHER', label: 'Other', position: 5, color: 'gray' },
       ],
+    },
+    {
+      universalIdentifier: OWNER_PAID_PLAN_FIELD_ID,
+      type: FieldType.BOOLEAN,
+      name: 'paidPlan',
+      label: 'Paid plan',
+      description: 'On a Personal business: the person has paid, so they can add businesses and invite people, and the free storage limit no longer applies.',
+      icon: 'IconCrown',
+      defaultValue: false,
     },
     {
       universalIdentifier: OWNER_REG_NO_FIELD_ID,

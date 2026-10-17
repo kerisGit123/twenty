@@ -128,10 +128,16 @@ const loadContractDocs = async (client: CoreApiClient) => {
 
 export const loadContractsData = async (client: CoreApiClient, scope: Scope): Promise<ContractsData> => {
   const [rentals, payments, docs] = await Promise.all([loadRentals(client), loadDepositPayments(client), loadContractDocs(client)]);
+  // A contract counts as renewed only by a renewal that is still going; one
+  // that was deleted or ended no longer hides it. A carried deposit stays
+  // carried while any renewal exists.
   const renewedBy = new Map<string, string>();
+  const hasRenewal = new Set<string>();
 
   for (const node of rentals) {
-    if (node.renewalOfId) renewedBy.set(node.renewalOfId as string, node.id);
+    if (!node.renewalOfId) continue;
+    hasRenewal.add(node.renewalOfId as string);
+    if (node.status !== 'ENDED') renewedBy.set(node.renewalOfId as string, node.id);
   }
 
   const contracts: ContractCard[] = rentals
@@ -140,6 +146,13 @@ export const loadContractsData = async (client: CoreApiClient, scope: Scope): Pr
       const own = payments.filter((p) => p.rentalId === node.id);
       const sum = (rows: typeof own) => rows.reduce((total, p) => total + p.amount, 0);
       const used = own.filter((p) => p.type === 'RENT' && p.method === 'FROM_DEPOSIT');
+      const received = sum(own.filter((p) => p.type === 'DEPOSIT'));
+      const utilityReceived = sum(own.filter((p) => p.type === 'UTILITY_DEPOSIT'));
+      const rawStatus = (node.depositStatus as string) ?? 'NOT_RECEIVED';
+      // Receipts exist but the status was never moved to Held; and a deposit
+      // carried to a renewal that is gone is held again.
+      const orphaned = rawStatus === 'CARRIED' && !hasRenewal.has(node.id);
+      const status = orphaned || (rawStatus === 'NOT_RECEIVED' && received + utilityReceived > 0) ? 'HELD' : rawStatus;
 
       return {
         id: node.id,
@@ -173,15 +186,15 @@ export const loadContractsData = async (client: CoreApiClient, scope: Scope): Pr
         deposit: {
           agreed: money(node.depositAmount),
           utilityAgreed: money(node.utilityDeposit),
-          received: sum(own.filter((p) => p.type === 'DEPOSIT')),
-          utilityReceived: sum(own.filter((p) => p.type === 'UTILITY_DEPOSIT')),
+          received,
+          utilityReceived,
           carriedIn: money(node.depositCarriedIn),
           usedForRent: sum(used),
           usedMonths: used.map((p) => p.month).filter(Boolean).sort(),
           refunded: money(node.depositRefunded),
           refundedOn: node.depositRefundedOn ?? null,
-          status: (node.depositStatus as string) ?? 'NOT_RECEIVED',
-          notes: (node.depositNotes as string | null) ?? '',
+          status,
+          notes: orphaned ? '' : ((node.depositNotes as string | null) ?? ''),
           settlement: (node.depositSettlement as DepositSettlement | null) ?? null,
         },
       };

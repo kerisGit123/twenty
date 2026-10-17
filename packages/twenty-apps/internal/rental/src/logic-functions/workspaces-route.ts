@@ -63,6 +63,27 @@ const json = (body: unknown, status = 200) =>
 
 const refuse = (message: string) => json({ success: false, message }, 403);
 
+// Free accounts have their Personal business only. Adding businesses and
+// inviting people is for paid accounts (admins always can); the paid switch
+// sits on the person's Personal business.
+const hasPaidPlan = async (client: CoreApiClient, scope: Scope) => {
+  if (scope.all) return true;
+  if (!scope.memberId) return false;
+
+  const { memberships } = await client.query({
+    memberships: {
+      __args: { filter: { memberId: { eq: scope.memberId }, memberRole: { eq: 'HOST' } }, first: 100 },
+      edges: { node: { owner: { ownerType: true, paidPlan: true } } },
+    },
+  });
+
+  return (memberships?.edges ?? []).some(
+    ({ node }) => (node.owner?.ownerType as string | null) === 'PERSONAL' && Boolean(node.owner?.paidPlan),
+  );
+};
+
+const PAID_ONLY = 'Adding businesses and inviting people is for paid accounts. Your Personal business stays free.';
+
 const money = (value: { amountMicros?: number | null } | null | undefined) => (value?.amountMicros ?? 0) / 1_000_000;
 
 type MembershipRow = {
@@ -232,6 +253,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     if (body.action === 'create') {
       if (!scope.all && !scope.memberId) return refuse('Sign in to add a business.');
       if (!body.name?.trim()) return json({ success: false, message: 'Give the business a name.' }, 400);
+      if (!(await hasPaidPlan(client, scope))) return refuse(PAID_ONLY);
 
       const { createOwner } = await client.mutation({
         createOwner: {
@@ -313,6 +335,8 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     const rows = (await loadMemberships(client)).filter((row) => row.ownerId === ownerId && !row.allWorkspaces);
 
     if (body.action === 'add') {
+      if (!(await hasPaidPlan(client, scope))) return refuse(PAID_ONLY);
+
       const team = await loadTeam(client);
       const email = body.email?.trim().toLowerCase() ?? '';
       const person = body.memberId

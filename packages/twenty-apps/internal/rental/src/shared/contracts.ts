@@ -125,12 +125,14 @@ export const endingStage = (contract: Pick<ContractCard, 'status' | 'endDate' | 
   return 'none';
 };
 
-// Same day N months later, minus one day: the end of an N-month term.
+// Same day N months later, minus one day: the end of an N-month term. When
+// that month is shorter (31 Aug + 6 months), the term runs to its last day.
 export const termEnd = (startIso: string, months: number) => {
   const [year, month, day] = startIso.split('-').map(Number);
-  const end = new Date(Date.UTC(year, month - 1 + months, day));
+  const lastDay = new Date(Date.UTC(year, month - 1 + months + 1, 0)).getUTCDate();
+  const end = new Date(Date.UTC(year, month - 1 + months, Math.min(day, lastDay)));
 
-  end.setUTCDate(end.getUTCDate() - 1);
+  if (day <= lastDay) end.setUTCDate(end.getUTCDate() - 1);
 
   return end.toISOString().slice(0, 10);
 };

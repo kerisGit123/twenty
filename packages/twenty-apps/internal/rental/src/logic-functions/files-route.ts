@@ -32,6 +32,7 @@ import {
 //   { action: 'update', documentId, name?, type?, expiresOn? }
 //   { action: 'removeFile', documentId, fileId }
 //   { action: 'delete', documentId }
+//   { action: 'listDeleted' } | { action: 'restore', documentId }
 //   { action: 'link', documentId, rentalId }
 
 type FileValue = { fileId: string; label: string; url?: string | null; extension?: string | null };
@@ -319,7 +320,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         doc = await loadDoc(client, body.documentId);
         if (!doc) return fail('Document not found.', 404);
         if (!(await canUseDoc(client, scope, doc))) return json(NOT_ALLOWED, 403);
-        if ((doc.files ?? []).length >= 20) return fail('A document holds up to 20 files — start a new one.');
+        if ((doc.files ?? []).length >= 20) return json({ success: false, full: true, message: 'A document holds up to 20 files — start a new one.' }, 400);
       } else {
         const spec = body.newDocument ?? {};
         const contract = spec.rentalId ? await loadContract(client, spec.rentalId) : null;
@@ -349,10 +350,10 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
       if (quotaOwnerId && !scope.all) {
         const { owners: ownerRows } = await client.query({
-          owners: { __args: { filter: { id: { eq: quotaOwnerId } }, first: 1 }, edges: { node: { ownerType: true } } },
+          owners: { __args: { filter: { id: { eq: quotaOwnerId } }, first: 1 }, edges: { node: { ownerType: true, paidPlan: true } } },
         });
 
-        if ((ownerRows?.edges?.[0]?.node.ownerType as string | null) === 'PERSONAL') {
+        if ((ownerRows?.edges?.[0]?.node.ownerType as string | null) === 'PERSONAL' && !ownerRows?.edges?.[0]?.node.paidPlan) {
           const { documents: usedRows } = (await client.query({
             documents: { __args: { filter: { ownerId: { eq: quotaOwnerId } }, first: 500 }, edges: { node: { fileSizes: true } } },
           } as never)) as { documents?: { edges?: Array<{ node: { fileSizes?: Record<string, number> | null } }> } };
@@ -372,26 +373,42 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
       const uploaded = await appUploadClient().uploadFile({ fileBuffer: buffer, filename: fileName, fieldMetadataUniversalIdentifier: DOCUMENT_FILES_FIELD_ID });
 
-      if (create) {
-        const { createDocument } = await client.mutation({ createDocument: { __args: { data: create as never }, id: true } });
+      let createdId: string | null = null;
 
-        if (!createDocument?.id) return fail('Could not create the document.', 500);
-        doc = { id: createDocument.id, files: [], fileSizes: {} };
-      }
-      if (!doc) return fail('Pick a document.');
+      // A document this call created is soft deleted again if filing the file fails.
+      const undoCreate = async () => {
+        if (!createdId) return;
+        await client.mutation({ deleteDocument: { __args: { id: createdId }, id: true } }).catch((error) => console.error('[rental] cleanup failed:', error));
+      };
 
-      await client.mutation({
-        updateDocument: {
-          __args: {
-            id: doc.id,
-            data: {
-              files: [...(doc.files ?? []).map((f) => ({ fileId: f.fileId, label: f.label })), { fileId: uploaded.id, label: fileName }],
-              fileSizes: { ...(doc.fileSizes ?? {}), [uploaded.id]: buffer.byteLength },
-            } as never,
+      try {
+        if (create) {
+          const { createDocument } = await client.mutation({ createDocument: { __args: { data: create as never }, id: true } });
+
+          if (!createDocument?.id) return fail(`${fileName}: could not create the document.`, 500);
+          createdId = createDocument.id;
+          doc = { id: createDocument.id, files: [], fileSizes: {} };
+        }
+        if (!doc) return fail('Pick a document.');
+
+        await client.mutation({
+          updateDocument: {
+            __args: {
+              id: doc.id,
+              data: {
+                files: [...(doc.files ?? []).map((f) => ({ fileId: f.fileId, label: f.label })), { fileId: uploaded.id, label: fileName }],
+                fileSizes: { ...(doc.fileSizes ?? {}), [uploaded.id]: buffer.byteLength },
+              } as never,
+            },
+            id: true,
           },
-          id: true,
-        },
-      });
+        });
+      } catch (error) {
+        console.error('[rental] filing the upload failed:', error);
+        await undoCreate();
+
+        return fail(`${fileName} was not filed${createdId ? ' (nothing was created)' : ''} — try again.`, 500);
+      }
 
       return json({ success: true, documentId: doc.id, fileId: uploaded.id });
     }
@@ -415,6 +432,42 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       return json({ success: true });
     }
 
+    // ---- recently deleted documents, and bringing one back
+    if (body.action === 'listDeleted' || body.action === 'restore') {
+      const { documents: gone } = (await client.query({
+        documents: {
+          __args: {
+            filter: { and: [{ deletedAt: { is: 'NOT_NULL' } }, ...(body.action === 'restore' ? [{ id: { eq: body.documentId ?? '' } }] : [])] },
+            first: 100,
+            orderBy: [{ deletedAt: 'DescNullsLast' }],
+          },
+          edges: { node: { id: true, name: true, documentType: true, ownerId: true, rentalId: true, deletedAt: true, files: { fileId: true, label: true } } },
+        },
+      } as never)) as {
+        documents?: { edges?: Array<{ node: { id: string; name?: string | null; documentType?: string | null; ownerId?: string | null; rentalId?: string | null; deletedAt?: string | null; files?: Array<{ fileId: string; label: string }> | null } }> };
+      };
+      const rows = (gone?.edges ?? []).map(({ node }) => node);
+
+      if (body.action === 'restore') {
+        const row = rows[0];
+
+        if (!row) return fail('That document is not in the deleted list.', 404);
+        if (!(await canUseDoc(client, scope, row))) return json(NOT_ALLOWED, 403);
+        await client.mutation({ restoreDocument: { __args: { id: row.id }, id: true } });
+
+        return json({ success: true, message: `${row.name || 'Document'} restored.` });
+      }
+
+      const allowed: typeof rows = [];
+
+      for (const row of rows) if (await canUseDoc(client, scope, row)) allowed.push(row);
+
+      return json({
+        success: true,
+        deleted: allowed.map((row) => ({ id: row.id, name: row.name ?? '', type: row.documentType ?? 'OTHER', files: (row.files ?? []).length, deletedAt: row.deletedAt ?? '' })),
+      });
+    }
+
     // ---- edit / remove
     if (!body.documentId) return fail('Pick a document.');
 
@@ -428,7 +481,19 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
       if (typeof body.name === 'string' && body.name.trim()) data.name = body.name.trim().slice(0, 200);
       if (body.type && DOC_TYPES.some((t) => t.value === body.type)) data.documentType = body.type;
-      if (body.propertyId !== undefined) data.propertyId = body.propertyId || null;
+      if (body.propertyId !== undefined) {
+        if (body.propertyId) {
+          const propertyOwner = await propertyOwnerId(client, body.propertyId);
+
+          if (!propertyOwner) return fail('Property not found.', 404);
+          if (!inScope(scope, propertyOwner)) return json(NOT_ALLOWED, 403);
+          data.propertyId = body.propertyId;
+          data.group = 'PROPERTY';
+          if (propertyOwner !== doc.ownerId) data.ownerId = propertyOwner;
+        } else {
+          data.propertyId = null;
+        }
+      }
       if (typeof body.notes === 'string') data.notes = body.notes.slice(0, 2000);
       if (body.expiresOn === null || /^\d{4}-\d{2}-\d{2}$/.test(body.expiresOn ?? '')) data.expiresOn = body.expiresOn ?? null;
       await client.mutation({ updateDocument: { __args: { id: doc.id, data: data as never }, id: true } });
@@ -448,10 +513,10 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     }
 
     if (body.action === 'delete') {
-      // Soft delete: it can be restored from the Documents table.
+      // Soft delete: it can be restored from "Recently deleted" on the Documents page.
       await client.mutation({ deleteDocument: { __args: { id: doc.id }, id: true } });
 
-      return json({ success: true, message: 'Document moved to deleted (it can be restored from Records ▸ Documents).' });
+      return json({ success: true, deleted: true, message: 'Document deleted.' });
     }
 
     if (body.action === 'link') {

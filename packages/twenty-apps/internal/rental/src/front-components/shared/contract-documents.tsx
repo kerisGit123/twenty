@@ -14,7 +14,8 @@ import {
   docType,
   formatBytes,
   guessDocType,
-  isImage,
+  isHeic,
+  isShowableImage,
 } from 'src/shared/documents';
 
 // A contract's paperwork: what's on file against a checklist (agreement,
@@ -97,6 +98,9 @@ export const ContractDocumentsPanel = ({
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  // Two-step confirms: a file id (remove a file) or a document id (delete it).
+  const [confirmFile, setConfirmFile] = useState<string | null>(null);
+  const [confirmDoc, setConfirmDoc] = useState<string | null>(null);
   const [stampDate, setStampDate] = useState(todayIso());
   const [stampedNow, setStampedNow] = useState(Boolean(contract.stampedOn));
   const started = useRef(false);
@@ -139,20 +143,29 @@ export const ContractDocumentsPanel = ({
       const docFor = new Map<string, string>();
 
       for (const doc of own) {
-        if (APPENDS.includes(doc.type) && !docFor.has(doc.type)) docFor.set(doc.type, doc.id);
+        if (APPENDS.includes(doc.type) && doc.files.length < 20 && !docFor.has(doc.type)) docFor.set(doc.type, doc.id);
       }
 
       let uploaded = 0;
+      let failed = 0;
+      let startedNew = false;
 
       for (const item of items) {
         setQueue((current) => current.map((q) => (q.key === item.key ? { ...q, state: 'uploading' } : q)));
 
         const existing = docFor.get(item.type);
-        const result = await uploadFile(
+        let result = await uploadFile(
           item.file,
           existing ? { documentId: existing } : { newDocument: { type: item.type, rentalId: contract.id } },
         );
 
+        // The document is full (20 files): carry on in a new one of the same type.
+        if (!result.success && result.full) {
+          startedNew = true;
+          docFor.delete(item.type);
+          result = await uploadFile(item.file, { newDocument: { type: item.type, rentalId: contract.id } });
+        }
+        if (!result.success) failed += 1;
         if (result.success && result.documentId) {
           docFor.set(item.type, result.documentId);
           uploaded += 1;
@@ -165,7 +178,12 @@ export const ContractDocumentsPanel = ({
       if (uploaded > 0) {
         await load();
         onChanged();
-        await enqueueSnackbar({ message: `Uploaded ${uploaded} file${uploaded === 1 ? '' : 's'}.`, variant: 'success' });
+        await enqueueSnackbar({
+          message: `Uploaded ${uploaded} file${uploaded === 1 ? '' : 's'}${startedNew ? ' (the first document was full, so a new one was started)' : ''}${failed ? `; ${failed} failed — see the list` : ''}.`,
+          variant: failed ? 'error' : 'success',
+        });
+      } else if (failed > 0) {
+        await enqueueSnackbar({ message: `${failed} file${failed === 1 ? '' : 's'} could not be uploaded — see the list.`, variant: 'error' });
       }
     },
     [uploadAs, own, contract.id, load, onChanged],
@@ -223,18 +241,58 @@ export const ContractDocumentsPanel = ({
           fontSize: 26,
         }}
       >
-        {isImage(file.extension) ? <img src={file.url} alt={file.label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : file.extension === 'pdf' ? '📕' : '📄'}
+        {isShowableImage(file.extension) ? (
+          <img src={file.url} alt={file.label} loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        ) : isHeic(file.extension) ? (
+          <span style={{ fontSize: 11, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+            📷<span>HEIC photo</span>
+          </span>
+        ) : file.extension === 'pdf' ? (
+          '📕'
+        ) : (
+          '📄'
+        )}
       </button>
       <span style={{ fontSize: 11, color: c.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.label}</span>
-      {removable && (
-        <button
-          onClick={() => act({ action: 'removeFile', documentId: doc.id, fileId: file.fileId }, 'File removed.')}
-          title="Remove this file"
-          style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 11, border: 'none', background: 'rgba(0,0,0,0.55)', color: '#fff', cursor: 'pointer', fontSize: 13, lineHeight: '22px', padding: 0 }}
-        >
-          ×
-        </button>
-      )}
+      {removable &&
+        (confirmFile === file.fileId ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: c.text2 }}>
+            <span>{doc.files.length === 1 ? 'Last file — document will be empty.' : 'Remove?'}</span>
+            <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => {
+                  setConfirmFile(null);
+                  act({ action: 'removeFile', documentId: doc.id, fileId: file.fileId }, 'File removed.');
+                }}
+                style={{ ...button(), height: 24, padding: '0 8px', fontSize: 11.5, color: 'var(--t-color-red11)' }}
+              >
+                Yes
+              </button>
+              {doc.files.length === 1 && (
+                <button
+                  onClick={() => {
+                    setConfirmFile(null);
+                    act({ action: 'delete', documentId: doc.id });
+                  }}
+                  style={{ ...button(), height: 24, padding: '0 8px', fontSize: 11.5, color: 'var(--t-color-red11)' }}
+                >
+                  Delete doc
+                </button>
+              )}
+              <button onClick={() => setConfirmFile(null)} style={{ ...button(), height: 24, padding: '0 8px', fontSize: 11.5 }}>
+                No
+              </button>
+            </span>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmFile(file.fileId)}
+            title="Remove this file"
+            style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 11, border: 'none', background: 'rgba(0,0,0,0.55)', color: '#fff', cursor: 'pointer', fontSize: 13, lineHeight: '22px', padding: 0 }}
+          >
+            ×
+          </button>
+        ))}
     </div>
   );
 
@@ -295,9 +353,26 @@ export const ContractDocumentsPanel = ({
                 >
                   ✎
                 </button>
-                <button onClick={() => act({ action: 'delete', documentId: doc.id })} style={{ ...button(), color: 'var(--t-color-red11)' }} title="Delete document">
-                  🗑
-                </button>
+                {confirmDoc === doc.id ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        setConfirmDoc(null);
+                        act({ action: 'delete', documentId: doc.id });
+                      }}
+                      style={{ ...button(), color: 'var(--t-color-red11)' }}
+                    >
+                      Delete?
+                    </button>
+                    <button onClick={() => setConfirmDoc(null)} style={button()}>
+                      No
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={() => setConfirmDoc(doc.id)} style={{ ...button(), color: 'var(--t-color-red11)' }} title="Delete document">
+                    🗑
+                  </button>
+                )}
               </>
             ))}
           {mode === 'property' && (
@@ -395,6 +470,7 @@ export const ContractDocumentsPanel = ({
           </div>
           <FileDrop
             onFiles={enqueue}
+            disabled={busy}
             title={uploadAs === 'AUTO' ? 'Drop documents here' : `Drop ${docType(uploadAs).label.toLowerCase()} here`}
             hint="or tap to choose files / take a photo — PDF or photos, up to 20 MB each"
           />

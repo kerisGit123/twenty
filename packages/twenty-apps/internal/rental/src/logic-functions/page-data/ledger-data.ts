@@ -58,7 +58,7 @@ const loadRentals = async (client: CoreApiClient): Promise<Rental[]> => {
             monthlyRent: { amountMicros: true },
             newRent: { amountMicros: true },
             newRentFrom: true,
-            property: { name: true, propertyType: true, ownerId: true },
+            property: { name: true, propertyType: true, ownerId: true, monthlyRent: { amountMicros: true } },
             tenant: {
               name: { firstName: true, lastName: true },
               phones: { primaryPhoneNumber: true, primaryPhoneCallingCode: true },
@@ -79,7 +79,8 @@ const loadRentals = async (client: CoreApiClient): Promise<Rental[]> => {
         startDate: node.startDate ?? null,
         endDate: node.endDate ?? null,
         dueDay: node.dueDay ?? 1,
-        rent: (node.monthlyRent?.amountMicros ?? 0) / 1_000_000,
+        // Same fallback as the server: the contract's rent, else the property's.
+        rent: ((node.monthlyRent?.amountMicros || node.property?.monthlyRent?.amountMicros) ?? 0) / 1_000_000,
         newRent: (node.newRent?.amountMicros ?? 0) / 1_000_000 || null,
         newRentFrom: node.newRentFrom ?? null,
         propertyName: node.property?.name ?? node.name ?? 'Property',
