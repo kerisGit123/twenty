@@ -297,7 +297,7 @@ export const Contracts = () => {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: 'clamp(4px, 2vw, 16px)', maxWidth: 1240 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 200px', minWidth: 0 }}>
-            <div style={{ fontSize: 20, fontWeight: 650 }}>Contracts</div>
+            <div style={{ fontSize: 20, fontWeight: 650 }}>Tenancies</div>
             <div style={{ fontSize: 13, color: c.text3 }}>Who’s renting what, what ends soon, and every deposit you hold.</div>
           </div>
           <button onClick={() => setCreating(true)} style={{ ...button(true), height: 36 }}>
@@ -352,6 +352,7 @@ export const Contracts = () => {
                 onMoveOut={() => setMovingOut(x)}
                 onDeposit={() => setDepositFor(x)}
                 onDocuments={(files) => setDocsFor({ contract: x, files })}
+                onChanged={reload}
               />
             ))}
           </div>
@@ -375,6 +376,7 @@ const ContractRow = ({
   onMoveOut,
   onDeposit,
   onDocuments,
+  onChanged,
 }: {
   contract: ContractCard;
   today: string;
@@ -383,8 +385,31 @@ const ContractRow = ({
   onMoveOut: () => void;
   onDeposit: () => void;
   onDocuments: (files?: PickedFile[]) => void;
+  onChanged: () => Promise<void>;
 }) => {
   const [dropping, setDropping] = useState(false);
+  const [more, setMore] = useState(false);
+  const [raise, setRaise] = useState('');
+  const [raiseFrom, setRaiseFrom] = useState(`${today.slice(0, 7)}`);
+  const [stampOn, setStampOn] = useState(today);
+  const [busy, setBusy] = useState(false);
+  const act = async (body: Record<string, unknown>) => {
+    setBusy(true);
+    try {
+      const result = await post({ rentalId: x.id, ...body });
+
+      await enqueueSnackbar({ message: result.message ?? (result.success ? 'Saved.' : 'Could not save.'), variant: result.success ? 'success' : 'error' });
+      if (result.success) {
+        setMore(false);
+        setRaise('');
+        await onChanged();
+      }
+    } catch (error) {
+      await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not save.', variant: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  };
   const missingDocs = CONTRACT_CHECKLIST.filter((item) => item.required && !x.docTypes.includes(item.type));
   const stage = endingStage(x, today);
   const days = x.endDate ? daysUntil(today, x.endDate) : null;
@@ -494,7 +519,7 @@ const ContractRow = ({
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span style={{ flex: '1 1 180px', fontSize: 12.5, color: c.text3, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ color: held > 0 ? 'var(--t-color-sky11)' : c.text3 }}>🛡 {depositText}</span>
-          {x.status === 'ACTIVE' && !x.stampedOn && <span style={{ color: 'var(--t-color-orange11)' }}>§ Not stamped</span>}
+          {x.status === 'ACTIVE' && !x.stampedOn && <span style={{ color: 'var(--t-color-orange11)' }}>§ Not stamped{x.startDate ? ` · due ${day(addDays(x.startDate, 30))}` : ''}</span>}
           {x.status !== 'ENDED' && missingDocs.length > 0 ? (
             <span style={{ color: 'var(--t-color-amber11)' }}>📁 Missing: {missingDocs.map((m) => docType(m.type).label).join(', ')}</span>
           ) : x.docCount > 0 ? (
@@ -528,7 +553,37 @@ const ContractRow = ({
             Renew
           </button>
         )}
+        {x.status === 'ACTIVE' && !renewal && (
+          <button onClick={() => setMore(!more)} style={{ ...button(), color: c.text2 }}>
+            More {more ? '▴' : '▾'}
+          </button>
+        )}
       </div>
+      {more && (
+        <div style={{ background: c.bg2, borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <Label>Rent increase</Label>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input type="number" min="0" step="0.01" placeholder={`New rent (now ${rm(rentNow)})`} value={raise} onChange={(e) => setRaise(readValue(e))} style={{ ...control, width: 170 }} />
+              <input type="month" value={raiseFrom} min={today.slice(0, 7)} onChange={(e) => { const v = readValue(e); if (v) setRaiseFrom(v); }} style={{ ...control, width: 'auto' }} />
+              <button onClick={() => act({ action: 'setRentIncrease', newRent: Number(raise), newRentFrom: raiseFrom })} disabled={busy || !(Number(raise) > 0)} style={button(true)}>
+                Save increase
+              </button>
+            </div>
+          </div>
+          {!x.stampedOn && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <Label>Stamping</Label>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <input type="date" value={stampOn} onChange={(e) => { const v = readValue(e); if (v) setStampOn(v); }} style={{ ...control, width: 'auto' }} />
+                <button onClick={() => act({ action: 'setStamped', stampedOn: stampOn })} disabled={busy} style={button()}>
+                  Mark as stamped
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -915,7 +970,16 @@ const MoveOutPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard
   const [date, setDate] = useState(x.endDate && x.endDate < today ? x.endDate : today);
   const [waive, setWaive] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [unpaid, setUnpaid] = useState<Array<{ month: string; amount: number }>>([]);
   const held = depositHeld(x.deposit);
+
+  useEffect(() => {
+    post<{ unpaid?: Array<{ month: string; amount: number }> }>({ action: 'depositOptions', rentalId: x.id })
+      .then((r) => setUnpaid(r.unpaid ?? []))
+      .catch(() => setUnpaid([]));
+  }, [x.id]);
+
+  const unpaidTotal = unpaid.reduce((sum, u) => sum + u.amount, 0);
   // The rent period the move-out date falls in (from the contract's start day).
   const startDay = Number((x.startDate ?? '2000-01-01').slice(8, 10));
   const periodMonth = Number(date.slice(8, 10)) >= startDay || startDay === 1 ? date.slice(0, 7) : (() => {
@@ -946,6 +1010,12 @@ const MoveOutPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard
         <div style={{ fontSize: 13, color: c.text2, background: c.bg2, borderRadius: 10, padding: 12 }}>
           Tenancy: {day(x.startDate)} – {day(x.endDate)} · {rm(rentForMonth(x, today))}/month
         </div>
+        {unpaid.length > 0 && (
+          <div style={{ fontSize: 13, color: 'var(--t-color-amber11)', background: 'var(--t-color-amber2)', border: '1px solid var(--t-color-amber6)', borderRadius: 10, padding: 12, lineHeight: 1.5 }}>
+            <strong>{unpaid.length} month{unpaid.length === 1 ? '' : 's'} unpaid ({rm(unpaidTotal)})</strong>: {unpaid.map((u) => monthYear(u.month)).join(', ')}.
+            You can waive the last part-month below, leave the rest owed by the tenant{held > 0 ? ', or deduct it from the deposit in the next step' : ''}.
+          </div>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <Label>Moved out on</Label>
           <input type="date" value={date} onChange={(e) => { const v = readValue(e); if (v) setDate(v); }} style={{ ...control, width: 'auto' }} />
@@ -1033,7 +1103,7 @@ const DepositPanel = ({ contract: x, onClose, onDone }: { contract: ContractCard
       <SheetHeader title="Deposit" sub={`${x.propertyName} · ${x.tenantName}`} onClose={onClose} />
       <div style={{ flex: 1, overflow: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div style={{ ...card, padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {d.carriedIn > 0 && line('Carried over from previous contract', rm(d.carriedIn))}
+          {d.carriedIn > 0 && line('Carried over from previous tenancy', rm(d.carriedIn))}
           {(d.received > 0 || d.carriedIn === 0) && line('Security deposit received', `${rm(d.received)}${d.agreed && d.received < d.agreed ? ` of ${rm(d.agreed)}` : ''}`)}
           {(d.utilityReceived > 0 || d.utilityAgreed > 0) && line('Utility deposit received', rm(d.utilityReceived))}
           {d.usedForRent > 0 && line(`Used for rent (${d.usedMonths.map(monthYear).join(', ')})`, `− ${rm(d.usedForRent)}`)}

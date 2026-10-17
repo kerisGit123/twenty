@@ -314,7 +314,7 @@ export const ContractDocumentsPanel = ({
               <span style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.name || type.label}</span>
               <span style={{ fontSize: 12, color: c.text3 }}>
                 {type.label} · {doc.files.length} file{doc.files.length === 1 ? '' : 's'}
-                {mode === 'carried' ? ' · from the previous contract' : ''}
+                {mode === 'carried' ? ' · from the previous tenancy' : ''}
               </span>
             </span>
           )}
@@ -376,8 +376,8 @@ export const ContractDocumentsPanel = ({
               </>
             ))}
           {mode === 'property' && (
-            <button onClick={() => act({ action: 'link', documentId: doc.id, rentalId: contract.id }, 'Added to this contract.')} style={button()}>
-              Add to contract
+            <button onClick={() => act({ action: 'link', documentId: doc.id, rentalId: contract.id }, 'Added to this tenancy.')} style={button()}>
+              Add to tenancy
             </button>
           )}
         </div>
@@ -445,9 +445,9 @@ export const ContractDocumentsPanel = ({
         </div>
 
         {/* Stamped? */}
-        {onFile.has('STAMP_DUTY') && !stampedNow && (
+        {!stampedNow && (
           <div style={{ background: 'var(--t-color-orange2)', border: '1px solid var(--t-color-orange6)', borderRadius: 10, padding: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
-            <span style={{ flex: '1 1 180px' }}>Stamp certificate on file — mark the agreement as stamped?</span>
+            <span style={{ flex: '1 1 180px' }}>{onFile.has('STAMP_DUTY') ? 'Stamp certificate on file — mark the agreement as stamped?' : 'Agreement stamped? Mark it here (no file needed).'}</span>
             <input type="date" value={stampDate} onChange={(e) => { const v = readValue(e); if (v) setStampDate(v); }} style={control} />
             <button onClick={markStamped} style={button(true)}>
               Mark stamped
@@ -497,21 +497,21 @@ export const ContractDocumentsPanel = ({
         {loading ? (
           <div style={{ fontSize: 13, color: c.text3 }}>Loading…</div>
         ) : own.length === 0 ? (
-          <div style={{ fontSize: 13, color: c.text3 }}>Nothing filed on this contract yet.</div>
+          <div style={{ fontSize: 13, color: c.text3 }}>Nothing filed on this tenancy yet.</div>
         ) : (
           groups.filter((g) => g.docs.length).map((g) => <div key={g.type} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{g.docs.map((doc) => docCard(doc, 'own'))}</div>)
         )}
 
         {carried.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: c.text3, textTransform: 'uppercase', letterSpacing: 0.4 }}>From the previous contract</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: c.text3, textTransform: 'uppercase', letterSpacing: 0.4 }}>From the previous tenancy</span>
             {carried.map((doc) => docCard(doc, 'carried'))}
           </div>
         )}
 
         {property.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: c.text3, textTransform: 'uppercase', letterSpacing: 0.4 }}>On the property, not on a contract</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: c.text3, textTransform: 'uppercase', letterSpacing: 0.4 }}>On the property, not on a tenancy</span>
             {property.map((doc) => docCard(doc, 'property'))}
           </div>
         )}

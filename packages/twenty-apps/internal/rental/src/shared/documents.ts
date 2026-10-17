@@ -1,6 +1,11 @@
 // Document types, the per-contract checklist, and upload limits — shared by
 // the upload route and the pages.
 
+// Documents with an expiry: shown on Today and amber on the Documents page from this
+// many days out; red and sent in the WhatsApp reminders from EXPIRY_REMIND_DAYS out.
+export const EXPIRY_WARN_DAYS = 60;
+export const EXPIRY_REMIND_DAYS = 30;
+
 export const DOC_TYPES = [
   { value: 'AGREEMENT', label: 'Agreement', icon: '📜' },
   { value: 'STAMP_DUTY', label: 'Stamp certificate', icon: '§' },

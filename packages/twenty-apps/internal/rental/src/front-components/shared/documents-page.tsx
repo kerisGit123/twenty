@@ -9,7 +9,7 @@ import { FileViewer, type ViewerFile } from 'src/front-components/shared/file-vi
 import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { todayIso } from 'src/logic-functions/utils/dates';
-import { DOC_TYPES, docType, formatBytes, guessDocType, isHeic, isShowableImage, type LibraryDoc } from 'src/shared/documents';
+import { DOC_TYPES, docType, EXPIRY_REMIND_DAYS, EXPIRY_WARN_DAYS, formatBytes, guessDocType, isHeic, isShowableImage, type LibraryDoc } from 'src/shared/documents';
 
 // Documents: every paper in your workspaces in one place. Drop a pile of
 // files to file them (each becomes a document, typed from its name), find
@@ -132,7 +132,7 @@ const expiryBadge = (doc: LibraryDoc, today: string) => {
   const days = daysUntil(today, doc.expiresOn);
 
   if (days < 0) return { text: `Expired ${day(doc.expiresOn)}`, color: 'red' };
-  if (days <= 60) return { text: `Expires in ${days} day${days === 1 ? '' : 's'}`, color: days <= 30 ? 'red' : 'amber' };
+  if (days <= EXPIRY_WARN_DAYS) return { text: `Expires in ${days} day${days === 1 ? '' : 's'}`, color: days <= EXPIRY_REMIND_DAYS ? 'red' : 'amber' };
 
   return { text: `Expires ${day(doc.expiresOn)}`, color: 'gray' };
 };
@@ -212,7 +212,7 @@ export const Documents = () => {
   }, [undo]);
 
   const mine = useMemo(() => docs.filter((d) => scope.matches(d.ownerId)), [docs, scope.key]);
-  const expiring = mine.filter((d) => d.expiresOn && daysUntil(today, d.expiresOn) <= 60);
+  const expiring = mine.filter((d) => d.expiresOn && daysUntil(today, d.expiresOn) <= EXPIRY_WARN_DAYS);
   const empty = mine.filter((d) => d.files.length === 0);
   const typeCounts = useMemo(() => {
     const map = new Map<string, number>();
@@ -227,7 +227,7 @@ export const Documents = () => {
 
     return mine
       .filter((d) =>
-        filter === 'ALL' ? true : filter === 'EXPIRING' ? d.expiresOn && daysUntil(today, d.expiresOn) <= 60 : filter === 'NO_FILES' ? d.files.length === 0 : d.type === filter,
+        filter === 'ALL' ? true : filter === 'EXPIRING' ? d.expiresOn && daysUntil(today, d.expiresOn) <= EXPIRY_WARN_DAYS : filter === 'NO_FILES' ? d.files.length === 0 : d.type === filter,
       )
       .filter((d) => !propertyFilter || (propertyFilter === '__none' ? !d.propertyId : d.propertyId === propertyFilter))
       .filter(
@@ -876,7 +876,7 @@ const DocumentSheet = ({
             rows={3}
             style={{ ...control, height: 'auto', padding: '8px 10px', resize: 'vertical' }}
           />
-          <span style={{ fontSize: 12, color: c.text3 }}>Title and notes save when you click away. With an expiry date, the document turns amber here 60 days before and red within 30.</span>
+          <span style={{ fontSize: 12, color: c.text3 }}>Title and notes save when you click away. With an expiry date, the document shows on Today and turns amber here {EXPIRY_WARN_DAYS} days before, red within {EXPIRY_REMIND_DAYS} (WhatsApp reminders start then). Change or clear the date and it stops.</span>
         </div>
       </div>
 

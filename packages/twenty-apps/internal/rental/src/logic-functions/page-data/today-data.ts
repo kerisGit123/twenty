@@ -3,6 +3,7 @@ import { type CoreApiClient } from 'twenty-client-sdk/core';
 import { monthStart, todayIso } from 'src/logic-functions/utils/dates';
 import { queryAll } from 'src/logic-functions/utils/query-all';
 import { loadChases } from 'src/logic-functions/utils/rent-chase';
+import { EXPIRY_WARN_DAYS } from 'src/shared/documents';
 import { type ChaseInfo } from 'src/shared/rent-chase';
 import { inScope, type Scope } from 'src/logic-functions/utils/scope';
 import { loadRepeatingBills } from 'src/logic-functions/utils/repeating-bills';
@@ -133,7 +134,7 @@ const loadAll = async (client: CoreApiClient, today: string): Promise<TodayData>
     }),
     client.query({
       documents: {
-        __args: { filter: { expiresOn: { lte: addDays(today, 60) } }, first: 200 },
+        __args: { filter: { expiresOn: { lte: addDays(today, EXPIRY_WARN_DAYS) } }, first: 200 },
         edges: { node: { id: true, name: true, expiresOn: true, ownerId: true } },
       },
     }),

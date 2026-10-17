@@ -5,7 +5,7 @@ import { appClient } from 'src/logic-functions/utils/app-client';
 import { inScope, NOT_ALLOWED, resolveScope } from 'src/logic-functions/utils/scope';
 import { LEDGER_RECORD_ROUTE_ID } from 'src/constants/universal-identifiers';
 import { receiptHandler } from 'src/logic-functions/handlers/send-receipt-handler';
-import { monthStart, nextMonthStart } from 'src/logic-functions/utils/dates';
+import { monthStart, nextMonthStart, todayIso } from 'src/logic-functions/utils/dates';
 import {
   createDraftRentPayment,
   loadRental,
@@ -61,6 +61,7 @@ const handler = async (
   }
   if (amount > 10_000_000) return json({ success: false, message: 'That amount looks too large — check it.' }, 400);
   if (body.paidOn && !/^\d{4}-\d{2}-\d{2}$/.test(body.paidOn)) return json({ success: false, message: 'Pick a valid paid-on date.' }, 400);
+  if (body.paidOn && body.paidOn > todayIso()) return json({ success: false, message: 'The paid-on date can’t be in the future.' }, 400);
   if ((body.notes ?? '').length > 1000) return json({ success: false, message: 'Notes are too long (1,000 characters at most).' }, 400);
 
   try {
@@ -127,6 +128,10 @@ const handler = async (
       );
     }
 
+    if (settlement.remaining <= 0 && rentalRentForMonth(rental, month) <= 0) {
+      return json({ success: false, message: 'Set the monthly rent on the tenancy first.' }, 400);
+    }
+
     // More than this month owes: the rest goes towards the next unpaid months
     // (one receipt each), or it's refused so extra money is never lost.
     const extraPlan: Array<{ month: string; amount: number }> = [];
@@ -159,6 +164,15 @@ const handler = async (
       thisAmount = settlement.remaining;
     }
 
+    // Another save for this month may have landed while this one was working out the extra.
+    const latest = await rentPaymentsForMonth(client, rental.id, month);
+    const latestSettlement = settleMonth(rentalRentForMonth(rental, month), latest);
+    const draftTaken = drafts[0] && !latest.some((row) => row.id === drafts[0].id && row.status === 'DRAFT');
+
+    if (draftTaken || latestSettlement.received !== settlement.received || latest.some((row) => row.status === 'WAIVED')) {
+      return json({ success: false, message: 'This month was just updated by another save. Check the ledger before recording again.' }, 409);
+    }
+
     let paymentId = drafts[0]?.id ?? (await createDraftRentPayment(client, rental, month, body.method));
 
     if (!paymentId) return json({ success: false, message: 'Could not create the payment.' }, 500);
@@ -182,7 +196,7 @@ const handler = async (
       },
     });
 
-    const result = await receiptHandler(action, paymentId, context?.workspaceMemberId ?? undefined);
+    const result = await receiptHandler(action, paymentId, context?.workspaceMemberId ?? undefined, { onlyIfDraft: true });
 
     // A delivery failure still leaves the receipt issued: the extra goes ahead.
     const issuedAnyway = 'receiptNumber' in result && Boolean(result.receiptNumber);
@@ -219,7 +233,7 @@ const handler = async (
             id: true,
           },
         });
-        const issued = await receiptHandler(action === 'preview' ? 'preview' : 'issue', extraId, context?.workspaceMemberId ?? undefined);
+        const issued = await receiptHandler(action === 'preview' ? 'preview' : 'issue', extraId, context?.workspaceMemberId ?? undefined, { onlyIfDraft: true });
 
         if (issued.success && 'receiptNumber' in issued && issued.receiptNumber) extraReceipts.push(`${issued.receiptNumber} (${label})`);
         else extraFailures.push(`${label} (${issued.message ?? 'no receipt was issued'})`);

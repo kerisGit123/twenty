@@ -10,7 +10,7 @@ import { ReceiptView, type ReceiptViewData } from 'src/front-components/shared/r
 import { Sheet } from 'src/front-components/shared/sheet';
 import { StatementPanel } from 'src/front-components/shared/statement-panel';
 import type { LedgerData, Payment, Rental } from 'src/logic-functions/page-data/ledger-data';
-import { whatsappLink } from 'src/shared/whatsapp-link';
+import { toE164, whatsappLink } from 'src/shared/whatsapp-link';
 import { isReceipted, rentForMonth, type Settlement, settleMonth, isRentMonth, rentDueDate } from 'src/shared/rent-month';
 import {
   dueDateInMonth,
@@ -99,6 +99,21 @@ const ordinal = (day: number) => {
   return `${day}${suffix}`;
 };
 
+// An amount typed by hand: 1500, 1500.50 or 1,500.50. Anything else is refused with the reason.
+const parseMoney = (text: string): { value: number; error: string } => {
+  const clean = text.trim().replace(/^RM\s*/i, '');
+
+  if (!clean) return { value: 0, error: 'Enter the amount received.' };
+  if (clean.startsWith('-')) return { value: 0, error: 'The amount can’t be negative.' };
+  if (!/^(\d{1,3}(,\d{3})+|\d+)(\.\d{1,2})?$/.test(clean)) return { value: 0, error: 'Type the amount like 1500 or 1,500.50.' };
+
+  const value = Number(clean.replace(/,/g, ''));
+
+  if (!Number.isFinite(value) || value <= 0) return { value: 0, error: 'The amount must be more than zero.' };
+
+  return { value, error: '' };
+};
+
 // A failed request still carries the server's message in its body.
 const postRoute = async <T extends { message?: string }>(path: string, body: unknown): Promise<T> => {
   try {
@@ -142,8 +157,9 @@ const buildCell = (rental: Rental, month: string, payments: Payment[], today: st
   return { month, payments, settlement, rent, late, status };
 };
 
-// Still owed: unpaid or part-paid, up to this month.
-const isOwing = (cell: Cell) => cell.status === 'due' || cell.status === 'overdue' || cell.status === 'partial';
+// Still owed: unpaid or part-paid, up to this month (a part-paid future month isn't owed yet).
+const isOwing = (cell: Cell) =>
+  cell.status === 'due' || cell.status === 'overdue' || (cell.status === 'partial' && cell.month <= monthStart(todayIso()));
 const isLate = (cell: Cell) => cell.status === 'overdue' || (cell.status === 'partial' && cell.late);
 
 // ---------------------------------------------------------------- styles
@@ -361,6 +377,7 @@ export const RentLedger = () => {
   const totals = useMemo(() => {
     let expected = 0;
     let collected = 0;
+    let fromDeposit = 0;
     let outstanding = 0;
     let overdue = 0;
     let overdueCount = 0;
@@ -369,8 +386,10 @@ export const RentLedger = () => {
       for (const cell of cells) {
         if (cell.status === 'none') continue;
         // A waived month isn't expected; a waived remainder isn't either.
-        expected += cell.status === 'waived' ? cell.settlement.received : cell.rent;
+        // Months still to come count only for what was paid in advance.
+        expected += cell.status === 'waived' || cell.month > monthStart(today) ? cell.settlement.received : cell.rent;
         collected += cell.settlement.received;
+        fromDeposit += cell.payments.filter((p) => isReceipted(p.status) && p.method === 'FROM_DEPOSIT').reduce((sum, p) => sum + p.amount, 0);
         if (isOwing(cell)) outstanding += cell.settlement.remaining;
         if (isLate(cell)) {
           overdue += cell.settlement.remaining;
@@ -379,8 +398,8 @@ export const RentLedger = () => {
       }
     }
 
-    return { expected, collected, outstanding, overdue, overdueCount };
-  }, [allRows]);
+    return { expected, collected, fromDeposit, outstanding, overdue, overdueCount };
+  }, [allRows, today]);
 
   const periodLabel = mode === 'month' ? monthLabel(anchor, true) : mode === 'year' ? anchor.slice(0, 4) : `${monthLabel(rangeFrom, true)} – ${monthLabel(rangeTo, true)}`;
 
@@ -542,13 +561,13 @@ export const RentLedger = () => {
             onClick={() => setStatus(status === 'paid' ? '' : 'paid')}
             style={{ ...card, all: 'unset', boxSizing: 'border-box', cursor: 'pointer', border: `1px solid ${status === 'paid' ? c.accent : c.border}`, borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}
           >
-            <span style={{ fontSize: 13, color: c.text3 }}>Collected</span>
+            <span style={{ fontSize: 13, color: c.text3 }}>Rent paid for {periodLabel}</span>
             <span style={{ fontSize: 24, fontWeight: 700, color: 'var(--t-color-green11)' }}>{stale ? '…' : rm(totals.collected)}</span>
             <span style={{ height: 6, background: c.bg2, borderRadius: 3, display: 'block' }}>
               <span style={{ display: 'block', height: 6, width: `${collectedShare * 100}%`, background: 'var(--t-color-green9)', borderRadius: 3 }} />
             </span>
             <span style={{ fontSize: 12, color: c.text3 }}>
-              {stale ? 'Loading…' : `${Math.round(collectedShare * 100)}% of ${rm(totals.expected)} expected`}
+              {stale ? 'Loading…' : `${Math.round(collectedShare * 100)}% of ${rm(totals.expected)} expected so far${totals.fromDeposit > 0 ? ` · incl. ${rm(totals.fromDeposit)} from deposit` : ''}`}
             </span>
           </button>
           <button
@@ -739,6 +758,19 @@ export const RentLedger = () => {
                         href={remind}
                         target="_blank"
                         rel="noopener noreferrer"
+                        // Recorded like the Today page's reminders, so the automatic one doesn't chase again.
+                        onClick={() => {
+                          new RestApiClient()
+                            .post('/s/rent/chase', {
+                              contractId: rental.id,
+                              months: unpaid.map((cell) => cell.month),
+                              overdue: unpaid.filter(isLate).map((cell) => cell.month),
+                              to: toE164(rental.tenantPhone),
+                              body: remindText,
+                              title: 'Rent reminder from the ledger',
+                            })
+                            .catch(() => undefined);
+                        }}
                         style={{ ...button(), height: 34, display: 'inline-flex', alignItems: 'center', textDecoration: 'none', background: '#25D366', border: '1px solid #25D366', color: '#fff' }}
                       >
                         Remind
@@ -895,16 +927,20 @@ const PaymentPanel = ({
   };
 
   const owedNow = isPartial ? settlement.remaining : cell.rent;
-  const extra = Math.round(((Number(amount.replace(/[^\d.]/g, '')) || 0) - owedNow) * 100) / 100;
+  const parsed = parseMoney(amount);
+  const extra = Math.round((parsed.value - owedNow) * 100) / 100;
   const extraBlocked = extra > 0.005 && !spread;
+  const noRent = !isPartial && cell.rent <= 0;
+  const inputError = noRent ? 'Set the monthly rent on the tenancy first.' : parsed.error || (paidOn > todayIso() ? 'The paid-on date can’t be in the future.' : '');
 
   const submit = async (action: 'preview' | 'issue' | 'send') => {
+    if (inputError) return;
     setBusy(action === 'preview' ? 'preview' : 'save');
     try {
       const result = await postRoute<RecordResponse>('/s/ledger/record', {
         rentalId: rental.id,
         month,
-        amount: Number(amount.replace(/[^\d.]/g, '')),
+        amount: parsed.value,
         paidOn,
         method,
         notes,
@@ -1098,7 +1134,8 @@ const PaymentPanel = ({
                   style={{ fontFamily: c.font, fontSize: 30, fontWeight: 700, color: c.text, border: 'none', outline: 'none', background: 'transparent', width: '100%', minWidth: 0, padding: 0 }}
                 />
               </div>
-              {extra > 0.005 && (
+              {inputError && <span style={{ fontSize: 12.5, color: 'var(--t-color-red11)' }}>{inputError}</span>}
+              {!inputError && extra > 0.005 && (
                 <div style={{ marginTop: 6, borderRadius: 10, background: 'var(--t-color-amber2)', border: '1px solid var(--t-color-amber6)', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
                   <span>
                     That’s <b>{rm(extra)}</b> more than {monthLabel(month)} owes.
@@ -1248,10 +1285,10 @@ const PaymentPanel = ({
           </>
         ) : (
           <>
-            <button onClick={() => submit('preview')} disabled={busy !== '' || extraBlocked} style={{ ...button(), flex: 1, height: 44 }}>
+            <button onClick={() => submit('preview')} disabled={busy !== '' || extraBlocked || Boolean(inputError)} style={{ ...button(), flex: 1, height: 44 }}>
               {busy === 'preview' ? 'Preparing…' : receipt ? 'Update preview' : 'Preview'}
             </button>
-            <button onClick={() => submit(sendToTenant ? 'send' : 'issue')} disabled={busy !== '' || extraBlocked} style={{ ...button(true), flex: 1.6, height: 44 }}>
+            <button onClick={() => submit(sendToTenant ? 'send' : 'issue')} disabled={busy !== '' || extraBlocked || Boolean(inputError)} style={{ ...button(true), flex: 1.6, height: 44 }}>
               {busy === 'save' ? 'Saving…' : sendToTenant ? 'Save & send receipt' : 'Save receipt'}
             </button>
             {isPartial && payment && (
@@ -1296,13 +1333,19 @@ const CatchUpPanel = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [running, setRunning] = useState(false);
 
-  const override = Number(amount.replace(/[^\d.]/g, ''));
+  const parsedOverride = amount.trim() ? parseMoney(amount) : null;
+  const override = parsedOverride?.value ?? 0;
   const ordered = open.map((m) => m.month).filter((month) => picked.includes(month));
   const amountFor = (month: string) => (override > 0 ? override : (open.find((m) => m.month === month)?.rent ?? 0));
   const rents = [...new Set(open.filter((m) => picked.includes(m.month)).map((m) => m.rent))];
   const total = ordered.reduce((sum, month) => sum + amountFor(month), 0);
-  const canRun = ordered.length > 0 && ordered.every((month) => amountFor(month) > 0);
   const paidOnFor = (month: string) => (dateMode === 'same' ? paidOn : dueDateInMonth(month, rental.dueDay));
+  const futureMonth = ordered.find((month) => paidOnFor(month) > today);
+  const inputError =
+    parsedOverride?.error ||
+    (ordered.some((month) => !override && amountFor(month) <= 0) ? 'Set the monthly rent on the tenancy first.' : '') ||
+    (futureMonth ? (dateMode === 'same' ? 'The paid-on date can’t be in the future.' : `${monthLabel(futureMonth, true)}’s due date is still ahead — use one date up to today.`) : '');
+  const canRun = ordered.length > 0 && !inputError;
   const finished = ordered.length > 0 && ordered.every((month) => progress[month] === 'done' || progress[month] === 'failed');
 
   const chip = (active: boolean): CSSProperties => ({
@@ -1482,6 +1525,8 @@ const CatchUpPanel = ({
             </button>
           </>
         )}
+
+        {!finished && inputError && ordered.length > 0 && <span style={{ fontSize: 12.5, color: 'var(--t-color-red11)' }}>{inputError}</span>}
 
         {finished && (
           <div style={{ fontSize: 14, lineHeight: 1.5 }}>

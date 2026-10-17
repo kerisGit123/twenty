@@ -312,10 +312,49 @@ const sendWithResend = async (params: {
 const escapeHtml = (text: string) =>
   text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
 
+// A deposit receipt moves the contract's deposit to Held; voiding the last one
+// moves it back. Refunded, carried and the other settled states are left alone.
+const syncDepositStatus = async (client: CoreApiClient, rentalId?: string | null) => {
+  if (!rentalId) return;
+  try {
+    const { rentals } = await client.query({
+      rentals: { __args: { filter: { id: { eq: rentalId } }, first: 1 }, edges: { node: { id: true, depositStatus: true } } },
+    });
+    const current = (rentals?.edges?.[0]?.node?.depositStatus as string | null | undefined) ?? 'NOT_RECEIVED';
+
+    if (current !== 'NOT_RECEIVED' && current !== 'HELD') return;
+
+    const held = await queryAll<{ id: string }>(
+      client,
+      'rentPayments',
+      { filter: { rentalId: { eq: rentalId }, paymentType: { in: ['DEPOSIT', 'UTILITY_DEPOSIT'] }, status: { in: ['ISSUED', 'SENT'] } } as never },
+      { id: true },
+    );
+    const next = held.length > 0 ? 'HELD' : 'NOT_RECEIVED';
+
+    if (next !== current) await client.mutation({ updateRental: { __args: { id: rentalId, data: { depositStatus: next } as never }, id: true } });
+  } catch (error) {
+    console.warn('[rental] could not update the deposit status:', error);
+  }
+};
+
+// Another request may have issued the same payment while this one was busy.
+const issuedMeanwhile = async (client: CoreApiClient, paymentId: string) => {
+  const { rentPayments } = await client.query({
+    rentPayments: { __args: { filter: { id: { eq: paymentId } }, first: 1 }, edges: { node: { status: true, receiptNumber: true } } },
+  });
+  const node = rentPayments?.edges?.[0]?.node;
+
+  return node && node.status !== 'DRAFT' ? { status: node.status as string, receiptNumber: node.receiptNumber ?? '' } : null;
+};
+
+// onlyIfDraft: sending/issuing a draft that someone else already issued does
+// nothing (returns the existing receipt), so a double click never sends twice.
 export const receiptHandler = async (
   action: ReceiptAction,
   paymentId: string,
   senderWorkspaceMemberId?: string,
+  options?: { onlyIfDraft?: boolean },
 ): Promise<ReceiptResult> => {
   if (!paymentId) {
     return { success: false, status: 400, message: 'No payment selected.' };
@@ -335,6 +374,7 @@ export const receiptHandler = async (
           receiptDate: true,
           receiptSnapshot: true,
           paymentType: true,
+          rentalId: true,
           ownerId: true,
           amount: { amountMicros: true, currencyCode: true },
           paidOn: true,
@@ -405,6 +445,18 @@ export const receiptHandler = async (
   // The workspace's own settings (name, logo, receipt prefix...), else the default.
   const settings = await loadReceiptSettings(client, payment.ownerId);
   const paidOn = payment.paidOn ?? todayIso();
+  const guardDraft = mode === 'send' && !isRegenerate && currentStatus === 'DRAFT' && Boolean(options?.onlyIfDraft);
+  const alreadyDone = (existing: { receiptNumber: string }): ReceiptResult => ({
+    success: true,
+    receiptNumber: existing.receiptNumber,
+    message: `Receipt ${existing.receiptNumber} was already issued — nothing was sent again.`,
+  });
+
+  if (guardDraft) {
+    const existing = await issuedMeanwhile(client, payment.id);
+
+    if (existing) return alreadyDone(existing);
+  }
   const receiptNumber =
     mode === 'preview'
       ? payment.receiptNumber || 'DRAFT'
@@ -553,6 +605,7 @@ export const receiptHandler = async (
         id: true,
       },
     });
+    if (isDeposit) await syncDepositStatus(client, payment.rentalId);
 
     return {
       success: true,
@@ -560,6 +613,12 @@ export const receiptHandler = async (
       fileUrl: uploaded.url,
       message: `Receipt ${receiptNumber} is now void. It keeps its number; record a new payment if needed.`,
     };
+  }
+
+  if (guardDraft) {
+    const existing = await issuedMeanwhile(client, payment.id);
+
+    if (existing) return alreadyDone(existing);
   }
 
   // send: the receipt is final from here on (Issued), even if emailing fails.
@@ -578,6 +637,8 @@ export const receiptHandler = async (
       id: true,
     },
   });
+
+  if (isDeposit) await syncDepositStatus(client, payment.rentalId);
 
   if (action === 'issue') {
     return {

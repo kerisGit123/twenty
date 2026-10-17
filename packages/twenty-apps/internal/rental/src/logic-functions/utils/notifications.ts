@@ -6,6 +6,7 @@ import { resolveScope, SYSTEM } from 'src/logic-functions/utils/scope';
 import { sendWhatsappMessage, toE164, whatsappConfig } from 'src/logic-functions/utils/whatsapp';
 import { addDays, type AgendaItem, agendaItems, daysBetween } from 'src/shared/agenda';
 import { chaseKey, loadChases, recordChase } from 'src/logic-functions/utils/rent-chase';
+import { EXPIRY_REMIND_DAYS } from 'src/shared/documents';
 import { type ChaseChannel, type ChaseInfo, isRecentChase } from 'src/shared/rent-chase';
 import { languageFor, reminderMonths, rentReminderText } from 'src/shared/rent-reminder';
 
@@ -140,7 +141,7 @@ export const buildSummary = (data: Data, today: string, to: string | null): Outg
   const dueSoon = items.filter((i) => i.kind === 'due' && i.date <= week);
   const ending = items.filter((i) => i.kind === 'ending');
   const stamping = items.filter((i) => i.kind === 'stamp' && daysBetween(today, i.date) <= 14);
-  const documents = items.filter((i) => i.kind === 'document' && daysBetween(today, i.date) <= 30);
+  const documents = items.filter((i) => i.kind === 'document' && daysBetween(today, i.date) <= EXPIRY_REMIND_DAYS);
   const birthdays = items.filter((i) => i.kind === 'birthday' && i.date <= week);
   const missingBills = data.expenses.filter((e) => !e.hasBill && !e.noBillNeeded);
   const repeatBills = (data.bills ?? []).filter((b) => b.nextDate <= week);

@@ -23,7 +23,7 @@ import { type ContractCard, type Deduction, depositHeld, deductionLine, type Dep
 import { receiptHandler } from 'src/logic-functions/handlers/send-receipt-handler';
 
 type Body = {
-  action?: 'list' | 'renew' | 'settleDeposit' | 'reopenDeposit' | 'setStamped' | 'moveOut' | 'depositOptions' | 'newOptions' | 'people' | 'create';
+  action?: 'list' | 'renew' | 'settleDeposit' | 'reopenDeposit' | 'setStamped' | 'setRentIncrease' | 'moveOut' | 'depositOptions' | 'newOptions' | 'people' | 'create';
   // new tenancy
   query?: string;
   propertyId?: string;
@@ -39,6 +39,8 @@ type Body = {
   movedOutOn?: string;
   waiveLastMonth?: boolean;
   stampedOn?: string;
+  newRent?: number;
+  newRentFrom?: string; // YYYY-MM or YYYY-MM-DD
   rentalId?: string;
   // renew
   startDate?: string;
@@ -631,6 +633,19 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       await client.mutation({ updateRental: { __args: { id: contract.id, data: { stampedOn: body.stampedOn } }, id: true } });
 
       return json({ success: true, message: 'Marked as stamped.' });
+    }
+
+    // Rent increase: always sets the amount and the month together (one without the other is ignored by the ledger).
+    if (body.action === 'setRentIncrease') {
+      const amount = Math.round(Number(body.newRent) * 100) / 100;
+      const from = typeof body.newRentFrom === 'string' && /^\d{4}-\d{2}(-\d{2})?$/.test(body.newRentFrom) ? `${body.newRentFrom.slice(0, 7)}-01` : null;
+
+      if (contract.status !== 'ACTIVE') return json({ success: false, message: 'Only a running tenancy can have a rent increase.' }, 400);
+      if (!Number.isFinite(amount) || amount <= 0 || amount >= 10_000_000) return json({ success: false, message: 'Enter the new rent, more than 0.' }, 400);
+      if (!from || from < `${todayIso().slice(0, 7)}-01`) return json({ success: false, message: 'Pick this month or a later month for the new rent to start.' }, 400);
+      await client.mutation({ updateRental: { __args: { id: contract.id, data: { newRent: money(amount), newRentFrom: from } as never }, id: true } });
+
+      return json({ success: true, message: `Rent becomes ${rm(amount)} from ${from.slice(0, 7)}.` });
     }
 
     if (body.action === 'reopenDeposit') {
