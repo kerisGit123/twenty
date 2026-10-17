@@ -19,7 +19,7 @@ import { stockMonthFileName, stockMonthWorkbook } from 'src/shared/stock-excel';
 // GET /s/stock/csv?kind=xlsx-hand&owner=                       stock in hand
 // GET /s/stock/csv?kind=xlsx-order&owner=&orders=<id:ctn,...>  the order (cartons as edited on the page)
 // GET /s/stock/csv?kind=xlsx-history&from=&to=&owner=          the in/out grid for a period
-// GET /s/stock/csv?kind=xlsx-borrowed&owner=                   stock lent to branches
+// GET /s/stock/csv?kind=xlsx-borrowed&owner=                   loans: stock lent to and borrowed from other shops
 // GET /s/stock/csv?kind=xlsx-po&order=<id>                     one order, to send to the supplier
 
 const EXCEL_KINDS = ['xlsx', 'xlsx-request', 'xlsx-count', 'xlsx-hand', 'xlsx-order', 'xlsx-history', 'xlsx-borrowed', 'xlsx-po', 'xlsx-monthend', 'xlsx-year'];
@@ -149,7 +149,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         );
       }
 
-      return downloadPage(`stock-borrowed-${today}.xlsx`, borrowWorkbook(items, movements, today, { title: 'Stock lent to branches 借出', company, generatedOn: today }));
+      return downloadPage(`stock-loans-${today}.xlsx`, borrowWorkbook(items, movements, today, { title: 'Stock loans between shops: lent out 借出 and borrowed in 借入', company, generatedOn: today }));
     }
 
     if (kind === 'xlsx') {

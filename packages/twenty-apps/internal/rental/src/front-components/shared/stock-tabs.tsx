@@ -63,7 +63,7 @@ export const MovementsTab = ({
           <option value="">All movements</option>
           <option value="IN">All IN</option>
           <option value="OUT">All OUT</option>
-          {['PURCHASE', 'TAKE', 'BORROW', 'RETURN', 'EXCHANGE_IN', 'WASTE', 'ADJUST_IN', 'ADJUST_OUT'].map((t) => (
+          {['PURCHASE', 'TAKE', 'BORROW', 'BORROW_IN', 'RETURN', 'EXCHANGE_IN', 'GIVE_BACK', 'LOAN_SETTLED', 'WASTE', 'ADJUST_IN', 'ADJUST_OUT'].map((t) => (
             <option key={t} value={t}>
               {movementType(t)?.label}
             </option>
@@ -95,12 +95,21 @@ export const MovementsTab = ({
               <td style={{ ...td, whiteSpace: 'nowrap', color: c.text2 }}>{shortDate(m.date)}</td>
               <td style={td}>
                 <Chip label={`${t?.direction === 'IN' ? '↓ IN' : '↑ OUT'} · ${t?.label ?? m.type}`} color={t?.color ?? 'gray'} />
-                {m.type === 'BORROW' ? <div style={{ fontSize: 11, color: c.text3, marginTop: 4 }}>{BORROW_STATUSES.find((b) => b.value === (m.borrowStatus ?? 'OUTSTANDING'))?.label}</div> : null}
+                {m.type === 'BORROW' || m.type === 'BORROW_IN' ? <div style={{ fontSize: 11, color: c.text3, marginTop: 4 }}>{BORROW_STATUSES.find((b) => b.value === (m.borrowStatus ?? 'OUTSTANDING'))?.label}</div> : null}
               </td>
               <td style={td}>{item ? <ItemCell item={item} /> : '—'}</td>
               <td style={{ ...num, color: t?.direction === 'IN' ? 'var(--t-color-green11)' : c.text }}>
-                {t?.direction === 'IN' ? '+' : '−'}
-                {item ? cartonsAndUnits(m.quantity, item) : qty(m.quantity)}
+                {m.type === 'LOAN_SETTLED' ? (
+                  <>
+                    {m.amount ? `paid RM ${m.amount.toFixed(2)}` : 'settled'}
+                    {m.settlesUnits && item ? <div style={{ fontSize: 11, color: c.text3 }}>covers {cartonsAndUnits(m.settlesUnits, item)}</div> : null}
+                  </>
+                ) : (
+                  <>
+                    {t?.direction === 'IN' ? '+' : '−'}
+                    {item ? cartonsAndUnits(m.quantity, item) : qty(m.quantity)}
+                  </>
+                )}
                 {m.expiryDate ? <div style={{ fontSize: 11, color: c.text3 }}>exp {shortDate(m.expiryDate)}</div> : null}
               </td>
               <td style={{ ...td, color: c.text2 }}>{wasteReasonLabel(wasteReasonOf(m)) || m.party || '—'}</td>

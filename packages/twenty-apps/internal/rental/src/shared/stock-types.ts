@@ -23,7 +23,20 @@ export const STOCK_MOVEMENT_TYPES: Array<{ value: string; label: string; directi
   { value: 'WASTE', label: 'Waste / expired', direction: 'OUT', color: 'red' },
   { value: 'ADJUST_IN', label: 'Stock take: more', direction: 'IN', color: 'gray' },
   { value: 'ADJUST_OUT', label: 'Stock take: less', direction: 'OUT', color: 'gray' },
+  // Loans between shops. BORROW (lent to a shop) is a loan going out, BORROW_IN
+  // is stock borrowed from a shop; both stay open until settled. RETURN settles
+  // a BORROW and GIVE_BACK a BORROW_IN with the same item; an exchange moves the
+  // other item (EXCHANGE_IN / GIVE_BACK). LOAN_SETTLED is the note left on the
+  // loan's own item by every exchange or cash settlement (quantity 0: no stock
+  // moves) so each item's history shows what of its loans is still open.
+  { value: 'BORROW_IN', label: 'Borrowed from shop', direction: 'IN', color: 'purple' },
+  { value: 'GIVE_BACK', label: 'Given back to shop', direction: 'OUT', color: 'yellow' },
+  { value: 'LOAN_SETTLED', label: 'Loan settled (no stock moved)', direction: 'OUT', color: 'yellow' },
 ];
+
+// The two kinds of loan (the line that opens it).
+export const LOAN_TYPES = ['BORROW', 'BORROW_IN'];
+export const isLoan = (type: string) => LOAN_TYPES.includes(type);
 
 // A lent item is settled by getting it back, getting something else, or being paid.
 export const BORROW_STATUSES: Array<{ value: string; label: string; color: string }> = [

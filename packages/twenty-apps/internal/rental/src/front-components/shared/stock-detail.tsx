@@ -80,7 +80,10 @@ export const ItemDetailSheet = ({
                 − Take out
               </button>
               <button onClick={() => onRecord('BORROW')} style={control}>
-                Lend to branch
+                Lend to shop
+              </button>
+              <button onClick={() => onRecord('BORROW_IN')} style={control}>
+                Borrow from shop
               </button>
             </>
           ) : null}
@@ -113,7 +116,8 @@ export const ItemDetailSheet = ({
             note={expiry === 'EXPIRED' ? 'expired' : expiry === 'SOON' ? 'within 60 days' : undefined}
             color={expiry === 'EXPIRED' ? 'var(--t-color-red11)' : expiry === 'SOON' ? 'var(--t-color-amber11)' : undefined}
           />
-          {status.lentOut ? <Fact label="Lent to branches" value={cartonsAndUnits(status.lentOut, item)} note="not settled" /> : null}
+          {status.lentOut ? <Fact label="Lent to shops" value={cartonsAndUnits(status.lentOut, item)} note="not settled" /> : null}
+          {status.borrowedIn ? <Fact label="Borrowed from shops" value={cartonsAndUnits(status.borrowedIn, item)} note="in hand, not ours: to settle" color="var(--t-color-amber11)" /> : null}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -183,8 +187,7 @@ export const ItemDetailSheet = ({
                   </span>
                   <span style={{ flex: 1, color: c.text3, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[m.party, m.reference, m.notes, m.recordedBy ? `by ${m.recordedBy}` : ''].filter(Boolean).join(' · ')}</span>
                   <span style={{ fontWeight: 600, whiteSpace: 'nowrap', color: t?.direction === 'IN' ? 'var(--t-color-green11)' : c.text }}>
-                    {t?.direction === 'IN' ? '+' : '−'}
-                    {cartonsAndUnits(m.quantity, item)}
+                    {m.type === 'LOAN_SETTLED' ? (m.amount ? `paid ${rm(m.amount)}` : 'settled') : `${t?.direction === 'IN' ? '+' : '−'}${cartonsAndUnits(m.quantity, item)}`}
                   </span>
                 </div>
               );

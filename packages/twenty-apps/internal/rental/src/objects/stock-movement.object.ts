@@ -6,8 +6,10 @@ import {
   STOCK_MOVEMENT_ORDER_ID_FIELD_ID,
   STOCK_MOVEMENT_RECORDED_BY_FIELD_ID,
   STOCK_MOVEMENT_REASON_FIELD_ID,
+  STOCK_MOVEMENT_AMOUNT_FIELD_ID,
   STOCK_MOVEMENT_BORROW_ID_FIELD_ID,
   STOCK_MOVEMENT_BORROW_STATUS_FIELD_ID,
+  STOCK_MOVEMENT_SETTLES_UNITS_FIELD_ID,
   STOCK_MOVEMENT_DATE_FIELD_ID,
   STOCK_MOVEMENT_EXPIRY_FIELD_ID,
   STOCK_MOVEMENT_NAME_FIELD_ID,
@@ -22,7 +24,7 @@ import {
 } from 'src/constants/universal-identifiers-stock';
 import { BORROW_STATUSES, STOCK_MOVEMENT_TYPES } from 'src/shared/stock-types';
 
-type Color = 'green' | 'blue' | 'orange' | 'turquoise' | 'sky' | 'red' | 'gray';
+type Color = 'green' | 'blue' | 'orange' | 'turquoise' | 'sky' | 'red' | 'gray' | 'purple' | 'yellow';
 
 // One IN or OUT of a stock item at the warehouse, in inner units.
 export default defineObject({
@@ -31,7 +33,7 @@ export default defineObject({
   namePlural: 'stockMovements',
   labelSingular: 'Stock movement',
   labelPlural: 'Stock movements',
-  description: 'Stock in (purchases, returns) and out (taken, lent, waste)',
+  description: 'Stock in (purchases, returns, borrowed from a shop) and out (taken, lent, given back, waste)',
   icon: 'IconArrowsDownUp',
   labelIdentifierFieldMetadataUniversalIdentifier: STOCK_MOVEMENT_NAME_FIELD_ID,
   fields: [
@@ -82,9 +84,29 @@ export default defineObject({
       type: FieldType.TEXT,
       name: 'borrowId',
       label: 'Settles borrow',
-      description: 'The lending this return or exchange settles.',
+      description: 'The loan (lent out or borrowed in) this return, exchange, give-back or payment settles.',
       icon: 'IconLink',
       isNullable: true,
+    },
+    {
+      universalIdentifier: STOCK_MOVEMENT_SETTLES_UNITS_FIELD_ID,
+      type: FieldType.NUMBER,
+      name: 'settlesUnits',
+      label: 'Loan units settled',
+      description: 'How many units of the loan this line settles (a loan can be settled in parts).',
+      icon: 'IconChecks',
+      isNullable: true,
+      universalSettings: { dataType: NumberDataType.FLOAT, decimals: 2 },
+    },
+    {
+      universalIdentifier: STOCK_MOVEMENT_AMOUNT_FIELD_ID,
+      type: FieldType.NUMBER,
+      name: 'amount',
+      label: 'Cash paid (RM)',
+      description: 'The money paid to settle a loan in cash.',
+      icon: 'IconCash',
+      isNullable: true,
+      universalSettings: { dataType: NumberDataType.FLOAT, decimals: 2 },
     },
     {
       universalIdentifier: STOCK_MOVEMENT_BATCH_ID_FIELD_ID,

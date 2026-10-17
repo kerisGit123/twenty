@@ -110,6 +110,8 @@ type MovementNode = {
   notes?: string | null;
   borrowStatus?: string | null;
   borrowId?: string | null;
+  settlesUnits?: number | null;
+  amount?: number | null;
   batchId?: string | null;
   orderId?: string | null;
   recordedBy?: string | null;
@@ -168,6 +170,8 @@ const MOVEMENT_FIELDS = {
   notes: true,
   borrowStatus: true,
   borrowId: true,
+  settlesUnits: true,
+  amount: true,
   batchId: true,
   orderId: true,
   recordedBy: true,
@@ -188,6 +192,8 @@ export const toStockMovement = (node: MovementNode): StockMovement => ({
   notes: node.notes ?? '',
   borrowStatus: node.borrowStatus ?? null,
   borrowId: node.borrowId ?? null,
+  settlesUnits: node.settlesUnits ?? null,
+  amount: node.amount ?? null,
   batchId: node.batchId ?? null,
   orderId: node.orderId ?? null,
   recordedBy: node.recordedBy ?? '',
@@ -203,13 +209,16 @@ export const loadMovementsOf = async (client: CoreApiClient, itemIds: string[]) 
     ? (await queryAll<MovementNode>(client, 'stockMovements', { filter: { itemId: { in: itemIds } } }, MOVEMENT_FIELDS)).map(toStockMovement)
     : [];
 
-export const loadStockData = async (client: CoreApiClient, scope: Scope): Promise<StockData> => {
+// One workspace asks only for its own rows (the database filters), instead of every
+// workspace's history being loaded and thrown away. No workspace = everything in scope.
+export const loadStockData = async (client: CoreApiClient, scope: Scope, onlyOwnerId?: string | null): Promise<StockData> => {
+  const own = onlyOwnerId && inScope(scope, onlyOwnerId) ? { filter: { ownerId: { eq: onlyOwnerId } } } : {};
   const [items, movements, owners, orders, requests] = await Promise.all([
-    queryAll<ItemNode>(client, 'stockItems', { orderBy: [{ code: 'AscNullsLast' }] }, ITEM_FIELDS),
-    queryAll<MovementNode>(client, 'stockMovements', { orderBy: [{ movementDate: 'AscNullsLast' }] }, MOVEMENT_FIELDS),
+    queryAll<ItemNode>(client, 'stockItems', { ...own, orderBy: [{ code: 'AscNullsLast' }] }, ITEM_FIELDS),
+    queryAll<MovementNode>(client, 'stockMovements', { ...own, orderBy: [{ movementDate: 'AscNullsLast' }] }, MOVEMENT_FIELDS),
     queryAll<OwnerNode>(client, 'owners', { orderBy: [{ name: 'AscNullsLast' }] }, { id: true, name: true, stockReorderBelowMonths: true, stockOrderUpToMonths: true, stockLockedThrough: true, stockLeadDays: true }),
-    queryAll<OrderNode>(client, 'stockOrders', { orderBy: [{ orderDate: 'DescNullsLast' }] }, ORDER_FIELDS),
-    queryAll<RequestNode>(client, 'stockRequests', { orderBy: [{ requestDate: 'DescNullsLast' }] }, REQUEST_FIELDS),
+    queryAll<OrderNode>(client, 'stockOrders', { ...own, orderBy: [{ orderDate: 'DescNullsLast' }] }, ORDER_FIELDS),
+    queryAll<RequestNode>(client, 'stockRequests', { ...own, orderBy: [{ requestDate: 'DescNullsLast' }] }, REQUEST_FIELDS),
   ]);
 
   const allMovements = movements.map(toStockMovement);

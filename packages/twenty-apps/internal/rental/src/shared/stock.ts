@@ -36,6 +36,8 @@ export type StockMovement = {
   notes: string;
   borrowStatus: string | null;
   borrowId: string | null;
+  settlesUnits?: number | null; // a settlement line: how many units of its loan it covers
+  amount?: number | null; // a cash settlement: the money paid (RM)
   batchId?: string | null; // lines saved together (one delivery)
   orderId?: string | null; // a purchase received against a stock order
   recordedBy?: string; // the team member who saved it
@@ -51,6 +53,22 @@ export const DEFAULT_RULE: StockRule = { reorderBelow: DEFAULT_REORDER_BELOW_MON
 const round = (value: number, places = 4) => Math.round(value * 10 ** places) / 10 ** places;
 
 export const signedQuantity = (m: Pick<StockMovement, 'type' | 'quantity'>) => (isIn(m.type) ? m.quantity : -m.quantity);
+
+// Loans between shops: a BORROW (lent out) or BORROW_IN (borrowed) stays open
+// until its units are covered by settlements (same item back, another item, or
+// cash), possibly in several parts. A return or give-back of the same item covers
+// its own quantity; any other settlement line says how many units it covers.
+export const loanSettled = (loan: Pick<StockMovement, 'id' | 'itemId'>, movements: StockMovement[]) =>
+  round(
+    movements
+      .filter((m) => m.borrowId === loan.id)
+      .reduce((sum, m) => sum + (m.settlesUnits ?? ((m.type === 'RETURN' || m.type === 'GIVE_BACK') && m.itemId === loan.itemId ? m.quantity : 0)), 0),
+  );
+
+// Units of the loan still open. A loan marked settled has none left (older loans
+// were settled in one go, without recording how many units each line covered).
+export const loanRemaining = (loan: Pick<StockMovement, 'id' | 'itemId' | 'quantity' | 'borrowStatus'>, movements: StockMovement[]) =>
+  (loan.borrowStatus ?? 'OUTSTANDING') !== 'OUTSTANDING' ? 0 : Math.max(0, round(loan.quantity - loanSettled(loan, movements)));
 
 // Today's list price per unit (what an order costs).
 export const unitPrice = (item: Pick<StockItem, 'cartonPrice' | 'unitsPerCarton'>) => item.cartonPrice / (item.unitsPerCarton || 1);
@@ -258,7 +276,8 @@ export type StockStatus = {
   suggestedCartons: number;
   suggestedCost: number;
   nearestExpiry: string | null;
-  lentOut: number; // lent to branches, not yet settled
+  lentOut: number; // lent to other shops, not yet settled
+  borrowedIn: number; // borrowed from other shops, not yet settled: in hand but not ours
   onOrder: number; // units ordered from suppliers, not yet arrived
 };
 
@@ -274,10 +293,14 @@ export const expiryState = (expiry: string | null, today: string, days = 60): 'E
 export const stockStatus = (item: StockItem, movements: StockMovement[], rule: StockRule, today: string, onOrder = 0): StockStatus => {
   const balance = balanceOf(movements);
   const { forecast, basis } = forecastNextMonth(movements, today);
+  // Stock borrowed from another shop is on the shelf but not ours: it goes back
+  // (or is paid for), so re-ordering counts only what we own.
+  const borrowedIn = round(movements.filter((m) => m.type === 'BORROW_IN').reduce((sum, m) => sum + loanRemaining(m, movements), 0));
+  const owned = balance - borrowedIn;
   // Waiting for a delivery uses stock too: order that much earlier.
   const lead = Math.max(0, rule.leadDays ?? 0) / 30.4;
   const reorderBelow = Math.round(((item.reorderBelowMonths ?? rule.reorderBelow) + lead) * 100) / 100;
-  const monthsLeft = forecast > 0 ? round(Math.max(balance, 0) / forecast, 2) : null;
+  const monthsLeft = forecast > 0 ? round(Math.max(owned, 0) / forecast, 2) : null;
   const lastMonth = monthOf(new Date(Date.parse(`${today.slice(0, 7)}-01T00:00:00Z`) - 86_400_000).toISOString());
   const lastMonthTaken = monthlyTakes(movements).find(([month]) => month === lastMonth)?.[1] ?? 0;
   const per = item.unitsPerCarton || 1;
@@ -285,13 +308,13 @@ export const stockStatus = (item: StockItem, movements: StockMovement[], rule: S
 
   let flag: StockFlag = 'OK';
 
-  if (monthsLeft === null) flag = balance <= 0 ? 'EMPTY' : 'NO_USE';
+  if (monthsLeft === null) flag = owned <= 0 ? 'EMPTY' : 'NO_USE';
   else if (monthsLeft < reorderBelow) flag = 'ORDER';
   else if (monthsLeft < reorderBelow + 0.5) flag = 'LOW';
 
   // Bring the item up to "order enough for" months of next month's use, in
   // whole cartons, counting what is already ordered and still to come.
-  const shortBy = active && flag === 'ORDER' ? Math.max(0, forecast * Math.max(rule.orderUpTo + lead, reorderBelow) - Math.max(balance, 0) - onOrder) : 0;
+  const shortBy = active && flag === 'ORDER' ? Math.max(0, forecast * Math.max(rule.orderUpTo + lead, reorderBelow) - Math.max(owned, 0) - onOrder) : 0;
   const suggestedCartons = shortBy > 0 ? Math.ceil(round(shortBy / per, 4)) : 0;
 
   if (flag === 'ORDER' && onOrder > 0 && !suggestedCartons) flag = 'ON_ORDER';
@@ -313,9 +336,8 @@ export const stockStatus = (item: StockItem, movements: StockMovement[], rule: S
     suggestedCartons,
     suggestedCost: round(suggestedCartons * item.cartonPrice, 2),
     nearestExpiry: nearestExpiry(movements, balance),
-    lentOut: round(
-      movements.filter((m) => m.type === 'BORROW' && (m.borrowStatus ?? 'OUTSTANDING') === 'OUTSTANDING').reduce((sum, m) => sum + m.quantity, 0),
-    ),
+    lentOut: round(movements.filter((m) => m.type === 'BORROW').reduce((sum, m) => sum + loanRemaining(m, movements), 0)),
+    borrowedIn,
     onOrder: round(onOrder),
   };
 };
@@ -324,9 +346,10 @@ export const stockStatus = (item: StockItem, movements: StockMovement[], rule: S
 // covers `months` of next month's use. E.g. use 16 a month, 8 per carton,
 // nothing in hand: 16 / 8 = 2 cartons. `ownUnits` is a draft being changed:
 // its own quantity must not count as already ordered.
-export const cartonsToCover = (s: Pick<StockStatus, 'item' | 'balance' | 'onOrder' | 'forecast'>, months: number, ownUnits = 0) => {
+export const cartonsToCover = (s: Pick<StockStatus, 'item' | 'balance' | 'onOrder' | 'forecast'> & { borrowedIn?: number }, months: number, ownUnits = 0) => {
   const per = s.item.unitsPerCarton || 1;
-  const have = Math.max(s.balance, 0) + Math.max(0, s.onOrder - ownUnits);
+  // Borrowed stock goes back, so it doesn't count as ours.
+  const have = Math.max(s.balance - (s.borrowedIn ?? 0), 0) + Math.max(0, s.onOrder - ownUnits);
   const short = s.forecast * months - have;
 
   return short > 0 ? Math.ceil(round(short / per, 4)) : 0;
@@ -336,11 +359,11 @@ export type MonthRow = {
   item: StockItem;
   opening: number;
   purchased: number;
-  otherIn: number; // borrow returns, exchanges, stock-take surplus
+  otherIn: number; // borrow returns, exchanges, stock borrowed from shops, stock-take surplus
   takes: Record<string, number>; // date -> units taken out
   ins: Record<string, number>; // date -> units in (purchases, returns, exchanges, stock-take surplus)
   consumption: number; // all takes this month
-  lent: number;
+  lent: number; // lent to shops, or given back to a shop we borrowed from
   waste: number; // waste and stock-take shortfall
   closing: number;
   closingCartons: number;
@@ -375,9 +398,9 @@ export const monthSheet = (items: StockItem[], movementsByItem: Map<string, Stoc
 
     const opening = balanceOf(all, start);
     const purchased = sum(['PURCHASE']);
-    const otherIn = sum(['RETURN', 'EXCHANGE_IN', 'ADJUST_IN']);
+    const otherIn = sum(['RETURN', 'EXCHANGE_IN', 'ADJUST_IN', 'BORROW_IN']);
     const consumption = sum(['TAKE']);
-    const lent = sum(['BORROW']);
+    const lent = sum(['BORROW', 'GIVE_BACK']);
     const waste = sum(['WASTE', 'ADJUST_OUT']);
     const closing = round(opening + purchased + otherIn - consumption - lent - waste);
 
@@ -598,7 +621,7 @@ export const monthSheetCsv = (sheet: ReturnType<typeof monthSheet>) =>
       ...sheet.dates.map((d) => `Taken ${dm(d)}`),
       'Monthly consumption',
       'Consumption cost (RM)',
-      'Lent out',
+      'Lent / given back',
       'Waste / short',
       'Closing (units)',
       'Closing (ctn)',

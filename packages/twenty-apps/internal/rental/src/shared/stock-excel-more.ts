@@ -12,6 +12,7 @@ import {
   type StockStatus,
   cartonsAndUnits,
   expiryState,
+  loanRemaining,
   toCartons,
   unitValue,
 } from 'src/shared/stock';
@@ -295,7 +296,7 @@ export const yearWorkbook = (rows: YearRow[], year: number, lastMonth: number, h
 
 export const monthEndWorkbook = (rows: MonthEndRow[], lockedThrough: string | null, heading: Heading) => {
   const reasons = WASTE_REASONS.filter((r) => rows.some((x) => (x.reasons[r.value] ?? 0) > 0));
-  const labels = ['Month', 'Opening (RM)', '+ Purchased (RM)', '+ Other in (RM)', '− Used (RM)', '− Waste (RM)', '− Lent / count (RM)', 'Closing (RM)', 'Stock take', 'Status', ...reasons.map((r) => `Lost: ${r.label} (RM)`)];
+  const labels = ['Month', 'Opening (RM)', '+ Purchased (RM)', '+ Other in (RM)', '− Used (RM)', '− Waste (RM)', '− Lent / given back / count (RM)', 'Closing (RM)', 'Stock take', 'Status', ...reasons.map((r) => `Lost: ${r.label} (RM)`)];
   const out: XlsxCell[][] = [...titleBlock(heading), headerRow(labels)];
   const monthEnd = (month: string) => new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
 
@@ -442,55 +443,68 @@ export const historyWorkbook = (sheet: { ins: Delivery[]; outDates: string[]; ro
   });
 };
 
-// ---------------------------------------------------------------- Borrowed
+// ---------------------------------------------------------------- Loans
 
+// Loans between shops: lent out (a shop borrowed from us) and borrowed in (we
+// borrowed from a shop), each with what is still open and how it was settled.
 export const borrowWorkbook = (items: StockItem[], movements: StockMovement[], today: string, heading: Heading) => {
   const byId = new Map(items.map((i) => [i.id, i]));
-  const labels = ['Branch', 'Lent on', 'Item code', 'Product name', 'Quantity', 'Value at cost (RM)', 'Days out', 'Status', 'Settled with', 'Notes'];
+  const labels = ['Direction', 'Shop', 'Date', 'Item code', 'Product name', 'Quantity', 'Still open', 'Value open (RM)', 'Days out', 'Status', 'Settled with', 'Notes'];
   const rows: XlsxCell[][] = [...titleBlock(heading), headerRow(labels)];
-  const lent = movements.filter((m) => m.type === 'BORROW').sort((a, b) => (a.party || '').localeCompare(b.party || '') || a.date.localeCompare(b.date));
+  const loans = movements
+    .filter((m) => m.type === 'BORROW' || m.type === 'BORROW_IN')
+    .sort((a, b) => a.type.localeCompare(b.type) || (a.party || '').localeCompare(b.party || '') || a.date.localeCompare(b.date));
   const settlements = new Map<string, StockMovement[]>();
 
   for (const m of movements) if (m.borrowId) settlements.set(m.borrowId, [...(settlements.get(m.borrowId) ?? []), m]);
-  let owed = 0;
+  const owed = { BORROW: 0, BORROW_IN: 0 };
 
-  for (const m of lent) {
+  for (const m of loans) {
     const item = byId.get(m.itemId);
     const status = m.borrowStatus ?? 'OUTSTANDING';
     const open = status === 'OUTSTANDING';
-    const value = item ? m.quantity * unitValue(item) : 0;
+    const left = open ? loanRemaining(m, movements) : 0;
+    const part = open && left < m.quantity;
+    const value = item ? left * unitValue(item) : 0;
     const days = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${m.date}T00:00:00Z`)) / 86_400_000);
-    const settled =
-      status === 'PAID'
-        ? 'Paid in money'
-        : (settlements.get(m.id) ?? [])
-            .map((s) => {
-              const other = byId.get(s.itemId);
+    const parts = [...(settlements.get(m.id) ?? [])]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .flatMap((s) => {
+        // The line an exchange leaves on this item: the other item's line already shows it.
+        if (s.type === 'LOAN_SETTLED') return s.amount ? [`${dmy(s.date)}: paid RM ${s.amount.toFixed(2)}${s.notes ? ` (${s.notes})` : ''}`] : [];
+        const other = byId.get(s.itemId);
 
-              return `${dmy(s.date)}: ${other ? cartonsAndUnits(s.quantity, other) : s.quantity}${other && other.id !== m.itemId ? ` ${other.name}` : ''}`;
-            })
-            .join('; ');
+        return [`${dmy(s.date)}: ${other ? cartonsAndUnits(s.quantity, other) : s.quantity}${other && other.id !== m.itemId ? ` ${other.name}` : ''}`];
+      });
+    const settled = parts.length ? parts.join('; ') : status === 'PAID' ? 'Paid in money' : '';
 
-    if (open) owed += value;
+    if (open) owed[m.type as 'BORROW' | 'BORROW_IN'] += value;
     rows.push([
-      cell(m.party || 'Unknown branch', { bold: open }),
+      cell(m.type === 'BORROW_IN' ? 'Borrowed in' : 'Lent out', { bold: open }),
+      cell(m.party || 'Unknown shop', { bold: open }),
       cell(dmy(m.date)),
       cell(item?.code ?? ''),
       cell(item?.name ?? 'Item removed'),
       cell(item ? cartonsAndUnits(m.quantity, item) : String(m.quantity), { align: 'right' }),
+      cell(open ? (item ? cartonsAndUnits(left, item) : String(left)) : '', { align: 'right', bold: open }),
       money(value),
       cell(open ? days : null, { align: 'right', color: open && days > 30 ? RED : open && days > 14 ? AMBER : undefined }),
-      cell(BORROW_STATUSES.find((b) => b.value === status)?.label ?? status, { color: open ? AMBER : undefined, bold: open }),
+      cell(part ? 'Part settled' : (BORROW_STATUSES.find((b) => b.value === status)?.label ?? status), { color: open ? AMBER : undefined, bold: open }),
       cell(settled),
       cell(m.notes),
     ]);
   }
 
-  const total = labels.map(() => cell(null, { fill: HEAD }));
+  const total = (label: string, amount: number) => {
+    const row = labels.map(() => cell(null, { fill: HEAD }));
 
-  total[0] = cell(lent.length ? 'STILL OWED' : 'Nothing lent', { fill: HEAD, bold: true });
-  total[5] = money(owed, { fill: HEAD, bold: true });
-  rows.push(total);
+    row[0] = cell(label, { fill: HEAD, bold: true });
+    row[7] = money(amount, { fill: HEAD, bold: true });
 
-  return buildXlsx({ name: 'Borrowed', rows, freeze: { rows: 6, cols: 1 }, widths: [18, 10, 9, 34, 12, 12, 8, 12, 30, 24] });
+    return row;
+  };
+
+  rows.push(total(loans.length ? 'STILL OWED TO YOU (lent out)' : 'Nothing lent or borrowed', owed.BORROW), total('STILL OWED BY YOU (borrowed in)', owed.BORROW_IN));
+
+  return buildXlsx({ name: 'Loans', rows, freeze: { rows: 6, cols: 2 }, widths: [12, 18, 10, 9, 34, 12, 12, 14, 8, 12, 34, 24] });
 };

@@ -166,3 +166,24 @@ export const FLAG: Record<string, { label: string; color: string }> = {
   NO_USE: { label: 'Not used', color: 'gray' },
   EMPTY: { label: 'Empty', color: 'gray' },
 };
+
+// Shops used in earlier loans: tap one instead of typing it again, so "Shop X" and
+// "shop x" never become two shops.
+export const ShopChips = ({ shops, value, onPick }: { shops: string[]; value: string; onPick: (shop: string) => void }) =>
+  shops.length ? (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+      <span style={{ fontSize: 12, color: c.text3 }}>Tap a shop:</span>
+      {shops.map((shop) => {
+        const picked = value.trim().toLowerCase() === shop.toLowerCase();
+
+        return (
+          <button key={shop} onClick={() => onPick(shop)} style={{ ...control, height: 34, fontSize: 13, fontWeight: picked ? 600 : 400, borderColor: picked ? c.accent : c.border2 }}>
+            {shop}
+          </button>
+        );
+      })}
+    </div>
+  ) : null;
+
+// The shop's name as already used (any capital letters), else as typed.
+export const knownShop = (shops: string[], typed: string) => shops.find((s) => s.toLowerCase() === typed.trim().toLowerCase()) ?? typed.trim();

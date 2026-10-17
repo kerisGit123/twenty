@@ -3,7 +3,7 @@ import { type CSSProperties, useMemo, useState } from 'react';
 import { readValue } from 'src/front-components/shared/read-value';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { stockAction } from 'src/front-components/shared/stock-forms';
-import { c, control, input, PriceNote, primary, qty, ReasonPicker, shortDate } from 'src/front-components/shared/stock-ui';
+import { c, control, input, knownShop, PriceNote, primary, qty, ReasonPicker, ShopChips, shortDate } from 'src/front-components/shared/stock-ui';
 import { cartonsAndUnits, defaultExpiry, expiredStock, type StockItem, type StockMovement } from 'src/shared/stock';
 
 // Fast entry for the store room (works on a phone): search, tap +1 ctn /
@@ -16,6 +16,9 @@ const KINDS = [
   { value: 'TAKE', label: 'Take out', party: 'Wawa', hint: 'Taken to' },
   { value: 'WASTE', label: 'Waste', party: '', hint: 'Reason (expired, spilled…)' },
   { value: 'PURCHASE', label: 'Stock in', party: 'WeDrink', hint: 'Supplier' },
+  // Stock that moves between shops: it has to be given back, swapped or paid for later (Loans tab).
+  { value: 'BORROW_IN', label: 'Borrowed in', party: '', hint: 'Which shop lent it to you?' },
+  { value: 'BORROW', label: 'Lent out', party: '', hint: 'Which shop borrowed it?' },
 ] as const;
 
 const toNumber = (value: string) => Number(value.replace(/[^0-9.]/g, '')) || 0;
@@ -26,6 +29,7 @@ export const QuickSheet = ({
   movements,
   lastPaid,
   initialKind,
+  shops = [],
   today,
   onClose,
   onDone,
@@ -34,7 +38,8 @@ export const QuickSheet = ({
   balances: Map<string, number>;
   movements: StockMovement[];
   lastPaid: Map<string, number>; // per unit, the last delivery's price
-  initialKind?: 'TAKE' | 'WASTE' | 'PURCHASE';
+  initialKind?: 'TAKE' | 'WASTE' | 'PURCHASE' | 'BORROW_IN' | 'BORROW';
+  shops?: string[]; // shops used in earlier loans
   today: string;
   onClose: () => void;
   onDone: () => void;
@@ -74,7 +79,9 @@ export const QuickSheet = ({
   const shown = q ? items.filter((i) => `${i.code} ${i.name}`.toLowerCase().includes(q)).slice(0, 12) : recent;
   const add = (item: StockItem, units: number) => setBasket((b) => ({ ...b, [item.id]: Math.max(0, Math.round(((b[item.id] ?? 0) + units) * 100) / 100) }));
   const lines = Object.entries(basket).filter(([, units]) => units > 0);
-  const isOut = kind !== 'PURCHASE';
+  const isOut = kind !== 'PURCHASE' && kind !== 'BORROW_IN';
+  const isLoan = kind === 'BORROW_IN' || kind === 'BORROW';
+  const needsShop = isLoan && !party.trim();
 
   const save = async () => {
     setBusy(true);
@@ -82,7 +89,7 @@ export const QuickSheet = ({
       action: 'record',
       type: kind,
       date,
-      party: kind === 'WASTE' ? '' : party,
+      party: kind === 'WASTE' ? '' : isLoan ? knownShop(shops, party) : party,
       reason: kind === 'WASTE' ? reason : undefined,
       reference: kind === 'PURCHASE' ? reference : undefined,
       lines: lines.map(([itemId, units]) => {
@@ -105,7 +112,7 @@ export const QuickSheet = ({
     <Sheet width={560} onClose={onClose}>
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: c.font, color: c.text, overflowY: 'auto', height: '100%', boxSizing: 'border-box' }}>
         <span style={{ fontSize: 17, fontWeight: 600 }}>Quick entry</span>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {KINDS.map((k) => (
             <button
               key={k.value}
@@ -113,7 +120,7 @@ export const QuickSheet = ({
                 setKind(k.value);
                 setParty(k.party);
               }}
-              style={{ ...big, flex: 1, background: kind === k.value ? c.accent : c.bg, color: kind === k.value ? 'white' : c.text, borderColor: kind === k.value ? c.accent : c.border2 }}
+              style={{ ...big, flex: '1 1 90px', background: kind === k.value ? c.accent : c.bg, color: kind === k.value ? 'white' : c.text, borderColor: kind === k.value ? c.accent : c.border2 }}
             >
               {k.label}
             </button>
@@ -123,10 +130,18 @@ export const QuickSheet = ({
           {kind === 'WASTE' ? <span /> : <input value={party} onChange={(e) => setParty(readValue(e))} placeholder={KINDS.find((k) => k.value === kind)?.hint} style={{ ...input, height: 40 }} />}
           <input type="date" value={date} onChange={(e) => setDate(readValue(e))} style={{ ...input, height: 40, borderColor: isFullDate(date) ? undefined : 'var(--t-color-red9)' }} />
         </div>
+        {isLoan ? (
+          <>
+            <ShopChips shops={shops} value={party} onPick={setParty} />
+            <span style={{ fontSize: 12, color: needsShop ? 'var(--t-color-amber11)' : c.text3 }}>
+              {needsShop ? 'Say which shop: tap one above or type its name.' : kind === 'BORROW_IN' ? 'You will owe this back: give it back, swap it or pay for it later on the Loans tab.' : 'The shop will owe this back: settle it later on the Loans tab.'}
+            </span>
+          </>
+        ) : null}
         {kind === 'PURCHASE' ? <input value={reference} onChange={(e) => setReference(readValue(e))} placeholder="Invoice / DO no. (optional)" style={{ ...input, height: 40 }} /> : null}
         {kind === 'WASTE' ? <ReasonPicker value={reason} onChange={setReason} /> : null}
         <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder="🔍 Type a code or name…" style={{ ...input, height: 44, fontSize: 15 }} />
-        <span style={{ fontSize: 12, color: c.text3 }}>{q ? `${shown.length} match${shown.length === 1 ? '' : 'es'}` : kind === 'TAKE' ? 'Recently taken out' : kind === 'WASTE' ? 'Recently wasted' : 'Recently received'}</span>
+        <span style={{ fontSize: 12, color: c.text3 }}>{q ? `${shown.length} match${shown.length === 1 ? '' : 'es'}` : kind === 'TAKE' ? 'Recently taken out' : kind === 'WASTE' ? 'Recently wasted' : isLoan ? 'Items often moved' : 'Recently received'}</span>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {shown.map((item) => {
             const inStock = balances.get(item.id) ?? 0;
@@ -188,7 +203,7 @@ export const QuickSheet = ({
             <button onClick={onClose} style={{ ...big, flex: 1 }}>
               Cancel
             </button>
-            <button onClick={save} disabled={busy || !lines.length || !isFullDate(date) || (kind === 'WASTE' && !reason)} style={{ ...primary, ...{ height: 40, fontSize: 15 }, flex: 2, opacity: busy || !lines.length || !isFullDate(date) || (kind === 'WASTE' && !reason) ? 0.5 : 1 }}>
+            <button onClick={save} disabled={busy || !lines.length || !isFullDate(date) || (kind === 'WASTE' && !reason) || needsShop} style={{ ...primary, ...{ height: 40, fontSize: 15 }, flex: 2, opacity: busy || !lines.length || !isFullDate(date) || (kind === 'WASTE' && !reason) || needsShop ? 0.5 : 1 }}>
               {busy ? 'Saving…' : `Save ${lines.length} item${lines.length === 1 ? '' : 's'}`}
             </button>
           </div>

@@ -27,6 +27,9 @@ export const STOCK_MOVEMENT_BORROW_STATUS_FIELD_ID = '4ed72a63-b893-4ea0-a1f1-d9
 export const STOCK_MOVEMENT_BORROW_ID_FIELD_ID = 'eed3782c-7677-4fc5-9fe3-a2ada6647d60';
 // The save a movement came from (lines saved together share it; a retried save is recognised by it).
 export const STOCK_MOVEMENT_BATCH_ID_FIELD_ID = '78b8c5ff-846c-4ad0-9bf8-8006dee3d072';
+// Loans between shops: how many of the loan's units a settlement covers, and the cash paid.
+export const STOCK_MOVEMENT_SETTLES_UNITS_FIELD_ID = 'cb7bef06-a496-470c-92e2-d1c5da7d4a1d';
+export const STOCK_MOVEMENT_AMOUNT_FIELD_ID = '271f7637-4e7b-45dd-bfff-26e7826b4084';
 
 export const STOCK_MOVEMENT_ITEM_FIELD_ID = '33aa38db-5184-4cbd-87b2-0f497ca1e06d';
 export const STOCK_ITEM_MOVEMENTS_FIELD_ID = '2511fbbc-3ae7-4a7f-8556-ce54711230c8';
@@ -49,6 +52,9 @@ export const STOCK_TYPE_OPTION_IDS = [
   '1772d9cf-e6c6-4a6d-ba01-ba810934624d', '6edd2d1f-581a-4acc-a6fb-f2cc423acf75',
   '95a0c1c8-93d2-48be-8c06-02eb80f7980d', 'd4d8765e-1ba7-4a2a-a228-625b9cdfb050',
   'fa535612-6f85-415f-88e2-0d49f09edce8', '481f41dd-01ff-4729-b291-b77e83c930fa',
+  // Added later (BORROW_IN, GIVE_BACK, LOAN_PAID): new entries go at the end.
+  '8f449a69-f7cd-4743-8d51-bd28ffb15950', '99613d03-4bff-47fe-817e-5c7d762ac518',
+  'ebbc0112-46f7-4e77-9a6d-3ed0cee895a8',
 ];
 export const STOCK_BORROW_STATUS_OPTION_IDS = [
   '8123a4fa-be00-41c9-9b00-69dc0b517012', 'd55a6e86-36b2-4478-9bab-d304afdd697a',

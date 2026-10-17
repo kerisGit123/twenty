@@ -4,7 +4,7 @@
 
 type Cell = string | number | null;
 
-export type ImportTake = { date: string; units: number };
+export type ImportTake = { date: string; units: number; note?: string };
 
 export type ImportRow = {
   code: string;
@@ -47,6 +47,19 @@ export const excelDate = (value: Cell): string | null => {
   }
 
   return null;
+};
+
+// A take-out heading is a date, optionally followed by where it went:
+// "6/9/2026 (IPEAK)" is 6 Sep, to IPEAK.
+const takeHeading = (value: Cell): { date: string; note: string } | null => {
+  const date = excelDate(value);
+
+  if (date) return { date, note: '' };
+  if (typeof value !== 'string') return null;
+  const match = /^(\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})\s+(.+)$/.exec(clean(value));
+  const labelled = match ? excelDate(match[1]) : null;
+
+  return match && labelled ? { date: labelled, note: match[2].replace(/^[\s(]+|[\s)]+$/g, '') } : null;
 };
 
 const number = (value: Cell) => {
@@ -104,8 +117,12 @@ export const parseStockSheet = (name: string, rows: Cell[][]): ImportSheet | nul
   // Take-out columns: headings that are dates, after the expiry column.
   const stop = at.consumption >= 0 ? at.consumption : header.length;
   const takeCols = header
-    .map((v, index) => ({ index, date: index > Math.max(at.expiry, at.inHand, at.perCarton) && index < stop ? excelDate(v) : null }))
-    .filter((x): x is { index: number; date: string } => !!x.date);
+    .map((v, index) => {
+      const heading = index > Math.max(at.expiry, at.inHand, at.perCarton) && index < stop ? takeHeading(v) : null;
+
+      return { index, date: heading?.date ?? null, note: heading?.note ?? '' };
+    })
+    .filter((x): x is { index: number; date: string; note: string } => !!x.date);
   // Delivery columns: "IN 3/5/26" (the Excel export of this app).
   const inCols = header
     .map((v, index) => ({ index, date: /^IN\s+/i.test(clean(v)) ? excelDate(clean(v).replace(/^IN\s+/i, '')) : null }))
@@ -143,7 +160,11 @@ export const parseStockSheet = (name: string, rows: Cell[][]): ImportSheet | nul
     const spec = String(row[at.spec] ?? '').replace(/\s*\n\s*/g, ' ').trim();
     const fromColumn = at.perCarton >= 0 ? number(row[at.perCarton]) : 0;
     const perCarton = fromColumn || perCartonFrom(spec, productName) || 1;
-    const cartons = at.quantity >= 0 ? number(row[at.quantity]) : 0;
+    const quantityCell = at.quantity >= 0 ? row[at.quantity] : null;
+    const cartons = number(quantityCell);
+    // A typed 0 is a real zero opening. Only a blank cell falls back to Qty in hand,
+    // which on these sheets is (opening + this month's order) x item/ctn.
+    const hasQuantity = clean(quantityCell) !== '';
     const inHand = at.inHand >= 0 ? number(row[at.inHand]) : 0;
     const unitMatch = /\(\s*[\d.]*\s*([A-Za-z]+)/.exec(spec);
 
@@ -159,11 +180,11 @@ export const parseStockSheet = (name: string, rows: Cell[][]): ImportSheet | nul
       perCartonGuessed: !fromColumn,
       cartonPrice: at.price >= 0 ? number(row[at.price]) : 0,
       // Qty in hand stands in for a blank opening only on WeDrink sheets; in this app's export it includes the deliveries.
-      openingUnits: units(cartons ? cartons * perCarton : inCols.length ? 0 : inHand),
+      openingUnits: units(hasQuantity ? cartons * perCarton : inCols.length ? 0 : inHand),
       orderUnits: units(at.order >= 0 ? number(row[at.order]) * perCarton : 0),
       expiryDate: at.expiry >= 0 ? excelDate(row[at.expiry]) : null,
       ins: inCols.map(({ index, date }) => ({ date, units: units(number(row[index])) })).filter((t) => t.units > 0),
-      takes: takeCols.map(({ index, date }) => ({ date, units: units(number(row[index])) })).filter((t) => t.units > 0),
+      takes: takeCols.map(({ index, date, note }) => ({ date, units: units(number(row[index])), ...(note ? { note } : {}) })).filter((t) => t.units > 0),
       // A blank balance cell is 0 (the export leaves zeros blank).
       balanceUnits: at.balance >= 0 ? units(number(row[at.balance])) : null,
     });

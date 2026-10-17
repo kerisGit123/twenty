@@ -11,11 +11,11 @@ import { ITEM_FIELDS, loadItemMovements, loadMovementsOf, loadStockData, ORDER_F
 import { shortUnits, type StockRequest, unresolvedShort } from 'src/shared/stock-requests';
 import { normalizePhone } from 'src/shared/stock-orders';
 import { orderProgress, orderStatusFor, type OrderLine, type StockOrder } from 'src/shared/stock-orders';
-import { balanceOf, cartonsAndUnits, defaultExpiry, groupMovements, type StockItem, unitPrice } from 'src/shared/stock';
+import { balanceOf, cartonsAndUnits, defaultExpiry, groupMovements, loanSettled, type StockItem, unitPrice } from 'src/shared/stock';
 import { stockAlerts } from 'src/shared/stock-alerts';
 import { importChanges, importClosing, importComputedClosing, importDates, type ImportRow, type ImportSheet, pickStockSheet } from 'src/shared/stock-import';
 import { readXlsx } from 'src/logic-functions/utils/xlsx-read';
-import { movementType, STOCK_GROUPS, WASTE_REASONS } from 'src/shared/stock-types';
+import { isLoan, movementType, STOCK_GROUPS, WASTE_REASONS } from 'src/shared/stock-types';
 
 // POST /s/stock { action, ... }: the Stock page's data and every change it
 // makes, checked against the caller's workspaces.
@@ -56,7 +56,7 @@ const num = (value: unknown) => {
 const text = (value: unknown, max = 300) => String(value ?? '').trim().slice(0, max);
 
 // Recordable by hand; stock-take adjustments come from the stock take.
-const RECORDABLE = ['PURCHASE', 'TAKE', 'BORROW', 'WASTE', 'RETURN', 'EXCHANGE_IN'];
+const RECORDABLE = ['PURCHASE', 'TAKE', 'BORROW', 'BORROW_IN', 'WASTE', 'RETURN', 'EXCHANGE_IN'];
 
 const loadItem = async (client: CoreApiClient, itemId: string): Promise<StockItem | null> => {
   const { stockItems } = await client.query({ stockItems: { __args: { filter: { id: { eq: itemId } }, first: 1 }, edges: { node: ITEM_FIELDS } } } as never) as {
@@ -164,6 +164,8 @@ type MovementInput = {
   notes?: string;
   borrowStatus?: string | null;
   borrowId?: string | null;
+  settlesUnits?: number | null;
+  amount?: number | null;
   batchId?: string | null;
   orderId?: string | null;
   reason?: string | null;
@@ -190,6 +192,8 @@ const movementData = (item: StockItem, data: MovementInput, recordedBy = '') => 
           notes: data.notes ?? '',
           borrowStatus: (data.borrowStatus ?? null) as never,
           borrowId: data.borrowId ?? null,
+          settlesUnits: data.settlesUnits ?? null,
+          amount: data.amount ?? null,
           batchId: data.batchId ?? null,
           orderId: data.orderId ?? null,
           recordedBy: recordedBy || null,
@@ -287,8 +291,32 @@ const lockedMessage = (locks: Map<string, string | null>, ownerId: string | null
     : null;
 };
 
+// What of a loan is still open: its units minus those its settlement lines cover.
+const loanLeft = async (client: CoreApiClient, loan: { id: string; itemId: string; quantity: number }) => {
+  const lines = (
+    await queryAll<Parameters<typeof toStockMovement>[0]>(
+      client,
+      'stockMovements',
+      { filter: { borrowId: { eq: loan.id } } },
+      { id: true, itemId: true, movementType: true, quantity: true, borrowId: true, settlesUnits: true },
+    )
+  ).map(toStockMovement);
+
+  return Math.max(0, Math.round((loan.quantity - loanSettled(loan, lines)) * 100) / 100);
+};
+
+// A settlement line was removed: if the loan has units open again, it is open again.
+const reopenLoan = async (client: CoreApiClient, loanId: string) => {
+  const { stockMovements } = await client.query({ stockMovements: { __args: { filter: { id: { eq: loanId } }, first: 1 }, edges: { node: { id: true, itemId: true, quantity: true, borrowStatus: true } } } });
+  const loan = stockMovements?.edges?.[0]?.node;
+
+  if (!loan || (loan.borrowStatus ?? 'OUTSTANDING') === 'OUTSTANDING') return;
+  if ((await loanLeft(client, { id: loan.id, itemId: loan.itemId as string, quantity: Number(loan.quantity) || 0 })) > 0.005) {
+    await client.mutation({ updateStockMovement: { __args: { id: loan.id, data: { borrowStatus: 'OUTSTANDING' as never } }, id: true } });
+  }
+};
 const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json) => Promise<Response>> = {
-  data: async (client, scope) => json({ success: true, data: await loadStockData(client, scope), today: todayIso() }),
+  data: async (client, scope, body) => json({ success: true, data: await loadStockData(client, scope, text(body.ownerId, 64) || null), today: todayIso() }),
 
   // Counts for the Today page: what to order, expired stock, late deliveries.
   alerts: async (client, scope) => json({ success: true, alerts: stockAlerts(await loadStockData(client, scope), todayIso()) }),
@@ -431,7 +459,9 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
         }
       }
       if (includeTakes) {
-        for (const t of p.row.takes) lines.push({ item, data: { ...common, expiryDate: null, date: t.date, type: 'TAKE', quantity: t.units, notes: 'From Excel' } });
+        for (const t of p.row.takes) {
+          lines.push({ item, data: { ...common, expiryDate: null, date: t.date, type: 'TAKE', quantity: t.units, party: t.note ?? '', notes: t.note ? `From Excel: ${t.note}` : 'From Excel' } });
+        }
       }
       if (includeOrder && includeTakes && p.row.balanceUnits !== null) {
         const gap = Math.round((p.row.balanceUnits - importComputedClosing(p.row)) * 100) / 100;
@@ -813,6 +843,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     if (!isDate(body.date)) return fail('Pick a date.');
     if (!lines.length) return fail('Add at least one item.');
     if (type === 'BORROW' && !text(body.party)) return fail('Say which branch borrowed it.');
+    if (type === 'BORROW_IN' && !text(body.party)) return fail('Say which shop lent it to you.');
     const reason = type === 'WASTE' ? text(body.reason, 20) : '';
 
     if (type === 'WASTE' && !WASTE_REASONS.some((r) => r.pick && r.value === reason)) return fail('Pick why it was wasted (expired, spilled, staff meal...).');
@@ -856,7 +887,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
         reference: text(body.reference, 120),
         notes: text(body.notes, 500),
             reason: reason || null,
-            borrowStatus: type === 'BORROW' ? 'OUTSTANDING' : null,
+            borrowStatus: isLoan(type) ? 'OUTSTANDING' : null,
             batchId: requestId || null,
           },
         };
@@ -879,77 +910,130 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       return json({ success: true, message: `Recorded ${lines.length} line${lines.length === 1 ? '' : 's'} and added the cost to Expenses.` });
     }
 
+    if (isLoan(type)) {
+      return json({ success: true, message: `Recorded. It stays on the Loans tab until it is ${type === 'BORROW_IN' ? 'given back, swapped or paid for' : 'returned, swapped or paid'}.` });
+    }
+
     return json({ success: true, message: `Recorded ${lines.length} line${lines.length === 1 ? '' : 's'}.` });
   },
 
+  // Settle a loan between shops, all of it or a part. The loan is a BORROW (lent to
+  // a shop) or a BORROW_IN (borrowed from one). how:
+  //   RETURNED   the same item goes back: into stock for a lending, out for a borrowing
+  //   EXCHANGED  another item instead (exchangeItemId, exchangeQuantity)
+  //   PAID       money (amount, notes): no stock moves; booked as income / an expense
+  // units: how many of the loan's units this settles (default: all that is still open).
   settleBorrow: async (client, scope, body) => {
     const id = text(body.movementId, 64);
     const { stockMovements } = await client.query({
       stockMovements: { __args: { filter: { id: { eq: id } }, first: 1 }, edges: { node: { id: true, itemId: true, movementType: true, quantity: true, party: true, borrowStatus: true, ownerId: true } } },
     });
-    const borrow = stockMovements?.edges?.[0]?.node;
+    const loan = stockMovements?.edges?.[0]?.node;
 
-    if (!borrow || borrow.movementType !== 'BORROW') return fail('That lending was not found.', 404);
-    if (!inScope(scope, borrow.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!loan || !isLoan(loan.movementType ?? '')) return fail('That loan was not found.', 404);
+    if (!inScope(scope, loan.ownerId)) return json({ ...NOT_ALLOWED }, 403);
     const requestId = text(body.requestId, 64);
 
     if (await alreadySaved(client, requestId)) return json({ success: true, message: 'Already settled.' });
-    if ((borrow.borrowStatus ?? 'OUTSTANDING') !== 'OUTSTANDING') return fail('This lending is already settled.');
+    if ((loan.borrowStatus ?? 'OUTSTANDING') !== 'OUTSTANDING') return fail('This loan is already settled.');
 
+    const borrowedIn = (loan.movementType as string) === 'BORROW_IN';
     const how = text(body.how, 20);
     const date = isDate(body.date) ? body.date : todayIso();
-    const item = await loadItem(client, borrow.itemId as string);
+    const item = await loadItem(client, loan.itemId as string);
 
     if (!item) return fail('The item no longer exists.', 404);
-    const party = borrow.party ?? '';
+    const party = loan.party ?? '';
+    // Cash moves no stock, so it is allowed in a closed month (like the books).
     const settleLocked = how !== 'PAID' ? lockedMessage(await loadLocks(client, [item.ownerId]), item.ownerId, date) : null;
 
     if (settleLocked) return fail(settleLocked);
 
-    if (how === 'RETURNED') {
-      const quantity = num(body.quantity ?? borrow.quantity);
+    const left = await loanLeft(client, { id: loan.id, itemId: item.id, quantity: Number(loan.quantity) || 0 });
+    const covers = body.units === undefined && body.quantity === undefined ? left : num(body.units ?? body.quantity);
 
-      if (!(quantity > 0)) return fail('How many came back?');
-      await createMovement(client, item, { date, type: 'RETURN', quantity, party, borrowId: borrow.id, notes: text(body.notes, 300), batchId: requestId || null });
+    if (!(covers > 0)) return fail('How many units does this settle?');
+    if (covers > left + 0.005) return fail(`Only ${cartonsAndUnits(left, item)} of this loan is still open.`);
+    const note = text(body.notes, 300);
+    const common = { party, borrowId: loan.id, batchId: requestId || null };
+
+    if (how === 'RETURNED') {
+      await createMovement(client, item, { ...common, date, type: borrowedIn ? 'GIVE_BACK' : 'RETURN', quantity: covers, settlesUnits: covers, notes: note });
     } else if (how === 'EXCHANGED') {
       const other = await loadItem(client, text(body.exchangeItemId, 64));
       const quantity = num(body.exchangeQuantity);
 
-      if (!other) return fail('Pick the item received in exchange.');
+      if (!other) return fail(borrowedIn ? 'Pick the item you are giving instead.' : 'Pick the item received in exchange.');
       if (!inScope(scope, other.ownerId)) return json({ ...NOT_ALLOWED }, 403);
-      if (!(quantity > 0)) return fail('How many of it came in?');
-      await createMovement(client, other, { date, type: 'EXCHANGE_IN', quantity, party, borrowId: borrow.id, notes: `For ${cartonsAndUnits(Number(borrow.quantity), item)} ${item.name} lent`, batchId: requestId || null });
+      if (!(quantity > 0)) return fail(borrowedIn ? 'How many of it are you giving?' : 'How many of it came in?');
+      // The other item moves. A line on the loan's own item says how much of the loan it settled.
+      await createMovement(client, other, {
+        ...common,
+        date,
+        type: borrowedIn ? 'GIVE_BACK' : 'EXCHANGE_IN',
+        quantity,
+        notes: `For ${cartonsAndUnits(covers, item)} ${item.name} ${borrowedIn ? 'borrowed' : 'lent'}${note ? ` · ${note}` : ''}`,
+      });
+      await createMovement(client, item, { ...common, date, type: 'LOAN_SETTLED', quantity: 0, settlesUnits: covers, notes: `Exchanged for ${cartonsAndUnits(quantity, other)} ${other.name}${note ? ` · ${note}` : ''}` });
     } else if (how === 'PAID') {
-      const amount = num(body.amount);
+      const amount = Math.round(num(body.amount) * 100) / 100;
 
       if (!(amount > 0)) return fail('How much was paid?');
-      // The money goes into the books as income (Transactions -> Money in).
-      await client.mutation({
-        createIncome: {
-          __args: {
-            data: {
-              name: `Paid for ${item.name} lent (${cartonsAndUnits(Number(borrow.quantity), item)})`,
-              incomeDate: date,
-              amount: { amountMicros: Math.round(amount * 1_000_000), currencyCode: 'MYR' },
-              category: 'BUSINESS' as never,
-              method: (text(body.method, 20) || 'OTHER') as never,
-              receivedFrom: party,
-              notes: text(body.notes, 300),
-              ownerId: item.ownerId,
+      // Saved on the loan itself (nothing moves in stock), and also booked: income for a lending, an expense for a borrowing.
+      await createMovement(client, item, { ...common, date, type: 'LOAN_SETTLED', quantity: 0, settlesUnits: covers, amount, notes: note });
+      if (borrowedIn) {
+        await client.mutation({
+          createExpense: {
+            __args: {
+              data: {
+                name: `Paid ${party || 'shop'} for ${item.name} borrowed (${cartonsAndUnits(covers, item)})`,
+                expenseDate: date,
+                amount: { amountMicros: Math.round(amount * 1_000_000), currencyCode: 'MYR' },
+                category: 'STOCK_PURCHASE' as never,
+                noBillNeeded: true,
+                method: (text(body.method, 20) || 'OTHER') as never,
+                paidTo: party,
+                notes: [`stock-loan:${loan.id}`, note].filter(Boolean).join('\n'),
+                ownerId: item.ownerId,
+              },
             },
+            id: true,
           },
-          id: true,
-        },
-      });
+        });
+      } else {
+        await client.mutation({
+          createIncome: {
+            __args: {
+              data: {
+                name: `Paid for ${cartonsAndUnits(covers, item)} ${item.name} lent`,
+                incomeDate: date,
+                amount: { amountMicros: Math.round(amount * 1_000_000), currencyCode: 'MYR' },
+                category: 'BUSINESS' as never,
+                method: (text(body.method, 20) || 'OTHER') as never,
+                receivedFrom: party,
+                notes: note,
+                ownerId: item.ownerId,
+              },
+            },
+            id: true,
+          },
+        });
+      }
     } else {
       return fail('Choose returned, exchanged or paid.');
     }
 
-    await client.mutation({ updateStockMovement: { __args: { id: borrow.id, data: { borrowStatus: how as never } }, id: true } });
+    // The loan closes when nothing of it is left; until then it stays open for the rest.
+    const open = Math.round((left - covers) * 100) / 100;
 
-    return json({ success: true, message: how === 'PAID' ? 'Settled. The payment is recorded as income.' : 'Settled and added back to stock.' });
+    if (open <= 0.005) await client.mutation({ updateStockMovement: { __args: { id: loan.id, data: { borrowStatus: how as never } }, id: true } });
+    const rest = open > 0.005 ? ` ${cartonsAndUnits(open, item)} of the loan is still open.` : '';
+    const what = open > 0.005 ? 'Part settled.' : 'Settled.';
+
+    if (how === 'PAID') return json({ success: true, message: `${what} The payment is saved on the loan and recorded as ${borrowedIn ? 'an expense' : 'income'}.${rest}` });
+
+    return json({ success: true, message: `${what} ${borrowedIn ? 'Taken out of stock.' : 'Added back to stock.'}${rest}` });
   },
-
   stockTake: async (client, scope, body) => {
     const date = isDate(body.date) ? body.date : todayIso();
     const requestId = text(body.requestId, 64);
@@ -993,7 +1077,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
   deleteMovement: async (client, scope, body) => {
     const id = text(body.movementId, 64);
-    const { stockMovements } = await client.query({ stockMovements: { __args: { filter: { id: { eq: id } }, first: 1 }, edges: { node: { id: true, ownerId: true, movementDate: true, movementType: true, batchId: true } } } });
+    const { stockMovements } = await client.query({ stockMovements: { __args: { filter: { id: { eq: id } }, first: 1 }, edges: { node: { id: true, ownerId: true, movementDate: true, movementType: true, batchId: true, borrowId: true, amount: true } } } });
     const movement = stockMovements?.edges?.[0]?.node;
 
     if (!movement) return fail('Movement not found.', 404);
@@ -1005,8 +1089,12 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     // Soft delete: it can be restored from the deleted records.
     await client.mutation({ deleteStockMovement: { __args: { id }, id: true } });
     if (movement.movementType === 'PURCHASE' && movement.batchId) await resyncPurchaseExpense(client, movement.batchId);
+    // A line that settled a loan is gone: the loan is open again if units of it are left.
+    if (movement.borrowId) await reopenLoan(client, movement.borrowId);
 
-    return json({ success: true, message: 'Removed. It can be restored from deleted stock movements.' });
+    const books = (movement.movementType as string) === 'LOAN_SETTLED' && movement.amount ? ' The payment stays in Transactions: remove it there too if it was a mistake.' : '';
+
+    return json({ success: true, message: 'Removed. It can be restored from deleted stock movements.' + books });
   },
 
   saveOrder: async (client, scope, body) => {

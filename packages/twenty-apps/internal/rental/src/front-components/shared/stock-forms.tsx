@@ -5,9 +5,9 @@ import { enqueueSnackbar } from 'twenty-sdk/front-component';
 import { readValue } from 'src/front-components/shared/read-value';
 import { ItemPicker } from 'src/front-components/shared/item-picker';
 import { Sheet } from 'src/front-components/shared/sheet';
-import { c, control, Field, input, PriceNote, primary, qty, ReasonPicker, select, small } from 'src/front-components/shared/stock-ui';
+import { c, control, Field, input, knownShop, PriceNote, primary, qty, ReasonPicker, select, ShopChips, small } from 'src/front-components/shared/stock-ui';
 import type { StockOwner } from 'src/logic-functions/utils/stock-data';
-import { cartonsAndUnits, defaultExpiry, type StockItem, type StockMovement, type StockRule, unitPrice } from 'src/shared/stock';
+import { cartonsAndUnits, defaultExpiry, loanRemaining, type StockItem, type StockMovement, type StockRule, unitPrice } from 'src/shared/stock';
 import { STOCK_GROUPS, STOCK_MOVEMENT_TYPES } from 'src/shared/stock-types';
 
 // The Stock page's forms: add/edit an item, record IN/OUT, settle a lending,
@@ -212,7 +212,8 @@ type Line = { key: number; itemId: string; units: number; unitCost: string; expi
 const PARTY_HINT: Record<string, string> = {
   PURCHASE: 'Supplier',
   TAKE: 'Taken to (e.g. Wawa)',
-  BORROW: 'Branch that borrowed it',
+  BORROW: 'Shop that borrowed it',
+  BORROW_IN: 'Shop that lent it to you',
   WASTE: 'Reason / where',
   RETURN: 'Returned by',
   EXCHANGE_IN: 'Received from',
@@ -226,6 +227,7 @@ export const RecordSheet = ({
   initialLines,
   initialReference,
   lastPaid,
+  shops = [],
   today,
   onClose,
   onDone,
@@ -233,6 +235,7 @@ export const RecordSheet = ({
   items: StockItem[];
   balances: Map<string, number>;
   lastPaid?: Map<string, number>; // per unit, the last delivery's price
+  shops?: string[]; // shops used in earlier loans
   initialType: string;
   initialItemId?: string;
   initialLines?: Array<{ itemId: string; units: number }>;
@@ -258,7 +261,7 @@ export const RecordSheet = ({
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const choosable = items.filter((i) => i.status !== 'DISCONTINUED' || type !== 'PURCHASE');
   const isOut = STOCK_MOVEMENT_TYPES.find((t) => t.value === type)?.direction === 'OUT';
-  const ready = isFullDate(date) && lines.some((l) => l.itemId && l.units > 0) && !lines.some((l) => l.itemId && !(l.units > 0)) && (type !== 'BORROW' || party.trim()) && (type !== 'WASTE' || reason);
+  const ready = isFullDate(date) && lines.some((l) => l.itemId && l.units > 0) && !lines.some((l) => l.itemId && !(l.units > 0)) && (!['BORROW', 'BORROW_IN'].includes(type) || party.trim()) && (type !== 'WASTE' || reason);
   const total = lines.reduce((sum, l) => {
     const item = byId.get(l.itemId);
 
@@ -273,7 +276,7 @@ export const RecordSheet = ({
       action: 'record',
       type,
       date,
-      party,
+      party: type === 'BORROW' || type === 'BORROW_IN' ? knownShop(shops, party) : party,
       reference,
       notes,
       reason: type === 'WASTE' ? reason : undefined,
@@ -299,7 +302,7 @@ export const RecordSheet = ({
             }}
             style={select}
           >
-            {STOCK_MOVEMENT_TYPES.filter((t) => !t.value.startsWith('ADJUST')).map((t) => (
+            {STOCK_MOVEMENT_TYPES.filter((t) => !t.value.startsWith('ADJUST') && t.value !== 'GIVE_BACK' && t.value !== 'LOAN_SETTLED').map((t) => (
               <option key={t.value} value={t.value}>
                 {t.direction === 'IN' ? 'IN · ' : 'OUT · '}
                 {t.label}
@@ -324,7 +327,13 @@ export const RecordSheet = ({
         </Field>
       </div>
       {type === 'RETURN' || type === 'EXCHANGE_IN' ? (
-        <span style={{ fontSize: 12, color: 'var(--t-color-amber11)' }}>To settle a lending, use Settle on the Borrowed tab instead: it links the return to the lending.</span>
+        <span style={{ fontSize: 12, color: 'var(--t-color-amber11)' }}>To settle a lending, use Settle on the Loans tab instead: it links the return to the lending.</span>
+      ) : null}
+      {type === 'BORROW' || type === 'BORROW_IN' ? <ShopChips shops={shops} value={party} onPick={setParty} /> : null}
+      {type === 'BORROW_IN' ? (
+        <span style={{ fontSize: 12, color: 'var(--t-color-amber11)' }}>
+          Stock you borrow from another shop. It stays on the Loans tab until you give it back, swap it for another item or pay for it, and it is not counted as yours when working out what to re-order.
+        </span>
       ) : null}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: `1px solid ${c.border}`, paddingTop: 10 }}>
@@ -393,54 +402,94 @@ export const RecordSheet = ({
   );
 };
 
-// ---------------------------------------------------------------- Settle a lending
+// ---------------------------------------------------------------- Settle a loan
 
-export const SettleSheet = ({ borrow, item, items, today, onClose, onDone }: { borrow: StockMovement; item: StockItem; items: StockItem[]; today: string; onClose: () => void; onDone: () => void }) => {
+// A loan between shops, lent out (BORROW) or borrowed in (BORROW_IN). It can be
+// settled in parts: with the same item, another item, or money.
+export const SettleSheet = ({
+  borrow,
+  item,
+  items,
+  movements,
+  today,
+  onClose,
+  onDone,
+}: {
+  borrow: StockMovement;
+  item: StockItem;
+  items: StockItem[];
+  movements: StockMovement[];
+  today: string;
+  onClose: () => void;
+  onDone: () => void;
+}) => {
+  const borrowedIn = borrow.type === 'BORROW_IN';
+  const left = loanRemaining(borrow, movements);
   const [how, setHow] = useState<'RETURNED' | 'EXCHANGED' | 'PAID'>('RETURNED');
   const [date, setDate] = useState(today);
-  const [units, setUnits] = useState(borrow.quantity);
+  const [units, setUnits] = useState(left);
   const [exchangeItemId, setExchangeItemId] = useState('');
   const [exchangeUnits, setExchangeUnits] = useState(0);
-  const [amount, setAmount] = useState((borrow.quantity * unitPrice(item)).toFixed(2));
+  const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
   const other = items.find((i) => i.id === exchangeItemId);
-  const ready = how === 'RETURNED' ? units > 0 : how === 'EXCHANGED' ? Boolean(other && exchangeUnits > 0) : toNumber(amount) > 0;
+  const suggested = (units * unitPrice(item)).toFixed(2);
+  const paid = toNumber(amount || suggested);
+  const covered = units > 0 && units <= left + 0.005;
+  const ready = isFullDate(date) && covered && (how === 'RETURNED' ? true : how === 'EXCHANGED' ? Boolean(other && exchangeUnits > 0) : paid > 0);
+  const who = borrow.party || (borrowedIn ? 'the shop' : 'a shop');
 
   const save = async () => {
     setBusy(true);
-    const result = await stockAction({ action: 'settleBorrow', movementId: borrow.id, how, date, quantity: units, exchangeItemId, exchangeQuantity: exchangeUnits, amount: toNumber(amount), notes });
+    const result = await stockAction({ action: 'settleBorrow', movementId: borrow.id, how, date, units, exchangeItemId, exchangeQuantity: exchangeUnits, amount: paid, notes });
 
     setBusy(false);
     if (result.success) onDone();
   };
 
+  const choices = borrowedIn
+    ? ([
+        ['RETURNED', 'Give the same item back'],
+        ['EXCHANGED', 'Give another item'],
+        ['PAID', 'Pay money'],
+      ] as const)
+    : ([
+        ['RETURNED', 'Same item came back'],
+        ['EXCHANGED', 'Received another item'],
+        ['PAID', 'Received money'],
+      ] as const);
+
   return (
-    <Shell title={`Settle: ${borrow.party || 'branch'} borrowed ${item.name}`} intro={`${cartonsAndUnits(borrow.quantity, item)} lent on ${borrow.date}.`} onClose={onClose}>
-      <div style={{ display: 'flex', gap: 6 }}>
-        {(
-          [
-            ['RETURNED', 'Returned the same item'],
-            ['EXCHANGED', 'Gave another item'],
-            ['PAID', 'Paid money'],
-          ] as const
-        ).map(([value, label]) => (
+    <Shell
+      title={borrowedIn ? `Settle: borrowed ${item.name} from ${who}` : `Settle: ${who} borrowed ${item.name}`}
+      intro={`${cartonsAndUnits(borrow.quantity, item)} ${borrowedIn ? 'borrowed' : 'lent'} on ${borrow.date}${left < borrow.quantity ? ` · ${cartonsAndUnits(left, item)} still open` : ''}.`}
+      onClose={onClose}
+    >
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {choices.map(([value, label]) => (
           <button key={value} onClick={() => setHow(value)} style={{ ...small, height: 32, fontWeight: how === value ? 600 : 400, borderColor: how === value ? c.accent : c.border2 }}>
             {label}
           </button>
         ))}
       </div>
-      <Field label="Date">
+      <Field label="Date" hint={isFullDate(date) ? undefined : 'Pick a full date (day, month and year).'}>
         <input type="date" value={date} onChange={(e) => setDate(readValue(e))} style={input} />
       </Field>
+      <Field
+        label="How much of the loan does this settle"
+        hint={units > left + 0.005 ? `Only ${cartonsAndUnits(left, item)} is still open.` : left > units ? 'The rest stays open until it is settled too.' : undefined}
+      >
+        <QtyInput item={item} units={units} onChange={setUnits} />
+      </Field>
       {how === 'RETURNED' ? (
-        <Field label="How much came back">
-          <QtyInput item={item} units={units} onChange={setUnits} />
-        </Field>
+        <span style={{ fontSize: 12, color: c.text3 }}>
+          {borrowedIn ? `${cartonsAndUnits(units, item)} will be taken out of your stock automatically.` : `${cartonsAndUnits(units, item)} will be added back to your stock automatically.`}
+        </span>
       ) : null}
       {how === 'EXCHANGED' ? (
         <>
-          <Field label="Item received instead">
+          <Field label={borrowedIn ? 'Item you give instead' : 'Item received instead'}>
             <select value={exchangeItemId} onChange={(e) => setExchangeItemId(readValue(e))} style={select}>
               <option value="">Choose an item…</option>
               {items.map((i) => (
@@ -452,25 +501,27 @@ export const SettleSheet = ({ borrow, item, items, today, onClose, onDone }: { b
             </select>
           </Field>
           {other ? (
-            <Field label="How much of it">
+            <Field label="How much of it" hint={borrowedIn ? 'Taken out of the stock of that item automatically.' : 'Added to the stock of that item automatically.'}>
               <QtyInput key={other.id} item={other} units={0} onChange={setExchangeUnits} />
             </Field>
           ) : null}
         </>
       ) : null}
       {how === 'PAID' ? (
-        <Field label="Amount paid (RM)" hint="Recorded as income (Transactions → Money in). Suggested: the stock's cost.">
-          <input value={amount} onChange={(e) => setAmount(readValue(e))} inputMode="decimal" style={input} />
+        <Field
+          label="Amount paid (RM)"
+          hint={`No stock moves. Saved on this loan, and recorded as ${borrowedIn ? 'an expense (Stock & ingredients)' : 'income (Transactions → Money in)'}. Suggested: the stock's cost.`}
+        >
+          <input value={amount} onChange={(e) => setAmount(readValue(e))} placeholder={suggested} inputMode="decimal" style={input} />
         </Field>
       ) : null}
-      <Field label="Notes">
+      <Field label={how === 'PAID' ? 'Note (who was paid, how, receipt no.)' : 'Notes'}>
         <input value={notes} onChange={(e) => setNotes(readValue(e))} style={input} />
       </Field>
       <Buttons onClose={onClose} onSave={save} busy={busy} ready={ready} label="Settle" />
     </Shell>
   );
 };
-
 // ---------------------------------------------------------------- Stock take
 
 // ---------------------------------------------------------------- Discontinue with stock left

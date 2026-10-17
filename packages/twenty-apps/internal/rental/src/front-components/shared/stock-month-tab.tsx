@@ -113,7 +113,7 @@ export const MonthTab = ({ items, movementsByItem, ownerId, today }: { items: St
                 </th>
               ))}
               <th style={{ ...head, background: OUT_BG, color: 'var(--t-color-blue11)' }}>Used</th>
-              {hasOtherOut ? <th style={head}>Lent / waste</th> : null}
+              {hasOtherOut ? <th style={head}>Lent / given back / waste</th> : null}
               <th style={head}>Cost</th>
               <th style={head}>Closing</th>
               <th style={head}>Lasts</th>

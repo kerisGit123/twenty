@@ -46,12 +46,14 @@ const writeSimplePref = (simple: boolean) => {
     // Storage can be unavailable; the switch still works for this page.
   }
 };
-const SIMPLE_TABS: string[] = ['stock', 'orders', 'requests'];
+const SIMPLE_TABS: string[] = ['stock', 'orders', 'requests', 'borrowed'];
 
 const BIG_BUTTONS = [
   { key: 'TAKE', label: 'Take out', hint: 'to the shop', icon: '↑', color: 'blue' },
   { key: 'WASTE', label: 'Waste', hint: 'thrown away', icon: '🗑', color: 'red' },
   { key: 'PURCHASE', label: 'Stock in', hint: 'a delivery', icon: '↓', color: 'green' },
+  { key: 'BORROW_IN', label: 'Borrowed in', hint: 'from another shop', icon: '↙', color: 'purple' },
+  { key: 'BORROW', label: 'Lent out', hint: 'to another shop', icon: '↗', color: 'orange' },
   { key: 'COUNT', label: 'Count', hint: 'check the shelf', icon: '✔', color: 'gray' },
 ] as const;
 
@@ -61,7 +63,7 @@ type Open =
   | { kind: 'record'; type: string; itemId?: string; lines?: Array<{ itemId: string; units: number }> }
   | { kind: 'settle'; borrow: StockMovement }
   | { kind: 'take'; date?: string }
-  | { kind: 'quick'; quickKind?: 'TAKE' | 'WASTE' | 'PURCHASE' }
+  | { kind: 'quick'; quickKind?: 'TAKE' | 'WASTE' | 'PURCHASE' | 'BORROW_IN' | 'BORROW' }
   | { kind: 'import' }
   | { kind: 'request'; request: StockRequest | null }
   | { kind: 'issue'; request: StockRequest }
@@ -79,7 +81,7 @@ const TABS: Array<{ key: Tab; label: string }> = [
   { key: 'order', label: 'Forecast & order' },
   { key: 'orders', label: 'Orders' },
   { key: 'requests', label: 'Branch requests' },
-  { key: 'borrowed', label: 'Borrowed' },
+  { key: 'borrowed', label: 'Loans' },
   { key: 'monthend', label: 'Month end' },
 ];
 
@@ -99,7 +101,7 @@ export const StockPage = () => {
 
     setError('');
     new RestApiClient()
-      .post<{ success: boolean; data?: StockData; today?: string; message?: string }>('/s/stock', { action: 'data' })
+      .post<{ success: boolean; data?: StockData; today?: string; message?: string }>('/s/stock', { action: 'data', ownerId: scope.ownerId || undefined })
       .then((result) => {
         if (cancelled) return;
         if (!result.success || !result.data) setError(result.message ?? 'Could not load the stock.');
@@ -113,7 +115,7 @@ export const StockPage = () => {
     return () => {
       cancelled = true;
     };
-  }, [reload]);
+  }, [reload, scope.ownerId]);
 
   const refresh = useCallback(() => setReload((n) => n + 1), []);
   const done = useCallback(() => {
@@ -139,6 +141,11 @@ export const StockPage = () => {
   }, [byItem]);
   const ownerName = useCallback((id: string | null) => data?.owners.find((o) => o.id === id)?.name ?? '', [data]);
   const balances = useMemo(() => new Map(items.map((i) => [i.id, balanceOf(byItem.get(i.id) ?? [])])), [items, byItem]);
+  // Shops that appear in earlier loans (lent or borrowed): one tap instead of typing the name again.
+  const shops = useMemo(
+    () => [...new Set(movements.filter((m) => (m.type === 'BORROW' || m.type === 'BORROW_IN') && m.party.trim()).map((m) => m.party.trim()))].sort((a, b) => a.localeCompare(b)),
+    [movements],
+  );
   const ruleOf = useCallback((ownerOf: string | null) => data?.owners.find((o) => o.id === ownerOf)?.rule ?? DEFAULT_RULE, [data]);
   const orders = useMemo(() => (data?.orders ?? []).filter((o) => !ownerId || o.ownerId === ownerId), [data, ownerId]);
   const requests = useMemo(() => (data?.requests ?? []).filter((r) => !ownerId || r.ownerId === ownerId), [data, ownerId]);
@@ -213,6 +220,7 @@ export const StockPage = () => {
           initialLines={open.lines}
           initialReference={open.lines ? `Order ${today}` : undefined}
           lastPaid={lastPaid}
+          shops={shops}
           today={today}
           onClose={() => setOpen(null)}
           onDone={done}
@@ -222,7 +230,7 @@ export const StockPage = () => {
     if (open.kind === 'settle') {
       const item = items.find((i) => i.id === open.borrow.itemId);
 
-      return item ? <SettleSheet borrow={open.borrow} item={item} items={activeItems} today={today} onClose={() => setOpen(null)} onDone={done} /> : null;
+      return item ? <SettleSheet borrow={open.borrow} item={item} items={activeItems} movements={movements} today={today} onClose={() => setOpen(null)} onDone={done} /> : null;
     }
     if (open.kind === 'request') {
       return <RequestSheet request={open.request} items={activeItems} balances={balances} owners={data.owners.filter((o) => !ownerId || o.id === ownerId)} defaultOwnerId={ownerId} onClose={() => setOpen(null)} onDone={done} />;
@@ -231,7 +239,7 @@ export const StockPage = () => {
     if (open.kind === 'receiveRequest') return <ReceiveRequestSheet request={open.request} items={items} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'settleRequest') return <SettleRequestSheet request={open.request} items={items} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'import') return <ImportSheet owners={data.owners.filter((o) => o.canManage && (!ownerId || o.id === ownerId))} defaultOwnerId={ownerId} onClose={() => setOpen(null)} onDone={done} />;
-    if (open.kind === 'quick') return <QuickSheet items={activeItems} balances={balances} movements={movements} lastPaid={lastPaid} initialKind={open.quickKind} today={today} onClose={() => setOpen(null)} onDone={done} />;
+    if (open.kind === 'quick') return <QuickSheet items={activeItems} balances={balances} movements={movements} lastPaid={lastPaid} initialKind={open.quickKind} shops={shops} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'expired') {
       return <ExpiredSheet items={activeItems} movementsByItem={byItem} balances={balances} today={today} onClose={() => setOpen(null)} onDone={done} />;
     }
@@ -306,7 +314,7 @@ export const StockPage = () => {
                       ⬆ Import Excel
                     </button>
                   ) : null}
-                  <button onClick={() => setOpen({ kind: 'record', type: 'TAKE' })} style={control} disabled={!data} title="The full form: lending to a branch, returns, exchanges, notes">
+                  <button onClick={() => setOpen({ kind: 'record', type: 'TAKE' })} style={control} disabled={!data} title="The full form: lending or borrowing between shops, returns, exchanges, notes">
                     Full form (lend, return…)
                   </button>
                 </>
@@ -366,7 +374,7 @@ export const StockPage = () => {
               {t.label}
               {t.key === 'requests' && requestCount ? ` (${requestCount})` : ''}
               {t.key === 'orders' && orderAlerts ? ` (${orderAlerts})` : ''}
-              {t.key === 'borrowed' && movements.some((m) => m.type === 'BORROW' && (m.borrowStatus ?? 'OUTSTANDING') === 'OUTSTANDING') ? ' •' : ''}
+              {t.key === 'borrowed' && movements.some((m) => (m.type === 'BORROW' || m.type === 'BORROW_IN') && (m.borrowStatus ?? 'OUTSTANDING') === 'OUTSTANDING') ? ' •' : ''}
             </button>
           ))}
         </div>
@@ -432,7 +440,7 @@ export const StockPage = () => {
             {tab === 'monthend' ? (
               <MonthEndTab items={items} movementsByItem={byItem} owner={owner} canClose={!!owner?.canManage} today={today} onStockTake={(date) => setOpen({ kind: 'take', date })} onChanged={refresh} />
             ) : null}
-            {tab === 'borrowed' ? <BorrowTab items={items} movements={movements} today={today} ownerId={ownerId} onSettle={(borrow) => setOpen({ kind: 'settle', borrow })} onLend={() => setOpen({ kind: 'record', type: 'BORROW' })} /> : null}
+            {tab === 'borrowed' ? <BorrowTab items={items} movements={movements} today={today} ownerId={ownerId} onSettle={(borrow) => setOpen({ kind: 'settle', borrow })} onLend={() => setOpen({ kind: 'quick', quickKind: 'BORROW' })} onBorrowIn={() => setOpen({ kind: 'quick', quickKind: 'BORROW_IN' })} /> : null}
           </>
         ) : null}
       </div>
