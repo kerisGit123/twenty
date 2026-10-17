@@ -79,6 +79,9 @@ export const guessDocType = (fileName: string, fallback = 'OTHER') => {
 
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
+// What a free Personal business may keep in Documents.
+export const FREE_STORAGE_BYTES = 200 * 1024 * 1024;
+
 export const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'txt'];
 
 export const extensionOf = (fileName: string) => (fileName.includes('.') ? fileName.split('.').pop()!.toLowerCase() : '');

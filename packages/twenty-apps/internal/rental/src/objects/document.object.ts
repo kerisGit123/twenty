@@ -3,6 +3,7 @@ import { defineObject, FieldType } from 'twenty-sdk/define';
 import {
   DOCUMENT_EXPIRY_FIELD_ID,
   DOCUMENT_FILES_FIELD_ID,
+  DOCUMENT_FILE_SIZES_FIELD_ID,
   DOCUMENT_GROUP_FIELD_ID,
   DOCUMENT_NAME_FIELD_ID,
   DOCUMENT_NOTES_FIELD_ID,
@@ -81,6 +82,15 @@ export default defineObject({
       icon: 'IconPaperclip',
       isNullable: true,
       universalSettings: { maxNumberOfValues: 20 },
+    },
+    {
+      universalIdentifier: DOCUMENT_FILE_SIZES_FIELD_ID,
+      type: FieldType.RAW_JSON,
+      name: 'fileSizes',
+      label: 'File sizes',
+      description: 'Bytes per file, kept by the app to count storage against a free Personal business',
+      icon: 'IconDatabase',
+      isNullable: true,
     },
     {
       universalIdentifier: DOCUMENT_EXPIRY_FIELD_ID,

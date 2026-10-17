@@ -19,6 +19,7 @@ import {
   extensionOf,
   formatBytes,
   MAX_UPLOAD_BYTES,
+  FREE_STORAGE_BYTES,
 } from 'src/shared/documents';
 
 // POST /files — documents and attachments from the rental pages. Files are
@@ -67,6 +68,7 @@ const DOC_FIELDS = {
   personId: true,
   ownerId: true,
   files: { fileId: true, label: true, url: true, extension: true },
+  fileSizes: true,
 } as const;
 
 type DocRow = {
@@ -80,6 +82,7 @@ type DocRow = {
   personId?: string | null;
   ownerId?: string | null;
   files?: FileValue[] | null;
+  fileSizes?: Record<string, number> | null;
 };
 
 const toDoc = (row: DocRow): ContractDoc => ({
@@ -341,13 +344,39 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         };
       }
 
+      // A free Personal business holds up to FREE_STORAGE_BYTES of documents.
+      const quotaOwnerId = (create?.ownerId as string | null | undefined) ?? doc?.ownerId ?? null;
+
+      if (quotaOwnerId && !scope.all) {
+        const { owners: ownerRows } = await client.query({
+          owners: { __args: { filter: { id: { eq: quotaOwnerId } }, first: 1 }, edges: { node: { ownerType: true } } },
+        });
+
+        if ((ownerRows?.edges?.[0]?.node.ownerType as string | null) === 'PERSONAL') {
+          const { documents: usedRows } = (await client.query({
+            documents: { __args: { filter: { ownerId: { eq: quotaOwnerId } }, first: 500 }, edges: { node: { fileSizes: true } } },
+          } as never)) as { documents?: { edges?: Array<{ node: { fileSizes?: Record<string, number> | null } }> } };
+          const used = (usedRows?.edges ?? []).reduce(
+            (sum, { node }) => sum + Object.values(node.fileSizes ?? {}).reduce((a, b) => a + (Number(b) || 0), 0),
+            0,
+          );
+
+          if (used + buffer.byteLength > FREE_STORAGE_BYTES) {
+            return fail(
+              `Your free storage is ${formatBytes(FREE_STORAGE_BYTES)} and ${formatBytes(used)} is used. Remove a file or upgrade to add ${fileName}.`,
+              413,
+            );
+          }
+        }
+      }
+
       const uploaded = await appUploadClient().uploadFile({ fileBuffer: buffer, filename: fileName, fieldMetadataUniversalIdentifier: DOCUMENT_FILES_FIELD_ID });
 
       if (create) {
         const { createDocument } = await client.mutation({ createDocument: { __args: { data: create as never }, id: true } });
 
         if (!createDocument?.id) return fail('Could not create the document.', 500);
-        doc = { id: createDocument.id, files: [] };
+        doc = { id: createDocument.id, files: [], fileSizes: {} };
       }
       if (!doc) return fail('Pick a document.');
 
@@ -355,7 +384,10 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         updateDocument: {
           __args: {
             id: doc.id,
-            data: { files: [...(doc.files ?? []).map((f) => ({ fileId: f.fileId, label: f.label })), { fileId: uploaded.id, label: fileName }] } as never,
+            data: {
+              files: [...(doc.files ?? []).map((f) => ({ fileId: f.fileId, label: f.label })), { fileId: uploaded.id, label: fileName }],
+              fileSizes: { ...(doc.fileSizes ?? {}), [uploaded.id]: buffer.byteLength },
+            } as never,
           },
           id: true,
         },
@@ -406,9 +438,10 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
     if (body.action === 'removeFile') {
       const files = (doc.files ?? []).filter((f) => f.fileId !== body.fileId);
+      const { [body.fileId ?? '']: _removed, ...sizes } = doc.fileSizes ?? {};
 
       await client.mutation({
-        updateDocument: { __args: { id: doc.id, data: { files: files.map((f) => ({ fileId: f.fileId, label: f.label })) } as never }, id: true },
+        updateDocument: { __args: { id: doc.id, data: { files: files.map((f) => ({ fileId: f.fileId, label: f.label })), fileSizes: sizes } as never }, id: true },
       });
 
       return json({ success: true });

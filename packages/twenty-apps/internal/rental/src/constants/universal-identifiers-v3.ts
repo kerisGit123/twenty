@@ -254,3 +254,4 @@ export const INCOME_METHOD_OPTION_IDS = [
   '2fa4ffdd-b1e7-474e-83fe-d5b8813c731d', '501cbb59-8635-4e49-8a88-cf044c81187f', '346ce841-0c39-4cc4-b115-e27fdbc99a87',
   '470c532a-a493-4b2b-b0ea-cbd90ea22f4c', '7f7b797f-c0c4-4978-bbd9-909e5c525676', '86075cf9-3f4b-4b21-bff2-69e92f17a85d',
 ];
+export const DOCUMENT_FILE_SIZES_FIELD_ID = 'f3e10a4e-7cfd-4b42-b9db-86585d64b692';
