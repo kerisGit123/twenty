@@ -667,3 +667,50 @@ export const orderPlanCsv = (rows: StockStatus[]) =>
       s.nearestExpiry ?? '',
     ]),
   ]);
+
+// ---------------------------------------------------------------- usage vs sales
+
+// Actual usage = opening + stock in + transfer in − transfer out − closing.
+// Closing is the shelf count when one was saved (a count leaves "Count: more /
+// less" lines), so actual usage = what was taken out and wasted + what is
+// missing. Per RM 1,000 of sales it can be compared month to month.
+export type UsageRow = {
+  item: StockItem;
+  opening: number;
+  purchased: number;
+  transferIn: number;
+  transferOut: number;
+  closing: number;
+  actual: number;
+  recorded: number; // taken out + wasted
+  missing: number; // actual − recorded: the count found less than the records (negative: more)
+  cost: number; // actual × unit value (RM)
+};
+
+export const usageSheet = (items: StockItem[], movementsByItem: Map<string, StockMovement[]>, month: string) => {
+  const start = `${month}-01`;
+  const next = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1)).toISOString().slice(0, 10);
+  let counted = false;
+
+  const rows: UsageRow[] = items.map((item) => {
+    const all = movementsByItem.get(item.id) ?? [];
+    const inMonth = all.filter((m) => m.date >= start && m.date < next);
+    const sum = (types: string[]) => round(inMonth.filter((m) => types.includes(m.type)).reduce((s, m) => s + m.quantity, 0));
+
+    if (inMonth.some((m) => m.type === 'ADJUST_IN' || m.type === 'ADJUST_OUT')) counted = true;
+    const opening = balanceOf(all, start);
+    const purchased = sum(['PURCHASE']);
+    const transferIn = sum(['BORROW_IN', 'RETURN', 'EXCHANGE_IN']);
+    const transferOut = sum(['BORROW', 'GIVE_BACK']);
+    const closing = balanceOf(all, next);
+    const actual = round(opening + purchased + transferIn - transferOut - closing);
+    const recorded = sum(['TAKE', 'WASTE']);
+
+    return { item, opening, purchased, transferIn, transferOut, closing, actual, recorded, missing: round(actual - recorded), cost: round(actual * unitValue(item), 2) };
+  });
+
+  return { rows, counted };
+};
+
+// Usage per RM 1,000 of sales (in the item's units); null without sales.
+export const perThousand = (usage: number, sales: number | undefined) => (sales && sales > 0 ? round((usage / sales) * 1000, 3) : null);

@@ -18,6 +18,7 @@ import { HistoryTab } from 'src/front-components/shared/stock-history-tab';
 import { ImportSheet } from 'src/front-components/shared/stock-import-sheet';
 import { IssueSheet, ReceiveRequestSheet, RequestSheet, RequestsTab, SettleRequestSheet } from 'src/front-components/shared/stock-requests-tab';
 import { c, control, lastPartyFor, primary } from 'src/front-components/shared/stock-ui';
+import { UsageTab } from 'src/front-components/shared/stock-usage-tab';
 import type { StockData } from 'src/logic-functions/utils/stock-data';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { balanceOf, DEFAULT_RULE, groupMovements, lastPaidPerUnit, type StockItem, type StockMovement, stockStatus } from 'src/shared/stock';
@@ -26,7 +27,7 @@ import { balanceOf, DEFAULT_RULE, groupMovements, lastPaidPerUnit, type StockIte
 // monthly restock sheet, the forecast and order plan, and stock lent to
 // other branches.
 
-type Tab = 'stock' | 'movements' | 'month' | 'order' | 'orders' | 'requests' | 'borrowed' | 'monthend';
+type Tab = 'stock' | 'movements' | 'month' | 'order' | 'orders' | 'requests' | 'borrowed' | 'monthend' | 'usage';
 
 // Simple view: what a person at the shelf needs. Four big buttons and three tabs.
 const SIMPLE_KEY = 'stock.simpleView';
@@ -85,7 +86,7 @@ const TABS: Array<{ key: Group; label: string }> = [
   { key: 'borrowed', label: 'Loans' },
   { key: 'monthend', label: 'Month end' },
 ];
-const GROUP_OF: Record<Tab, Group> = { stock: 'stock', movements: 'movements', order: 'ordering', orders: 'ordering', requests: 'ordering', borrowed: 'borrowed', monthend: 'monthend', month: 'monthend' };
+const GROUP_OF: Record<Tab, Group> = { stock: 'stock', movements: 'movements', order: 'ordering', orders: 'ordering', requests: 'ordering', borrowed: 'borrowed', monthend: 'monthend', month: 'monthend', usage: 'monthend' };
 const VIEWS: Partial<Record<Group, Array<{ key: Tab; label: string; managers?: boolean }>>> = {
   ordering: [
     { key: 'order', label: 'What to order', managers: true },
@@ -95,6 +96,7 @@ const VIEWS: Partial<Record<Group, Array<{ key: Tab; label: string; managers?: b
   monthend: [
     { key: 'monthend', label: 'Close the month' },
     { key: 'month', label: 'Monthly sheet' },
+    { key: 'usage', label: 'Usage vs sales' },
   ],
 };
 
@@ -440,6 +442,7 @@ export const StockPage = () => {
             ) : null}
             {tab === 'movements' ? <HistoryTab items={items} movements={movements} movementsByItem={byItem} today={today} ownerId={ownerId} onChanged={refresh} mayManage={mayManage} /> : null}
             {tab === 'month' ? <MonthTab items={items} movementsByItem={byItem} ownerId={ownerId} today={today} /> : null}
+            {tab === 'usage' ? <UsageTab items={items} movementsByItem={byItem} owner={owner} today={today} onChanged={refresh} /> : null}
             {tab === 'order' ? (
               <OrderTab
                 statuses={statuses}

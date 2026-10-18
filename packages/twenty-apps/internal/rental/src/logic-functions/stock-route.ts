@@ -7,7 +7,7 @@ import { appClient } from 'src/logic-functions/utils/app-client';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { canManage, inScope, NOT_ALLOWED, resolveScope, type Scope } from 'src/logic-functions/utils/scope';
 import { queryAll } from 'src/logic-functions/utils/query-all';
-import { ITEM_FIELDS, loadItemMovements, loadMovementsOf, loadStockData, ORDER_FIELDS, REQUEST_FIELDS, toStockItem, toStockMovement, toStockOrder, toStockRequest } from 'src/logic-functions/utils/stock-data';
+import { ITEM_FIELDS, loadItemMovements, loadMovementsOf, loadStockData, ORDER_FIELDS, REQUEST_FIELDS, salesOf, toStockItem, toStockMovement, toStockOrder, toStockRequest } from 'src/logic-functions/utils/stock-data';
 import { shortUnits, type StockRequest, unresolvedShort } from 'src/shared/stock-requests';
 import { normalizePhone } from 'src/shared/stock-orders';
 import { orderProgress, orderStatusFor, type OrderLine, type StockOrder } from 'src/shared/stock-orders';
@@ -36,6 +36,7 @@ import { isLoan, movementType, STOCK_GROUPS, WASTE_REASONS } from 'src/shared/st
 //   stockTake     { date, counts: [{ itemId, counted }] }
 //   deleteMovement { movementId }                 (soft delete, restorable)
 //   saveRule      { ownerId, reorderBelow, orderUpTo }
+//   saveSales     { ownerId, month, amount }          the shop's sales that month (RM)
 //   saveOrder     { id?, date, notes, lines: [{ itemId, cartons }] }   new: one order per supplier and workspace
 //   receiveOrder  { orderId, date, reference, lines: [{ itemId, units, expiryDate?, close? }] }
 //   setOrderStatus { orderId, status: SENT | CANCELLED | CLOSE_REST | DRAFT }
@@ -1455,6 +1456,26 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     await client.mutation({ updateOwner: { __args: { id: ownerId, data: { stockLockedThrough: previous } }, id: true } });
 
     return json({ success: true, message: `${monthName(through)} is open again. Close it again when the corrections are done.` });
+  },
+
+  // The shop's sales for one month (RM), for usage per RM 1,000 of sales. 0 or empty removes it.
+  saveSales: async (client, scope, body) => {
+    const ownerId = text(body.ownerId, 64);
+    const month = text(body.month, 7);
+    const amount = body.amount === '' || body.amount === null || body.amount === undefined ? 0 : num(body.amount);
+
+    if (!ownerId || !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED });
+    if (!canManage(scope, ownerId)) return fail("Only an admin or this business's host can enter the sales.", 403);
+    if (!/^\d{4}-\d{2}$/.test(month)) return fail('Pick a month.');
+    if (!(amount >= 0) || amount > 100_000_000) return fail('Type the sales in RM, e.g. 60000.');
+    const { owners } = await client.query({ owners: { __args: { filter: { id: { eq: ownerId } }, first: 1 }, edges: { node: { id: true, stockMonthlySales: true } } } });
+    const sales = salesOf(owners?.edges?.[0]?.node?.stockMonthlySales);
+
+    if (amount > 0) sales[month] = Math.round(amount * 100) / 100;
+    else delete sales[month];
+    await client.mutation({ updateOwner: { __args: { id: ownerId, data: { stockMonthlySales: sales } as never }, id: true } });
+
+    return json({ success: true, message: amount > 0 ? 'Sales saved.' : 'Sales removed.' });
   },
 
   saveRule: async (client, scope, body) => {

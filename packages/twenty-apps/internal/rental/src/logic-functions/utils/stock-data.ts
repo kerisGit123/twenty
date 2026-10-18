@@ -11,7 +11,8 @@ import { parseOrderLines, type StockOrder } from 'src/shared/stock-orders';
 
 // lockedThrough: the last day of the latest closed month (stock before it is locked).
 // canManage: may edit items, remove lines, close months (admins and the workspace's hosts).
-export type StockOwner = { id: string; name: string; rule: StockRule; lockedThrough: string | null; canManage: boolean };
+// sales: the shop's sales per month in RM ('2026-10' -> 60000), typed on Usage vs sales.
+export type StockOwner = { id: string; name: string; rule: StockRule; lockedThrough: string | null; canManage: boolean; sales: Record<string, number> };
 
 export type StockData = { items: StockItem[]; movements: StockMovement[]; owners: StockOwner[]; orders: StockOrder[]; requests: StockRequest[] };
 
@@ -119,7 +120,7 @@ type MovementNode = {
   ownerId?: string | null;
 };
 
-type OwnerNode = { id: string; name?: string | null; stockReorderBelowMonths?: number | null; stockOrderUpToMonths?: number | null; stockLockedThrough?: string | null; stockLeadDays?: number | null };
+type OwnerNode = { id: string; name?: string | null; stockReorderBelowMonths?: number | null; stockOrderUpToMonths?: number | null; stockLockedThrough?: string | null; stockLeadDays?: number | null; stockMonthlySales?: unknown };
 
 export const toStockItem = (node: ItemNode): StockItem => ({
   id: node.id,
@@ -211,12 +212,18 @@ export const loadMovementsOf = async (client: CoreApiClient, itemIds: string[]) 
 
 // One workspace asks only for its own rows (the database filters), instead of every
 // workspace's history being loaded and thrown away. No workspace = everything in scope.
+// Only well-formed months with a positive amount.
+export const salesOf = (raw: unknown): Record<string, number> =>
+  Object.fromEntries(
+    Object.entries(raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}).filter(([month, amount]) => /^\d{4}-\d{2}$/.test(month) && Number(amount) > 0).map(([month, amount]) => [month, Number(amount)]),
+  );
+
 export const loadStockData = async (client: CoreApiClient, scope: Scope, onlyOwnerId?: string | null): Promise<StockData> => {
   const own = onlyOwnerId && inScope(scope, onlyOwnerId) ? { filter: { ownerId: { eq: onlyOwnerId } } } : {};
   const [items, movements, owners, orders, requests] = await Promise.all([
     queryAll<ItemNode>(client, 'stockItems', { ...own, orderBy: [{ code: 'AscNullsLast' }] }, ITEM_FIELDS),
     queryAll<MovementNode>(client, 'stockMovements', { ...own, orderBy: [{ movementDate: 'AscNullsLast' }] }, MOVEMENT_FIELDS),
-    queryAll<OwnerNode>(client, 'owners', { orderBy: [{ name: 'AscNullsLast' }] }, { id: true, name: true, stockReorderBelowMonths: true, stockOrderUpToMonths: true, stockLockedThrough: true, stockLeadDays: true }),
+    queryAll<OwnerNode>(client, 'owners', { orderBy: [{ name: 'AscNullsLast' }] }, { id: true, name: true, stockReorderBelowMonths: true, stockOrderUpToMonths: true, stockLockedThrough: true, stockLeadDays: true, stockMonthlySales: true }),
     queryAll<OrderNode>(client, 'stockOrders', { ...own, orderBy: [{ orderDate: 'DescNullsLast' }] }, ORDER_FIELDS),
     queryAll<RequestNode>(client, 'stockRequests', { ...own, orderBy: [{ requestDate: 'DescNullsLast' }] }, REQUEST_FIELDS),
   ]);
@@ -246,6 +253,7 @@ export const loadStockData = async (client: CoreApiClient, scope: Scope, onlyOwn
         },
         lockedThrough: owner.stockLockedThrough ?? null,
         canManage: canManage(scope, owner.id),
+        sales: salesOf(owner.stockMonthlySales),
       })),
   };
 };
