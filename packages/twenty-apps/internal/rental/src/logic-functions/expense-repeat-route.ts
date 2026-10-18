@@ -3,6 +3,7 @@ import { Response } from 'twenty-sdk/logic-function';
 
 import { EXPENSE_REPEAT_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers-v3';
 import { appClient } from 'src/logic-functions/utils/app-client';
+import { loadSeriesDays, seriesDayOf } from 'src/logic-functions/utils/repeating-bills';
 import { inScope, NOT_ALLOWED, resolveScope } from 'src/logic-functions/utils/scope';
 import { nextRepeatDate } from 'src/shared/repeating';
 
@@ -62,11 +63,10 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       return json({ success: false, message: 'The next one was already added.' }, 409);
     }
 
-    // Claim it first, so a second click finds it handled.
-    await client.mutation({ updateExpense: { __args: { id: expense.id, data: { repeatHandled: true } as never }, id: true } });
-
     const amount = Number(body.amount);
-    const nextDate = /^\d{4}-\d{2}-\d{2}$/.test(body.date ?? '') ? (body.date as string) : nextRepeatDate(expense.expenseDate as string, expense.repeatEvery as string);
+    const nextDate = /^\d{4}-\d{2}-\d{2}$/.test(body.date ?? '')
+      ? (body.date as string)
+      : nextRepeatDate(expense.expenseDate as string, expense.repeatEvery as string, seriesDayOf(await loadSeriesDays(client, expense), expense));
     const { createExpense } = await client.mutation({
       createExpense: {
         __args: {
@@ -97,7 +97,10 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
             name: { eq: expense.name ?? '' },
             expenseDate: { eq: nextDate },
             repeatHandled: { eq: false },
-            ...(expense.propertyId ? { propertyId: { eq: expense.propertyId } } : {}),
+            // Same business and property only: another shop's bill with the
+            // same name and date is not a twin.
+            ownerId: expense.ownerId ? { eq: expense.ownerId } : { is: 'NULL' },
+            propertyId: expense.propertyId ? { eq: expense.propertyId } : { is: 'NULL' },
           } as never,
           first: 10,
         },
@@ -112,6 +115,15 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       await client.mutation({ deleteExpense: { __args: { id: createExpense.id }, id: true } });
 
       return json({ success: false, message: 'The next one was already added.' }, 409);
+    }
+
+    // Only now mark this one done, so a failed add never makes the series
+    // vanish. If marking fails, take the new copy back out.
+    try {
+      await client.mutation({ updateExpense: { __args: { id: expense.id, data: { repeatHandled: true } as never }, id: true } });
+    } catch (error) {
+      if (createExpense?.id) await client.mutation({ deleteExpense: { __args: { id: createExpense.id }, id: true } });
+      throw error;
     }
 
     return json({ success: true, id: createExpense?.id, message: `Added ${expense.name}.` });

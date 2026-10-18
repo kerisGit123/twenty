@@ -16,7 +16,7 @@ const handler = async (
   for (const event of batch.events) {
     const recordId = event.properties.after?.id ?? event.recordId;
 
-    if (recordId) await fillExpenseOwner(client, recordId);
+    if (recordId) await fillExpenseOwner(client, recordId, event.workspaceMemberId);
   }
 };
 

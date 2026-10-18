@@ -1,4 +1,6 @@
 import { useAuth } from '@/auth/hooks/useAuth';
+import { RentalWorkspaceListItems } from '@/rental-workspace/components/RentalWorkspaceSwitcher';
+import { useRentalWorkspace } from '@/rental-workspace/hooks/useRentalWorkspace';
 import { availableWorkspacesState } from '@/auth/states/availableWorkspacesState';
 import { currentWorkspaceState } from '@/auth/states/currentWorkspaceState';
 import { countAvailableWorkspaces } from '@/auth/utils/availableWorkspacesUtils';
@@ -73,6 +75,10 @@ export const MultiWorkspaceDropdownDefaultComponents = () => {
 
   const { openRecordInPreference } = useOpenRecordInPreference();
   const navigateSettings = useNavigateSettings();
+
+  // The Rental app's businesses can be switched from this menu too.
+  const rentalWorkspace = useRentalWorkspace();
+  const showBusinesses = rentalWorkspace.available && rentalWorkspace.workspaces.length > 1;
 
   const isMobile = useIsMobile();
   const canDisplaySidePanel = !isMobile;
@@ -151,6 +157,12 @@ export const MultiWorkspaceDropdownDefaultComponents = () => {
       >
         {currentWorkspace?.displayName}
       </DropdownMenuHeader>
+      {showBusinesses && (
+        <>
+          <RentalWorkspaceListItems dropdownId={MULTI_WORKSPACE_DROPDOWN_ID} />
+          <DropdownMenuSeparator />
+        </>
+      )}
       {availableWorkspacesCount > 1 && (
         <>
           <DropdownMenuItemsContainer>

@@ -3,7 +3,7 @@ import { defineLogicFunction, type RoutePayload } from 'twenty-sdk/define';
 import { Response } from 'twenty-sdk/logic-function';
 
 import { WORKSPACES_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers-v3';
-import { appClient } from 'src/logic-functions/utils/app-client';
+import { appClient, appMetadataClient } from 'src/logic-functions/utils/app-client';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { canManage, inScope, resolveScope, type Scope } from 'src/logic-functions/utils/scope';
 import { workspaceLabel } from 'src/logic-functions/utils/workspace-label';
@@ -80,6 +80,41 @@ const hasPaidPlan = async (client: CoreApiClient, scope: Scope) => {
   return (memberships?.edges ?? []).some(
     ({ node }) => (node.owner?.ownerType as string | null) === 'PERSONAL' && Boolean(node.owner?.paidPlan),
   );
+};
+
+// The CRM invitation for someone new, and the workspace's join code (/invite/<code>).
+const crmInvite = async (email: string) => {
+  const metadata = appMetadataClient();
+  let invited = false;
+  let inviteHash = '';
+
+  try {
+    const sent = (await metadata.mutation({ sendInvitations: { __args: { emails: [email] }, success: true, errors: true } } as never)) as {
+      sendInvitations?: { success?: boolean; errors?: string[] };
+    };
+
+    invited = Boolean(sent.sendInvitations?.success) && !(sent.sendInvitations?.errors ?? []).length;
+  } catch {
+    invited = false;
+  }
+  let inviteProblem = '';
+
+  try {
+    const workspace = (await metadata.query({ currentWorkspace: { inviteHash: true } } as never)) as { currentWorkspace?: { inviteHash?: string | null } };
+
+    inviteHash = workspace.currentWorkspace?.inviteHash ?? '';
+  } catch (error) {
+    inviteHash = '';
+    inviteProblem = error instanceof Error ? error.message.slice(0, 200) : 'unknown';
+  }
+
+  // The app may not be allowed to read it live; the code saved in the app settings works the same.
+  if (!inviteHash) inviteHash = (process.env.WORKSPACE_JOIN_CODE ?? '').trim();
+
+  // The CRM's own address, for the link (the page's code may not know where it runs).
+  const appUrl = (process.env.TWENTY_API_URL ?? '').replace(/\/+$/, '');
+
+  return { invited, inviteHash, inviteProblem, appUrl };
 };
 
 const PAID_ONLY = 'Adding businesses and inviting people is for paid accounts. Your Personal business stays free.';
@@ -359,8 +394,11 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
       if (!rows.some((row) => !row.memberId && row.email === email)) {
         await client.mutation({ createMembership: { __args: { data: { ownerId, email, name: email } }, id: true } });
       }
+      // And the CRM invitation plus the join code, so the host can send a link
+      // (this server sends no emails). Done as the app: a host need not be an admin.
+      const crm = await crmInvite(email);
 
-      return json({ success: true, joined: false });
+      return json({ success: true, joined: false, ...crm });
     }
 
     const target = rows.find((row) => row.id === body.membershipId);

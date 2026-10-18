@@ -68,21 +68,18 @@ const StyledName = styled.span`
   white-space: nowrap;
 `;
 
-const RentalWorkspaceMenu = () => {
+// The businesses to pick from, as menu rows. Used by the sidebar picker and by the
+// top-left workspace menu, so switching works from either place.
+export const RentalWorkspaceListItems = ({ dropdownId }: { dropdownId: string }) => {
   const { workspaces, selected, select } = useRentalWorkspace();
   const { closeDropdown } = useCloseDropdown();
   const navigate = useNavigate();
   const location = useLocation();
   const { objectMetadataItems } = useObjectMetadataItems();
-  const navigationMenuItems = useAtomStateValue(navigationMenuItemsSelector);
-  // The Rental app's Workspaces page (cards, hosts, new workspace).
-  const workspacesPageLayoutId = navigationMenuItems.find(
-    (item) => item.name === 'Businesses' && isDefined(item.pageLayoutId),
-  )?.pageLayoutId;
 
   const pick = (workspaceId: string) => {
     select(workspaceId);
-    closeDropdown(RENTAL_WORKSPACE_DROPDOWN_ID);
+    closeDropdown(dropdownId);
 
     // An open rental list is reopened with the new workspace filter.
     const listMatch = location.pathname.match(/^\/objects\/([^/]+)$/);
@@ -96,9 +93,8 @@ const RentalWorkspaceMenu = () => {
   };
 
   return (
-    <LegacyDropdownContent>
-      <DropdownMenuItemsContainer>
-        {workspaces.map((workspace) => (
+    <DropdownMenuItemsContainer>
+      {workspaces.map((workspace) => (
           <ListItem
             key={workspace.id}
             startIcon={<Avatar name={workspace.name} colorSeed={workspace.id} size="sm" shape="rounded-square" />}
@@ -111,7 +107,22 @@ const RentalWorkspaceMenu = () => {
             {workspace.name}
           </ListItem>
         ))}
-      </DropdownMenuItemsContainer>
+    </DropdownMenuItemsContainer>
+  );
+};
+
+const RentalWorkspaceMenu = () => {
+  const { closeDropdown } = useCloseDropdown();
+  const navigate = useNavigate();
+  const navigationMenuItems = useAtomStateValue(navigationMenuItemsSelector);
+  // The Rental app's Workspaces page (cards, hosts, new workspace).
+  const workspacesPageLayoutId = navigationMenuItems.find(
+    (item) => item.name === 'Businesses' && isDefined(item.pageLayoutId),
+  )?.pageLayoutId;
+
+  return (
+    <LegacyDropdownContent>
+      <RentalWorkspaceListItems dropdownId={RENTAL_WORKSPACE_DROPDOWN_ID} />
       <DropdownMenuSeparator />
       <DropdownMenuItemsContainer>
         <ListItem

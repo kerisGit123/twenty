@@ -67,7 +67,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
     if (ownerId && !inScope(scope, ownerId)) return plain("You don't have access to this business.", 403);
 
-    const data = await loadStockData(client, scope);
+    const data = await loadStockData(client, scope, ownerId || null);
     const items = data.items.filter((item) => !ownerId || item.ownerId === ownerId);
     const byItem = groupMovements(data.movements);
     const today = todayIso();

@@ -45,7 +45,10 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     const ownerId =
       (body.propertyId ? await propertyOwnerId(client, body.propertyId) : null) ??
       body.ownerId ??
-      (await personalOwnerId(client));
+      (await personalOwnerId(client, context?.workspaceMemberId));
+
+    // Nobody known to file it under (no Personal workspace of their own).
+    if (!ownerId) return json({ success: false, message: 'Pick a business first.' }, 400);
 
     if (!inScope(scope, ownerId)) {
       return json(

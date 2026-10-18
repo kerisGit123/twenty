@@ -17,7 +17,7 @@ import { BorrowTab } from 'src/front-components/shared/stock-borrow-tab';
 import { HistoryTab } from 'src/front-components/shared/stock-history-tab';
 import { ImportSheet } from 'src/front-components/shared/stock-import-sheet';
 import { IssueSheet, ReceiveRequestSheet, RequestSheet, RequestsTab, SettleRequestSheet } from 'src/front-components/shared/stock-requests-tab';
-import { c, control, primary } from 'src/front-components/shared/stock-ui';
+import { c, control, lastPartyFor, primary } from 'src/front-components/shared/stock-ui';
 import type { StockData } from 'src/logic-functions/utils/stock-data';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { balanceOf, DEFAULT_RULE, groupMovements, lastPaidPerUnit, type StockItem, type StockMovement, stockStatus } from 'src/shared/stock';
@@ -46,15 +46,17 @@ const writeSimplePref = (simple: boolean) => {
     // Storage can be unavailable; the switch still works for this page.
   }
 };
-const SIMPLE_TABS: string[] = ['stock', 'orders', 'requests', 'borrowed'];
+// Staff (the simple view) see Stock, Ordering and Loans; managers also History and Month end.
+const SIMPLE_TABS: string[] = ['stock', 'ordering', 'borrowed'];
 
+// The everyday jobs, one big button each. Borrowing and lending share one button
+// (Quick entry has both inside).
 const BIG_BUTTONS = [
   { key: 'TAKE', label: 'Take out', hint: 'to the shop', icon: '↑', color: 'blue' },
+  { key: 'PURCHASE', label: 'Stock in', hint: 'a delivery came', icon: '↓', color: 'green' },
   { key: 'WASTE', label: 'Waste', hint: 'thrown away', icon: '🗑', color: 'red' },
-  { key: 'PURCHASE', label: 'Stock in', hint: 'a delivery', icon: '↓', color: 'green' },
-  { key: 'BORROW_IN', label: 'Borrowed in', hint: 'from another shop', icon: '↙', color: 'purple' },
-  { key: 'BORROW', label: 'Lent out', hint: 'to another shop', icon: '↗', color: 'orange' },
   { key: 'COUNT', label: 'Count', hint: 'check the shelf', icon: '✔', color: 'gray' },
+  { key: 'BORROW_IN', label: 'Borrow / lend', hint: 'with another shop', icon: '⇄', color: 'purple' },
 ] as const;
 
 type Open =
@@ -74,16 +76,27 @@ type Open =
   | { kind: 'writeOff'; item: StockItem; message: string }
   | null;
 
-const TABS: Array<{ key: Tab; label: string }> = [
-  { key: 'stock', label: 'Stock in hand' },
-  { key: 'movements', label: 'In / out history' },
-  { key: 'month', label: 'Monthly sheet' },
-  { key: 'order', label: 'Forecast & order' },
-  { key: 'orders', label: 'Orders' },
-  { key: 'requests', label: 'Branch requests' },
+// Five tabs. Ordering and Month end each hold a few related views, picked inside the tab.
+type Group = 'stock' | 'movements' | 'ordering' | 'borrowed' | 'monthend';
+const TABS: Array<{ key: Group; label: string }> = [
+  { key: 'stock', label: 'Stock' },
+  { key: 'movements', label: 'History' },
+  { key: 'ordering', label: 'Ordering' },
   { key: 'borrowed', label: 'Loans' },
   { key: 'monthend', label: 'Month end' },
 ];
+const GROUP_OF: Record<Tab, Group> = { stock: 'stock', movements: 'movements', order: 'ordering', orders: 'ordering', requests: 'ordering', borrowed: 'borrowed', monthend: 'monthend', month: 'monthend' };
+const VIEWS: Partial<Record<Group, Array<{ key: Tab; label: string; managers?: boolean }>>> = {
+  ordering: [
+    { key: 'order', label: 'What to order', managers: true },
+    { key: 'orders', label: 'Orders' },
+    { key: 'requests', label: 'Branch requests' },
+  ],
+  monthend: [
+    { key: 'monthend', label: 'Close the month' },
+    { key: 'month', label: 'Monthly sheet' },
+  ],
+};
 
 export const StockPage = () => {
   const scope = useOwnerScope();
@@ -99,6 +112,8 @@ export const StockPage = () => {
   useEffect(() => {
     let cancelled = false;
 
+    // The remembered workspace is checked first: loading before that could show another (or none).
+    if (!scope.ready) return;
     setError('');
     new RestApiClient()
       .post<{ success: boolean; data?: StockData; today?: string; message?: string }>('/s/stock', { action: 'data', ownerId: scope.ownerId || undefined })
@@ -115,7 +130,7 @@ export const StockPage = () => {
     return () => {
       cancelled = true;
     };
-  }, [reload, scope.ownerId]);
+  }, [reload, scope.ownerId, scope.ready]);
 
   const refresh = useCallback(() => setReload((n) => n + 1), []);
   const done = useCallback(() => {
@@ -168,14 +183,18 @@ export const StockPage = () => {
   const managed = new Set((data?.owners ?? []).filter((o) => o.canManage).map((o) => o.id));
   const mayManage = (id: string | null) => !!id && managed.has(id);
   const mayAddItems = owner ? owner.canManage : managed.size > 0;
-  // People who manage nothing start in the simple view; anyone can switch (remembered).
-  const simple = simplePref ?? true;
+  // Staff (who manage nothing) always get the simple view; managers can switch (remembered).
+  const simple = !mayAddItems || (simplePref ?? true);
+  const group = GROUP_OF[tab];
+  const views = (VIEWS[group] ?? []).filter((v) => !v.managers || !simple);
+  const pickGroup = (next: Group) => setTab(next === 'ordering' ? (simple ? 'orders' : 'order') : next === 'monthend' ? 'monthend' : next);
   // Stock belongs to one workspace: the one picked at the top of the left sidebar.
   const needsWorkspace = !ownerId && scope.owners.length > 1;
   const chooseSimple = (value: boolean) => {
     setSimplePref(value);
     writeSimplePref(value);
-    if (value && !SIMPLE_TABS.includes(tab)) setTab('stock');
+    if (value && !SIMPLE_TABS.includes(GROUP_OF[tab])) setTab('stock');
+    if (value && tab === 'order') setTab('orders');
   };
   const activeItems = items.filter((i) => i.status !== 'DISCONTINUED');
 
@@ -221,6 +240,7 @@ export const StockPage = () => {
           initialReference={open.lines ? `Order ${today}` : undefined}
           lastPaid={lastPaid}
           shops={shops}
+          lastParty={(type) => lastPartyFor(movements, type)}
           today={today}
           onClose={() => setOpen(null)}
           onDone={done}
@@ -239,16 +259,16 @@ export const StockPage = () => {
     if (open.kind === 'receiveRequest') return <ReceiveRequestSheet request={open.request} items={items} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'settleRequest') return <SettleRequestSheet request={open.request} items={items} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'import') return <ImportSheet owners={data.owners.filter((o) => o.canManage && (!ownerId || o.id === ownerId))} defaultOwnerId={ownerId} onClose={() => setOpen(null)} onDone={done} />;
-    if (open.kind === 'quick') return <QuickSheet items={activeItems} balances={balances} movements={movements} lastPaid={lastPaid} initialKind={open.quickKind} shops={shops} today={today} onClose={() => setOpen(null)} onDone={done} />;
+    if (open.kind === 'quick') return <QuickSheet items={activeItems} balances={balances} movements={movements} lastPaid={lastPaid} initialKind={open.quickKind} shops={shops} canManage={owner ? owner.canManage : managed.size > 0} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'expired') {
       return <ExpiredSheet items={activeItems} movementsByItem={byItem} balances={balances} today={today} onClose={() => setOpen(null)} onDone={done} />;
     }
     if (open.kind === 'take') {
       // Counting as at a date: the balance expected then.
       const at = open.date;
-      const expected = at ? new Map(items.map((i) => [i.id, balanceOf((byItem.get(i.id) ?? []).filter((m) => m.date <= at))])) : balances;
+      const expectedOn = (day: string) => new Map(items.map((i) => [i.id, balanceOf((byItem.get(i.id) ?? []).filter((m) => m.date <= day))]));
 
-      return <StockTakeSheet items={activeItems} balances={expected} today={today} initialDate={at} ownerId={ownerId} onClose={() => setOpen(null)} onDone={done} />;
+      return <StockTakeSheet items={activeItems} balances={at ? expectedOn(at) : balances} expectedOn={expectedOn} today={today} initialDate={at} ownerId={ownerId} onClose={() => setOpen(null)} onDone={done} />;
     }
     if (open.kind === 'writeOff') return <WriteOffSheet item={open.item} message={open.message} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'rule' && owner) return <RuleSheet owner={owner} onClose={() => setOpen(null)} onDone={done} />;
@@ -288,16 +308,18 @@ export const StockPage = () => {
             <span style={{ fontSize: 18, fontWeight: 600 }}>Stock{scope.owner ? ` · ${scope.owner.name}` : ''}</span>
             <span style={{ fontSize: 13, color: c.text3 }}>What's in hand, every IN and OUT, and what to order next.</span>
           </div>
-          <button onClick={() => chooseSimple(!simple)} style={{ ...control, color: c.text2 }} title={simple ? 'Show every tab and button' : 'Only the everyday buttons'}>
-            {simple ? 'Show everything' : 'Simple view'}
-          </button>
+          {mayAddItems ? (
+            <button onClick={() => chooseSimple(!simple)} style={{ ...control, color: c.text2 }} title={simple ? 'Manager tools: history, ordering plan, month end, items' : 'Back to the everyday buttons'}>
+              {simple ? 'Manager view' : 'Simple view'}
+            </button>
+          ) : null}
           {!simple ? (
             <>
               <button onClick={() => setOpen({ kind: 'quick' })} style={primary} disabled={!data} title="Take out, waste or stock in: search, tap, save">
                 ⚡ Quick entry
               </button>
               <button onClick={() => setOpen({ kind: 'take' })} style={control} disabled={!data} title="Count the shelf and fix the differences">
-                Stock take
+                Count
               </button>
               <button onClick={() => setMoreOpen(!moreOpen)} style={{ ...control, color: c.text2 }}>
                 {moreOpen ? 'Less' : 'More ▾'}
@@ -314,9 +336,6 @@ export const StockPage = () => {
                       ⬆ Import Excel
                     </button>
                   ) : null}
-                  <button onClick={() => setOpen({ kind: 'record', type: 'TAKE' })} style={control} disabled={!data} title="The full form: lending or borrowing between shops, returns, exchanges, notes">
-                    Full form (lend, return…)
-                  </button>
                 </>
               ) : null}
             </>
@@ -358,27 +377,37 @@ export const StockPage = () => {
           {TABS.filter((t) => !simple || SIMPLE_TABS.includes(t.key)).map((t) => (
             <button
               key={t.key}
-              onClick={() => setTab(t.key)}
+              onClick={() => pickGroup(t.key)}
               style={{
                 all: 'unset',
                 cursor: 'pointer',
                 padding: '8px 12px',
                 fontSize: 14,
                 whiteSpace: 'nowrap',
-                fontWeight: tab === t.key ? 600 : 500,
-                color: tab === t.key ? c.text : c.text3,
-                borderBottom: `2px solid ${tab === t.key ? c.text : 'transparent'}`,
+                fontWeight: group === t.key ? 600 : 500,
+                color: group === t.key ? c.text : c.text3,
+                borderBottom: `2px solid ${group === t.key ? c.text : 'transparent'}`,
                 marginBottom: -1,
               }}
             >
               {t.label}
-              {t.key === 'requests' && requestCount ? ` (${requestCount})` : ''}
-              {t.key === 'orders' && orderAlerts ? ` (${orderAlerts})` : ''}
+              {t.key === 'ordering' && requestCount + orderAlerts ? ` (${requestCount + orderAlerts})` : ''}
               {t.key === 'borrowed' && movements.some((m) => (m.type === 'BORROW' || m.type === 'BORROW_IN') && (m.borrowStatus ?? 'OUTSTANDING') === 'OUTSTANDING') ? ' •' : ''}
             </button>
           ))}
         </div>
 
+        {views.length > 1 ? (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {views.map((v) => (
+              <button key={v.key} onClick={() => setTab(v.key)} style={{ ...control, height: 32, fontSize: 13, background: tab === v.key ? c.accent : c.bg, color: tab === v.key ? 'white' : c.text, borderColor: tab === v.key ? c.accent : c.border2 }}>
+                {v.label}
+                {v.key === 'requests' && requestCount ? ` (${requestCount})` : ''}
+                {v.key === 'orders' && orderAlerts ? ` (${orderAlerts})` : ''}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {error ? <span style={{ color: 'var(--t-color-red11)', fontSize: 13 }}>{error}</span> : null}
         {!data && !error ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }} aria-busy="true">
@@ -400,6 +429,7 @@ export const StockPage = () => {
           <>
             {tab === 'stock' ? (
               <StockHandTab
+                simple={simple}
                 statuses={statuses}
                 today={today}
                 ownerId={ownerId}

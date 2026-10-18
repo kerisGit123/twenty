@@ -4,7 +4,7 @@ import { readValue } from 'src/front-components/shared/read-value';
 import { useNarrow } from 'src/front-components/shared/use-narrow';
 import { ItemPicker } from 'src/front-components/shared/item-picker';
 import { Sheet } from 'src/front-components/shared/sheet';
-import { QtyInput, stockAction } from 'src/front-components/shared/stock-forms';
+import { BelowZeroBar, QtyInput, stockAction, useStockSave } from 'src/front-components/shared/stock-forms';
 import { c, Chip, control, ExcelButton, Field, input, primary, select, shortDate, small } from 'src/front-components/shared/stock-ui';
 import type { StockOwner } from 'src/logic-functions/utils/stock-data';
 import { cartonsAndUnits, type StockItem, toCartons } from 'src/shared/stock';
@@ -446,16 +446,11 @@ export const IssueSheet = ({ request, items, balances, today, onClose, onDone }:
   const byId = new Map(items.map((i) => [i.id, i]));
   const [date, setDate] = useState(today);
   const [issued, setIssued] = useState<Record<string, number>>(() => Object.fromEntries(request.lines.map((l) => [l.itemId, l.requestedUnits])));
-  const [busy, setBusy] = useState(false);
+  const saver = useStockSave(onDone);
+  const busy = saver.busy;
   const total = request.lines.filter((l) => (issued[l.itemId] ?? 0) > 0).length;
 
-  const save = async () => {
-    setBusy(true);
-    const result = await stockAction({ action: 'issueRequest', id: request.id, date, lines: request.lines.map((l) => ({ itemId: l.itemId, issuedUnits: issued[l.itemId] ?? 0 })) });
-
-    setBusy(false);
-    if (result.success) onDone();
-  };
+  const save = () => saver.run({ action: 'issueRequest', id: request.id, date, lines: request.lines.map((l) => ({ itemId: l.itemId, issuedUnits: issued[l.itemId] ?? 0 })) });
 
   return (
     <SheetBody title={`Issue ${request.number} to ${request.branch}`} intro="Type what you are sending (it starts as what was asked). Saving takes it out of the warehouse stock, dated below. Put 0 on anything you are not sending." onClose={onClose}>
@@ -475,14 +470,15 @@ export const IssueSheet = ({ request, items, balances, today, onClose, onDone }:
                 <div style={{ fontSize: 12, color: c.text3 }}>
                   asked {item ? cartonsAndUnits(l.requestedUnits, item) : l.requestedUnits} · in the warehouse {item ? cartonsAndUnits(inStock, item) : inStock}
                 </div>
-                {giving > inStock ? <div style={{ fontSize: 12, color: 'var(--t-color-red11)' }}>More than in stock: the warehouse count will go below zero.</div> : null}
+                {giving > inStock ? <div style={{ fontSize: 12, color: 'var(--t-color-red11)' }}>More than in stock. Count the shelf first; only a manager can send more than the system shows.</div> : null}
               </div>
               {item ? <QtyInput item={item} units={l.requestedUnits} onChange={(units) => setIssued({ ...issued, [l.itemId]: units })} /> : null}
             </div>
           );
         })}
       </div>
-      <Footer onClose={onClose} onSave={save} busy={busy} ready={total > 0 && isFullDate(date)} label={`Issue ${total} item${total === 1 ? '' : 's'}`} />
+      <BelowZeroBar message={saver.confirm} busy={busy} onYes={saver.confirmYes} onNo={saver.confirmNo} />
+      <Footer onClose={onClose} onSave={save} busy={busy} ready={total > 0 && isFullDate(date) && !saver.confirm} label={`Issue ${total} item${total === 1 ? '' : 's'}`} />
     </SheetBody>
   );
 };

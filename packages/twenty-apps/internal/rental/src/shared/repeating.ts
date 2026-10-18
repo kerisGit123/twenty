@@ -14,10 +14,13 @@ export type RepeatEvery = (typeof REPEATS)[number]['value'];
 
 export const repeatOf = (value: string | null | undefined) => REPEATS.find((r) => r.value === value) ?? REPEATS[0];
 
-// The same day N months later (31 Jan + 1 month = 28/29 Feb).
-export const nextRepeatDate = (iso: string, every: string | null | undefined): string => {
+// The same day N months later (31 Jan + 1 month = 28/29 Feb). seriesDay is the
+// day the series is meant to fall on (from its first bill), so a short month
+// doesn't stick: 31 Jan -> 28 Feb -> 31 Mar.
+export const nextRepeatDate = (iso: string, every: string | null | undefined, seriesDay?: number | null): string => {
   const months = repeatOf(every).months;
-  const [year, month, day] = iso.slice(0, 10).split('-').map(Number);
+  const [year, month, lastBillDay] = iso.slice(0, 10).split('-').map(Number);
+  const day = seriesDay && seriesDay >= 1 && seriesDay <= 31 ? seriesDay : lastBillDay;
   const index = year * 12 + (month - 1) + months;
   const nextYear = Math.floor(index / 12);
   const nextMonth = (index % 12) + 1;

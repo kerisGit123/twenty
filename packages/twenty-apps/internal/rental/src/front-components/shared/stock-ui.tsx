@@ -187,3 +187,14 @@ export const ShopChips = ({ shops, value, onPick }: { shops: string[]; value: st
 
 // The shop's name as already used (any capital letters), else as typed.
 export const knownShop = (shops: string[], typed: string) => shops.find((s) => s.toLowerCase() === typed.trim().toLowerCase()) ?? typed.trim();
+// "1,5" is one and a half (comma as decimal point); "1,250" is a thousand two hundred and fifty.
+export const parseNumber = (value: string) => {
+  const raw = value.trim();
+  const clean = /^\d+,\d{1,2}$/.test(raw) ? raw.replace(',', '.') : raw;
+
+  return Number(clean.replace(/[^0-9.]/g, '')) || 0;
+};
+
+// The name used last time for this kind of movement in this workspace (instead of a fixed name).
+export const lastPartyFor = (movements: Array<{ type: string; date: string; party: string }>, type: string) =>
+  [...movements].filter((m) => m.type === type && m.party).sort((a, b) => b.date.localeCompare(a.date))[0]?.party ?? '';

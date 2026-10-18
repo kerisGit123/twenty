@@ -40,6 +40,8 @@ export const useOwnerScope = () => {
   const [owners, setOwners] = useState<Owner[]>([]);
   const [all, setAll] = useState(true);
   const [ownerId, setOwnerIdState] = useState<string>(readStored);
+  // True once the server said which workspaces this person may see (or failed to).
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     new RestApiClient()
@@ -60,8 +62,12 @@ export const useOwnerScope = () => {
 
           return next;
         });
+        setReady(true);
       })
-      .catch(() => setOwners([]));
+      .catch(() => {
+        setOwners([]);
+        setReady(true);
+      });
   }, []);
 
   const setOwnerId = (value: string) => {
@@ -74,6 +80,7 @@ export const useOwnerScope = () => {
     ownerId,
     setOwnerId,
     owner: owners.find((o) => o.id === ownerId) ?? null,
+    ready,
     restricted: !all,
     // Changes whenever what's in scope changes; use it as a memo dependency.
     key: `${ownerId}|${all ? '*' : owners.map((o) => o.id).join(',')}`,

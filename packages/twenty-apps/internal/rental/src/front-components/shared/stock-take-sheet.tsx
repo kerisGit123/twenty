@@ -5,7 +5,7 @@ import { readPickedFile } from 'src/front-components/shared/pick-file';
 import { readValue } from 'src/front-components/shared/read-value';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { stockAction } from 'src/front-components/shared/stock-forms';
-import { c, control, Field, input, primary, qty, rm, withOwner } from 'src/front-components/shared/stock-ui';
+import { c, control, Field, input, parseNumber, primary, qty, rm, withOwner } from 'src/front-components/shared/stock-ui';
 import { cartonsAndUnits, type StockItem, unitValue } from 'src/shared/stock';
 import { STOCK_GROUPS } from 'src/shared/stock-types';
 
@@ -16,7 +16,7 @@ import { STOCK_GROUPS } from 'src/shared/stock-types';
 type Entry = { ctn: string; loose: string };
 type Show = 'all' | 'counted' | 'diff';
 
-const toNumber = (value: string) => Number(value.replace(/[^0-9.]/g, '')) || 0;
+const toNumber = parseNumber;
 const isFullDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 const round2 = (value: number) => Math.round(value * 100) / 100;
 // A difference worth a second look: RM 50 or more, or a fifth of what was expected.
@@ -25,6 +25,7 @@ const BIG_VALUE = 50;
 export const StockTakeSheet = ({
   items,
   balances,
+  expectedOn,
   today,
   initialDate,
   ownerId,
@@ -33,6 +34,7 @@ export const StockTakeSheet = ({
 }: {
   items: StockItem[];
   balances: Map<string, number>;
+  expectedOn?: (date: string) => Map<string, number>; // what the system expects at the end of a day
   today: string;
   initialDate?: string;
   ownerId: string;
@@ -45,20 +47,22 @@ export const StockTakeSheet = ({
   const [show, setShow] = useState<Show>('all');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
+  // Change "Counted on" and the expected figures follow, the same way the server works them out.
+  const expectedNow = useMemo(() => (expectedOn && /^\d{4}-\d{2}-\d{2}$/.test(date) ? expectedOn(date) : balances), [expectedOn, date, balances]);
 
   const rows = useMemo(
     () =>
       items.map((item) => {
         const entry = entries[item.id];
         const counted = !entry || (entry.ctn === '' && entry.loose === '') ? null : round2(toNumber(entry.ctn) * (item.unitsPerCarton || 1) + toNumber(entry.loose));
-        const expected = balances.get(item.id) ?? 0;
+        const expected = expectedNow.get(item.id) ?? 0;
         const diff = counted === null ? 0 : round2(counted - expected);
         const value = round2(diff * unitValue(item));
         const big = counted !== null && diff !== 0 && (Math.abs(value) >= BIG_VALUE || (expected > 0 && Math.abs(diff) / expected >= 0.2));
 
         return { item, entry, counted, expected, diff, value, big };
       }),
-    [items, entries, balances],
+    [items, entries, expectedNow],
   );
   const counted = rows.filter((r) => r.counted !== null);
   const short = counted.filter((r) => r.diff < 0);
@@ -118,7 +122,7 @@ export const StockTakeSheet = ({
   return (
     <Sheet width={780} onClose={onClose}>
       <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: c.font, color: c.text, overflowY: 'auto', height: '100%', boxSizing: 'border-box' }}>
-        <span style={{ fontSize: 16, fontWeight: 600 }}>Stock take</span>
+        <span style={{ fontSize: 16, fontWeight: 600 }}>Count the shelf</span>
         <span style={{ fontSize: 13, color: c.text2 }}>
           Count what is on the shelf. The expected quantity only shows after you count a product, so the count stays honest. Only products you fill in are checked; differences are saved as stock-take adjustments on the date.
         </span>

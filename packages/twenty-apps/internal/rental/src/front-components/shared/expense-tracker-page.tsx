@@ -20,6 +20,8 @@ import {
   expenseCategory,
   expenseGroup,
   groupByKey,
+  isShopType,
+  SHOP_TILES,
 } from 'src/shared/expense-categories';
 
 // Expenses: everything you spend — everyday life, your properties and your
@@ -67,6 +69,28 @@ const monthTitle = (iso: string) => `${MONTHS[Number(iso.slice(5, 7)) - 1]} ${is
 const openExpense = (id: string) => openSidePanelPage({ page: SidePanelPages.ViewRecord, recordId: id, objectNameSingular: 'expense' });
 
 const areaOf = (category: string | null) => expenseGroup(category).area;
+
+// Bill / receipt files one expense can hold.
+const MAX_FILES = 5;
+
+// Says how many picked files didn't fit ('' when they all did).
+const tooManyFiles = (picked: number, room: number) => {
+  const left = picked - Math.min(picked, room);
+
+  if (!left) return '';
+  if (room === 0) return `This expense already has ${MAX_FILES} files; ${left === 1 ? 'the file was' : `the ${left} files were`} not added.`;
+
+  return `Only ${MAX_FILES} files per expense; ${left} ${left === 1 ? 'was' : 'were'} not added.`;
+};
+
+// The typed amount as a number. One comma followed by 1-2 digits and no dot is
+// a decimal point ("12,50" = 12.50); otherwise commas group thousands
+// ("1,250.00" = 1250).
+const parseAmount = (text: string) => {
+  const value = text.trim();
+
+  return Number(/^\d*,\d{1,2}$/.test(value) ? value.replace(',', '.') : value.replace(/,/g, ''));
+};
 
 // ---------------------------------------------------------------- look
 
@@ -164,6 +188,8 @@ export const ExpenseTracker = () => {
   const [rangeFrom, setRangeFrom] = useState(`${today.slice(0, 4)}-01-01`);
   const [rangeTo, setRangeTo] = useState(monthStart(today));
   const [area, setArea] = useState<AreaFilter>('ALL');
+  // A shop (not Personal / Family) gets the shop tiles and no household areas.
+  const shop = isShopType(scope.owner?.type);
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
   const [propertyFilter, setPropertyFilter] = useState('');
   const [search, setSearch] = useState('');
@@ -176,6 +202,8 @@ export const ExpenseTracker = () => {
   const [showAllBills, setShowAllBills] = useState(false);
   const [billBusy, setBillBusy] = useState('');
   const [loading, setLoading] = useState(true);
+  // Why the last load failed ('' when it worked).
+  const [loadError, setLoadError] = useState('');
   const [adding, setAdding] = useState(false);
   // Viewing an expense's bills; adding bills to one; a row being dropped on.
   const [viewing, setViewing] = useState<{ files: ViewerFile[]; title: string } | null>(null);
@@ -187,13 +215,18 @@ export const ExpenseTracker = () => {
     if (mode === 'month') return [monthStart(anchor), nextMonthStart(anchor)];
     if (mode === 'year') return [`${anchor.slice(0, 4)}-01-01`, `${Number(anchor.slice(0, 4)) + 1}-01-01`];
 
-    return [monthStart(rangeFrom), nextMonthStart(rangeTo)];
+    // 'From' after 'To': show the months in between anyway (and say so).
+    const [start, end] = rangeFrom <= rangeTo ? [rangeFrom, rangeTo] : [rangeTo, rangeFrom];
+
+    return [monthStart(start), nextMonthStart(end)];
   }, [mode, anchor, rangeFrom, rangeTo]);
+  const rangeSwapped = mode === 'range' && rangeFrom > rangeTo;
 
   const reload = useCallback(async (): Promise<Expense[] | null> => {
     let fresh: Expense[] | null = null;
 
     setLoading(true);
+    setLoadError('');
     try {
       // The server reads the expenses and keeps only the caller's workspaces.
       const result = await new RestApiClient().post<{ success: boolean; data?: ExpensesData; message?: string }>('/s/pages/data', {
@@ -209,7 +242,10 @@ export const ExpenseTracker = () => {
       setProperties(result.data.properties);
       setRepeating(result.data.repeating ?? []);
     } catch (error) {
-      await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not load expenses.', variant: 'error' });
+      const message = error instanceof Error ? error.message : 'Could not load expenses.';
+
+      setLoadError(message || 'Could not load expenses.');
+      await enqueueSnackbar({ message: message || 'Could not load expenses.', variant: 'error' });
     } finally {
       setLoading(false);
     }
@@ -332,6 +368,9 @@ export const ExpenseTracker = () => {
   const step = (delta: number) => setAnchor(shiftMonth(anchor, mode === 'year' ? delta * 12 : delta));
   const anyFilter = Boolean(groupFilter || propertyFilter || search || missingOnly);
   const propertyOptions = properties.filter((p) => scope.matches(p.ownerId ?? null));
+  // Adding needs the list of businesses (it comes with the page data).
+  const canAdd = owners.length > 0;
+  const addHint = canAdd ? '' : loading ? 'Loading your businesses…' : loadError ? "Couldn't load your businesses." :"You're not in a business yet — ask the owner to add you.";
 
   const segmented = <T extends string>(value: T, options: Array<{ value: T; label: string }>, onChange: (value: T) => void) => (
     <div style={{ display: 'flex', background: c.bg2, borderRadius: 8, padding: 2, gap: 2 }}>
@@ -366,6 +405,7 @@ export const ExpenseTracker = () => {
           properties={properties}
           defaultOwnerId={scope.ownerId}
           defaultArea={area === 'ALL' ? 'EVERYDAY' : area}
+          shop={shop}
           recent={recentCategories}
           onClose={() => setAdding(false)}
           onSaved={async (id, again, withBill) => {
@@ -403,12 +443,20 @@ export const ExpenseTracker = () => {
         {/* Title + add */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 200px', minWidth: 0 }}>
-            <div style={{ fontSize: 20, fontWeight: 650 }}>Expenses</div>
-            <div style={{ fontSize: 13, color: c.text3 }}>Everyday, property and business spending in one place.</div>
+            <div style={{ fontSize: 20, fontWeight: 650 }}>Expenses{scope.owner ? ` · ${scope.owner.name}` : ''}</div>
+            <div style={{ fontSize: 13, color: c.text3 }}>{shop ? 'What the shop spent: ingredients, rent, salary, bills.' : 'Everyday, property and business spending in one place.'}</div>
           </div>
-          <button onClick={() => setAdding(true)} style={{ ...button('primary'), height: 40, padding: '0 16px', fontSize: 14 }}>
-            ＋ Add expense
-          </button>
+          {/* Waits for the businesses list, so the sheet knows where the expense goes */}
+          <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+            <button
+              onClick={() => setAdding(true)}
+              disabled={!canAdd}
+              style={{ ...button('primary'), height: 40, padding: '0 16px', fontSize: 14, opacity: canAdd ? 1 : 0.6, cursor: canAdd ? 'pointer' : 'default' }}
+            >
+              ＋ Add expense
+            </button>
+            {addHint && <span style={{ fontSize: 12, color: c.text3 }}>{addHint}</span>}
+          </span>
         </div>
 
         {/* Workspace + period */}
@@ -419,6 +467,7 @@ export const ExpenseTracker = () => {
               <input type="month" value={rangeFrom.slice(0, 7)} onChange={(e) => { const v = readValue(e); if (v) setRangeFrom(`${v}-01`); }} style={{ ...control, width: 'auto' }} />
               to
               <input type="month" value={rangeTo.slice(0, 7)} onChange={(e) => { const v = readValue(e); if (v) setRangeTo(`${v}-01`); }} style={{ ...control, width: 'auto' }} />
+              {rangeSwapped && <span style={{ color: c.amber }}>'From' is after 'To' — showing {monthTitle(rangeTo)} to {monthTitle(rangeFrom)}.</span>}
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -429,7 +478,8 @@ export const ExpenseTracker = () => {
           )}
         </div>
 
-        {/* Area tabs */}
+        {/* Area tabs (a shop has one area: its own costs) */}
+        {!shop && (
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'thin', paddingBottom: 2 }}>
           {[{ key: 'ALL' as AreaFilter, label: 'All', icon: '✦' }, ...EXPENSE_AREAS].map((option) => (
             <button
@@ -445,6 +495,7 @@ export const ExpenseTracker = () => {
             </button>
           ))}
         </div>
+        )}
 
         {/* Total + where it went */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))', gap: 12 }}>
@@ -452,16 +503,25 @@ export const ExpenseTracker = () => {
             <span style={{ fontSize: 13, color: c.text3 }}>
               {groupFilter ? `${groupByKey(groupFilter).icon} ${groupByKey(groupFilter).label}` : 'Total spent'} · {periodLabel || 'selected range'}
             </span>
-            <span style={{ fontSize: 30, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{formatMoney(mainTotal[1], mainTotal[0])}</span>
-            {totals.slice(1).map(([code, value]) => (
-              <span key={code} style={{ fontSize: 15, fontWeight: 600, color: c.text2, fontVariantNumeric: 'tabular-nums' }}>
-                + {formatMoney(value, code)}
-              </span>
-            ))}
-            <span style={{ fontSize: 13, color: c.text3 }}>
-              {visible.length} expense{visible.length === 1 ? '' : 's'}
-            </span>
-            {missing > 0 && (
+            {/* No zeros while loading or after a failed load: they'd look like real numbers */}
+            {loading ? (
+              <span style={{ fontSize: 30, fontWeight: 700, color: c.text3 }}>Loading…</span>
+            ) : loadError ? (
+              <span style={{ fontSize: 14, color: 'var(--t-color-red11)' }}>Couldn't load the expenses: {loadError}</span>
+            ) : (
+              <>
+                <span style={{ fontSize: 30, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{formatMoney(mainTotal[1], mainTotal[0])}</span>
+                {totals.slice(1).map(([code, value]) => (
+                  <span key={code} style={{ fontSize: 15, fontWeight: 600, color: c.text2, fontVariantNumeric: 'tabular-nums' }}>
+                    + {formatMoney(value, code)}
+                  </span>
+                ))}
+                <span style={{ fontSize: 13, color: c.text3 }}>
+                  {visible.length} expense{visible.length === 1 ? '' : 's'}
+                </span>
+              </>
+            )}
+            {!loading && !loadError && missing > 0 && (
               <button
                 onClick={() => setMissingOnly(!missingOnly)}
                 style={{ ...chip(missingOnly), alignSelf: 'flex-start', background: missingOnly ? c.amberSoft : c.bg, color: c.amber, borderColor: 'var(--t-color-amber7)' }}
@@ -482,7 +542,7 @@ export const ExpenseTracker = () => {
                 </button>
               )}
             </div>
-            {byGroup.length === 0 && <span style={{ fontSize: 13, color: c.text3 }}>Nothing spent yet.</span>}
+            {byGroup.length === 0 && <span style={{ fontSize: 13, color: c.text3 }}>{loading ? 'Loading…' : loadError ? '—' : 'Nothing spent yet.'}</span>}
             {totals.length > 1 && <span style={{ fontSize: 11.5, color: c.text3 }}>In {currencySymbol(BASE_CURRENCY)} only — other currencies are listed separately.</span>}
             {byGroup.slice(0, 6).map(({ group, value }) => {
               const active = groupFilter === group.key;
@@ -605,11 +665,19 @@ export const ExpenseTracker = () => {
 
         {/* List */}
         {loading && <div style={{ fontSize: 13, color: c.text3 }}>Loading…</div>}
-        {!loading && visible.length === 0 && (
+        {!loading && loadError && (
+          <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 13.5, color: 'var(--t-color-red11)' }}>
+            <span style={{ flex: 1 }}>Couldn't load the expenses: {loadError}</span>
+            <button onClick={() => reload()} style={button()}>
+              Try again
+            </button>
+          </div>
+        )}
+        {!loading && !loadError && visible.length === 0 && (
           <div style={{ ...card, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '32px 16px', textAlign: 'center' }}>
             <span style={{ fontSize: 28 }}>🧾</span>
             <span style={{ fontSize: 14, color: c.text2 }}>{anyFilter ? 'No expenses match these filters.' : 'No expenses here yet.'}</span>
-            {!anyFilter && (
+            {!anyFilter && canAdd && (
               <button onClick={() => setAdding(true)} style={button('primary')}>
                 ＋ Add your first expense
               </button>
@@ -618,6 +686,7 @@ export const ExpenseTracker = () => {
         )}
 
         {!loading &&
+          !loadError &&
           sections.map((section) => (
             <div key={section.key} style={{ ...card, padding: 0, overflow: 'hidden' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 14px', background: c.bg2, fontSize: 13, fontWeight: 600 }}>
@@ -635,9 +704,11 @@ export const ExpenseTracker = () => {
                   setRowBusy(e.id);
 
                   let added = 0;
-                  let problem = '';
+                  // Up to 5 files per expense, counting the ones already on it.
+                  const room = Math.max(0, MAX_FILES - e.files);
+                  let problem = tooManyFiles(files.length, room);
 
-                  for (const file of files.slice(0, 5)) {
+                  for (const file of files.slice(0, room)) {
                     const result = await uploadFile(file, { expenseId: e.id });
 
                     if (result.success) added += 1;
@@ -748,10 +819,11 @@ const BillSheet = ({
     setBusy(true);
     setErrors([]);
 
-    const problems: string[] = [];
+    const room = Math.max(0, MAX_FILES - expense.files);
+    const problems: string[] = [tooManyFiles(files.length, room)].filter(Boolean);
     let added = 0;
 
-    for (const file of files.slice(0, Math.max(0, 5 - expense.files))) {
+    for (const file of files.slice(0, room)) {
       const result = await uploadFile(file, { expenseId: expense.id });
 
       if (result.success) added += 1;
@@ -791,10 +863,10 @@ const BillSheet = ({
             ))}
           </div>
         )}
-        {expense.files < 5 ? (
+        {expense.files < MAX_FILES ? (
           <FileDrop onFiles={add} disabled={busy} title={busy ? 'Uploading…' : 'Drop the bill or receipt here'} hint="or tap to choose / take a photo — PDF or photos, up to 20 MB" />
         ) : (
-          <span style={{ fontSize: 13, color: c.text3 }}>This expense already has 5 files.</span>
+          <span style={{ fontSize: 13, color: c.text3 }}>This expense already has {MAX_FILES} files.</span>
         )}
         {errors.map((message) => (
           <span key={message} style={{ fontSize: 12.5, color: 'var(--t-color-red11)' }}>
@@ -834,6 +906,7 @@ const AddExpenseSheet = ({
   defaultOwnerId,
   defaultArea,
   recent,
+  shop = false,
   onClose,
   onSaved,
 }: {
@@ -841,6 +914,7 @@ const AddExpenseSheet = ({
   properties: Option[];
   defaultOwnerId: string;
   defaultArea: ExpenseArea;
+  shop?: boolean;
   recent: string[];
   onClose: () => void;
   onSaved: (id: string, again: boolean, withBill: boolean) => Promise<void>;
@@ -859,9 +933,16 @@ const AddExpenseSheet = ({
   const [pickerArea, setPickerArea] = useState<ExpenseArea>(defaultArea);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [categorySearch, setCategorySearch] = useState('');
+  // Shop: the tile that needs one more tap (electricity or water?), and "all categories".
+  const [shopTile, setShopTile] = useState<string | null>(null);
+  const [allCategories, setAllCategories] = useState(false);
   const [date, setDate] = useState(today);
   const [method, setMethod] = useState('CASH');
-  const [ownerId, setOwnerId] = useState(fixedOwner?.id || personal || owners[0]?.id || '');
+  const [pickedOwnerId, setOwnerId] = useState('');
+  // Worked out on every render, so it's current when Save is tapped: the
+  // sidebar's business wins (switching it with the sheet open moves the
+  // expense too), else the one picked here, else Personal.
+  const ownerId = fixedOwner?.id || (owners.some((o) => o.id === pickedOwnerId) ? pickedOwnerId : personal || owners[0]?.id || '');
   const [linkProperty, setLinkProperty] = useState(false);
   const [propertyId, setPropertyId] = useState('');
   const [more, setMore] = useState(false);
@@ -875,8 +956,20 @@ const AddExpenseSheet = ({
   const isPropertyCost = chosen ? areaOf(chosen.value) === 'PROPERTY' : false;
   const showProperty = isPropertyCost || linkProperty;
   const workspaceProperties = properties.filter((p) => !ownerId || p.ownerId === ownerId);
-  const amountValue = Number(amount.replace(/,/g, ''));
-  const ready = Boolean(name.trim() && Number.isFinite(amountValue) && amountValue > 0 && category);
+  // A property from another business (the sidebar was switched) isn't sent.
+  const shownPropertyId = workspaceProperties.some((p) => p.id === propertyId) ? propertyId : '';
+  const amountValue = parseAmount(amount);
+  // What's still missing before it can be saved ('' when ready).
+  const missingText = !(Number.isFinite(amountValue) && amountValue > 0)
+    ? 'Type the amount.'
+    : !shop && !name.trim()
+      ? 'Say what it was for.'
+      : !category
+        ? 'Pick a category.'
+        : !ownerId
+          ? 'Pick a business.'
+          : '';
+  const ready = !missingText;
 
   const term = categorySearch.trim().toLowerCase();
   const searched = term ? EXPENSE_CATEGORIES.filter((x) => `${x.label} ${groupByKey(x.group).label}`.toLowerCase().includes(term)) : [];
@@ -885,18 +978,21 @@ const AddExpenseSheet = ({
     setCategory(value);
     setCategorySearch('');
     setOpenGroup(null);
+    setShopTile(null);
   };
+  // A shop may skip the description: the category says what it was.
+  const finalName = name.trim() || (category ? expenseCategory(category).label : '');
 
   const save = async (again: boolean) => {
     if (!ready) {
-      await enqueueSnackbar({ message: !(amountValue > 0) ? 'Enter the amount.' : !name.trim() ? 'Say what it was for.' : 'Pick a category.', variant: 'error' });
+      await enqueueSnackbar({ message: missingText, variant: 'error' });
 
       return;
     }
     setBusy(again ? 'again' : 'save');
     try {
       const result = await new RestApiClient().post<{ success: boolean; id?: string; message?: string }>('/s/expenses/create', {
-        name,
+        name: finalName,
         expenseDate: date,
         amount: amountValue,
         currency,
@@ -904,7 +1000,7 @@ const AddExpenseSheet = ({
         method,
         paidTo,
         notes,
-        propertyId: showProperty ? propertyId || null : null,
+        propertyId: showProperty ? shownPropertyId || null : null,
         ownerId: ownerId || null,
         repeatEvery,
       });
@@ -915,14 +1011,14 @@ const AddExpenseSheet = ({
       let attached = 0;
       let problem = '';
 
-      for (const file of bills.slice(0, 5)) {
+      for (const file of bills.slice(0, MAX_FILES)) {
         const upload = await uploadFile(file, { expenseId: result.id });
 
         if (upload.success) attached += 1;
         else problem = upload.message ?? 'A file could not be attached.';
       }
       await enqueueSnackbar({
-        message: `Saved ${formatMoney(amountValue, currency)} · ${name.trim()}${attached ? ` · ${attached} file${attached === 1 ? '' : 's'} attached` : ''}${problem ? ` — ${problem}` : ''}`,
+        message: `Saved ${formatMoney(amountValue, currency)} · ${finalName}${attached ? ` · ${attached} file${attached === 1 ? '' : 's'} attached` : ''}${problem ? ` — ${problem}` : ''}`,
         variant: problem && !attached ? 'warning' : 'success',
       });
       if (again) {
@@ -963,6 +1059,42 @@ const AddExpenseSheet = ({
         {extra}
       </div>
       {children}
+    </div>
+  );
+
+  // Shop: eight tiles; one more tap only when a tile covers a few (electricity / water / internet).
+  const tile = SHOP_TILES.find((t) => t.key === shopTile);
+  const shopPicker = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {tile ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button onClick={() => setShopTile(null)} style={{ ...button(), height: 32, padding: '0 10px' }}>
+              ‹ Back
+            </button>
+            <span style={{ fontSize: 15, fontWeight: 600 }}>
+              {tile.icon} {tile.label}: which one?
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{tile.values.map((value) => categoryChip(value, false))}</div>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 8 }}>
+          {SHOP_TILES.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => (t.values.length === 1 ? pick(t.values[0]) : setShopTile(t.key))}
+              style={{ all: 'unset', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '12px 4px', borderRadius: 12, border: `1px solid ${c.border}`, textAlign: 'center' }}
+            >
+              <span style={{ fontSize: 26, lineHeight: 1 }}>{t.icon}</span>
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: c.text, lineHeight: 1.2 }}>{t.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <button onClick={() => setAllCategories(true)} style={{ ...button('ghost'), alignSelf: 'flex-start', height: 28, fontSize: 13, padding: '0 4px', color: c.blueText }}>
+        Not here? See all categories
+      </button>
     </div>
   );
 
@@ -1102,7 +1234,7 @@ const AddExpenseSheet = ({
             )}
           </div>
 
-          <input value={name} onChange={(e) => setName(readValue(e))} placeholder="What was it for? e.g. Petrol, Aircon service" style={{ ...control, height: 42, fontSize: 15 }} />
+          <input value={name} onChange={(e) => setName(readValue(e))} placeholder={shop ? 'Note (optional), e.g. Ice from Ah Seng' : 'What was it for? e.g. Petrol, Aircon service'} style={{ ...control, height: 42, fontSize: 15 }} />
 
           {/* Category */}
           {section(
@@ -1124,6 +1256,8 @@ const AddExpenseSheet = ({
                   Change
                 </button>
               </div>
+            ) : shop && !allCategories ? (
+              shopPicker
             ) : (
               categoryPicker
             ),
@@ -1143,8 +1277,8 @@ const AddExpenseSheet = ({
             </div>,
           )}
 
-          {/* Repeats: quit rent, insurance, strata, subscriptions */}
-          {section(
+          {/* Repeats: quit rent, insurance, strata, subscriptions (a shop finds it under More) */}
+          {(!shop || more) && section(
             'Repeats',
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -1161,7 +1295,7 @@ const AddExpenseSheet = ({
           )}
 
           {/* Paid with */}
-          {section(
+          {(!shop || more) && section(
             'Paid with',
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {METHODS.map((m) => (
@@ -1173,7 +1307,7 @@ const AddExpenseSheet = ({
           )}
 
           {/* Workspace (fixed when one is picked in the sidebar) + property */}
-          {section(
+          {(!shop || more) && section(
             'For',
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {fixedOwner ? (
@@ -1203,7 +1337,7 @@ const AddExpenseSheet = ({
                 </select>
               )}
               {showProperty ? (
-                <select value={propertyId} onChange={(e) => setPropertyId(readValue(e))} style={control}>
+                <select value={shownPropertyId} onChange={(e) => setPropertyId(readValue(e))} style={control}>
                   <option value="">{isPropertyCost ? 'Which property? (optional)' : 'No property'}</option>
                   {workspaceProperties.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -1223,7 +1357,7 @@ const AddExpenseSheet = ({
 
           {/* Bill / receipt: drop it or take a photo now */}
           {section(
-            'Bill / receipt',
+            shop ? 'Receipt photo' : 'Bill / receipt',
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {bills.map((file, index) => (
                 <div key={`${file.name}-${index}`} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '6px 10px', borderRadius: 10, background: c.bg2 }}>
@@ -1234,10 +1368,15 @@ const AddExpenseSheet = ({
                   </button>
                 </div>
               ))}
-              {bills.length < 5 && (
+              {bills.length < MAX_FILES && (
                 <FileDrop
                   compact
-                  onFiles={(files) => setBills([...bills, ...files].slice(0, 5))}
+                  onFiles={(files) => {
+                    const problem = tooManyFiles(files.length, MAX_FILES - bills.length);
+
+                    setBills([...bills, ...files].slice(0, MAX_FILES));
+                    if (problem) enqueueSnackbar({ message: problem, variant: 'warning' });
+                  }}
                   title={bills.length ? 'Add another page' : 'Drop the bill here'}
                   hint="or tap to choose / take a photo"
                 />
@@ -1248,7 +1387,7 @@ const AddExpenseSheet = ({
           {/* More */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <button onClick={() => setMore(!more)} style={{ ...button('ghost'), alignSelf: 'flex-start', height: 28, fontSize: 13, padding: '0 4px' }}>
-              {more ? '▾' : '▸'} More details (paid to, notes)
+              {more ? '▾' : '▸'} {shop ? 'More (repeats every month, paid with, paid to, notes)' : 'More details (paid to, notes)'}
             </button>
             {more && (
               <>
@@ -1261,14 +1400,17 @@ const AddExpenseSheet = ({
           {bills.length === 0 && <div style={{ fontSize: 12, color: c.text3 }}>No bill now? Save — you can drop it on the expense later.</div>}
         </div>
 
-        {/* Actions stay at the bottom */}
-        <div style={{ display: 'flex', gap: 8, padding: '12px 16px', borderTop: `1px solid ${c.border}`, background: c.bg }}>
-          <button onClick={() => save(true)} disabled={busy !== ''} style={{ ...button(), flex: 1, height: 44 }}>
-            {busy === 'again' ? 'Saving…' : 'Save & add another'}
-          </button>
-          <button onClick={() => save(false)} disabled={busy !== ''} style={{ ...button('primary'), flex: 1, height: 44, opacity: ready ? 1 : 0.6 }}>
-            {busy === 'save' ? 'Saving…' : 'Save'}
-          </button>
+        {/* Actions stay at the bottom; what's still missing shows right above them */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '12px 16px', borderTop: `1px solid ${c.border}`, background: c.bg }}>
+          {missingText && <span style={{ fontSize: 12.5, color: c.amber }}>{missingText}</span>}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => save(true)} disabled={busy !== '' || !ready} style={{ ...button(), flex: 1, height: 44, opacity: ready ? 1 : 0.6, cursor: ready ? 'pointer' : 'default' }}>
+              {busy === 'again' ? 'Saving…' : 'Save & add another'}
+            </button>
+            <button onClick={() => save(false)} disabled={busy !== '' || !ready} style={{ ...button('primary'), flex: 1, height: 44, opacity: ready ? 1 : 0.6, cursor: ready ? 'pointer' : 'default' }}>
+              {busy === 'save' ? 'Saving…' : 'Save'}
+            </button>
+          </div>
         </div>
       </div>
     </Sheet>

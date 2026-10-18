@@ -73,7 +73,7 @@ export const MonthEndTab = ({
             </span>
             {!closing.counted ? (
               <div style={{ background: 'var(--t-color-amber2)', border: '1px solid var(--t-color-amber6)', borderRadius: c.radius, padding: 10, fontSize: 13, color: 'var(--t-color-amber11)' }}>
-                No stock take was saved in this month. Counting first makes the closing match the shelf.
+                No count was saved in this month. Counting first makes the closing match the shelf.
               </div>
             ) : null}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
@@ -88,7 +88,7 @@ export const MonthEndTab = ({
                   }}
                   style={control}
                 >
-                  Stock take first
+                  Count first
                 </button>
               ) : null}
               <button onClick={() => close(closing)} disabled={busy} style={{ ...primary, opacity: busy ? 0.5 : 1 }}>
@@ -143,7 +143,7 @@ export const MonthEndTab = ({
               <th style={{ ...head, color: 'var(--t-color-red11)' }}>− Waste</th>
               <th style={{ ...head, color: 'var(--t-color-blue11)' }}>− Lent / given back / count</th>
               <th style={head}>Closing</th>
-              <th style={{ ...head, textAlign: 'left' }}>Stock take</th>
+              <th style={{ ...head, textAlign: 'left' }}>Count</th>
               <th style={{ ...head, textAlign: 'left' }}>Status</th>
               <th style={head} />
             </tr>

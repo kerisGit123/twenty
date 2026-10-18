@@ -80,10 +80,10 @@ export const ItemDetailSheet = ({
                 − Take out
               </button>
               <button onClick={() => onRecord('BORROW')} style={control}>
-                Lend to shop
+                Lent out
               </button>
               <button onClick={() => onRecord('BORROW_IN')} style={control}>
-                Borrow from shop
+                Borrowed in
               </button>
             </>
           ) : null}

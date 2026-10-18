@@ -1,5 +1,6 @@
 import { type CoreApiClient } from 'twenty-client-sdk/core';
 
+import { todayIso } from 'src/logic-functions/utils/dates';
 import { loadRepeatingBills } from 'src/logic-functions/utils/repeating-bills';
 import { inScope, type Scope } from 'src/logic-functions/utils/scope';
 import { type RepeatingBill } from 'src/shared/repeating';
@@ -31,12 +32,19 @@ export type ExpensesData = { expenses: Expense[]; owners: Option[]; properties: 
 const loadExpenses = async (client: CoreApiClient, from: string, to: string): Promise<Expense[]> => {
   const rows: Expense[] = [];
   let after: string | undefined;
+  const inPeriod = { and: [{ expenseDate: { gte: from } }, { expenseDate: { lt: to } }] };
+  // Expenses with no date would never fall in any period, so they'd never
+  // show. They come along with the period that holds today (the page lists
+  // them under "No date"), and only that one, so they're counted once and that
+  // period's total includes them.
+  const today = todayIso();
+  const withUndated = from <= today && today < to;
 
   for (;;) {
     const { expenses: page } = await client.query({
       expenses: {
         __args: {
-          filter: { and: [{ expenseDate: { gte: from } }, { expenseDate: { lt: to } }] },
+          filter: withUndated ? { or: [inPeriod, { expenseDate: { is: 'NULL' as const } }] } : inPeriod,
           orderBy: [{ expenseDate: 'DescNullsLast' }],
           first: 200,
           ...(after ? { after } : {}),

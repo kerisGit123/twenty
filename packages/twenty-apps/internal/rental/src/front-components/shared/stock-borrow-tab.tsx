@@ -123,7 +123,7 @@ export const BorrowTab = ({
         </span>
         <ExcelButton query={withOwner({ kind: 'xlsx-borrowed' }, ownerId)} title="Loans (lent and borrowed) as an Excel file" />
         <button onClick={borrowedIn ? onBorrowIn : onLend} style={primary}>
-          {borrowedIn ? '+ Borrow from shop' : '+ Lend to shop'}
+          {borrowedIn ? '+ Borrowed in' : '+ Lent out'}
         </button>
       </div>
 
@@ -133,7 +133,7 @@ export const BorrowTab = ({
           {shops.length ? null : (
             <div style={{ border: `1px solid ${c.border}`, borderRadius: c.radius, padding: 20, textAlign: 'center', color: c.text3, fontSize: 13 }}>
               {show === 'OUTSTANDING' ? (borrowedIn ? 'You owe no shop any stock right now.' : 'No shop owes you stock right now.') : 'Nothing here yet.'}{' '}
-              {borrowedIn ? 'Tap “+ Borrow from shop” when you receive stock lent by another shop.' : 'Tap “+ Lend to shop” when another shop borrows something.'}
+              {borrowedIn ? 'Tap “+ Borrowed in” when you receive stock lent by another shop.' : 'Tap “+ Lent out” when another shop borrows something.'}
             </div>
           )}
           {shops.map((b) => (
@@ -214,7 +214,7 @@ export const BorrowTab = ({
               <tr>
                 <td colSpan={9} style={{ ...cell, textAlign: 'center', color: c.text3, padding: 32, whiteSpace: 'normal' }}>
                   {show === 'OUTSTANDING' ? (borrowedIn ? 'You owe no shop any stock right now.' : 'No shop owes you stock right now.') : 'Nothing here yet.'}{' '}
-                  {borrowedIn ? 'Use “+ Borrow from shop” when you receive stock lent by another shop.' : 'Use “+ Lend to shop” when another shop borrows something.'}
+                  {borrowedIn ? 'Use “+ Borrowed in” when you receive stock lent by another shop.' : 'Use “+ Lent out” when another shop borrows something.'}
                 </td>
               </tr>
             )}

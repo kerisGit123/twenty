@@ -49,9 +49,20 @@ export const MovementsTab = ({
     .filter((m) => !q || `${byId.get(m.itemId)?.name ?? ''} ${m.party} ${m.reference} ${m.notes}`.toLowerCase().includes(q))
     .sort((a, b) => b.date.localeCompare(a.date));
 
+  // First tap asks "Sure?", the second removes; nothing fires twice.
+  const [armed, setArmed] = useState('');
+  const [removing, setRemoving] = useState('');
   const remove = async (m: StockMovement) => {
+    if (armed !== m.id) {
+      setArmed(m.id);
+
+      return;
+    }
+    setRemoving(m.id);
     const result = await stockAction({ action: 'deleteMovement', movementId: m.id });
 
+    setRemoving('');
+    setArmed('');
     if (result.success) onChanged();
   };
 
@@ -117,8 +128,8 @@ export const MovementsTab = ({
               <td style={{ ...td, color: c.text2, fontSize: 12, whiteSpace: 'nowrap' }}>{m.recordedBy || '—'}</td>
               <td style={{ ...td, textAlign: 'right' }}>
                 {mayManage(m.ownerId) ? (
-                  <button onClick={() => remove(m)} style={{ ...small, color: 'var(--t-color-red11)' }} title="Remove (can be restored)">
-                    Remove
+                  <button onClick={() => remove(m)} disabled={removing === m.id} style={{ ...small, color: 'var(--t-color-red11)', fontWeight: armed === m.id ? 600 : 400 }} title="Remove (can be restored)">
+                    {removing === m.id ? 'Removing…' : armed === m.id ? 'Sure? Tap again' : 'Remove'}
                   </button>
                 ) : null}
               </td>

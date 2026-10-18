@@ -20,6 +20,13 @@ export default defineApplication({
   description:
     'Track properties, tenants, rent and deposit payments, and send receipts.',
   applicationVariables: {
+    WORKSPACE_JOIN_CODE: {
+      universalIdentifier: 'c5ba6e56-0248-4345-a360-dc047fc478d1',
+      description:
+        'The CRM join code from Settings → Members → Invite link (the part after /invite/). Businesses → Invite uses it to give hosts a join link to send on WhatsApp.',
+      value: '',
+      isSecret: false,
+    },
     RESEND_API_KEY: {
       universalIdentifier: RESEND_API_KEY_VARIABLE_ID,
       description: 'Resend API key used to email receipts (resend.com)',

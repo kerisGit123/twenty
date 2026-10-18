@@ -1,5 +1,6 @@
 import { type CoreApiClient } from 'twenty-client-sdk/core';
 
+import { SYSTEM } from 'src/logic-functions/utils/scope';
 import { toE164, type TenantPhone } from 'src/logic-functions/utils/whatsapp';
 
 // ---------------------------------------------------------------- WhatsApp link
@@ -40,24 +41,39 @@ export const syncWhatsappLink = async (client: CoreApiClient, personId: string) 
 
 // ---------------------------------------------------------------- owners
 
-// The Personal workspace: where anything without a workspace goes. Created on
-// first use.
-export const personalOwnerId = async (client: CoreApiClient): Promise<string> => {
+// The Personal workspace of the person doing it: where anything they add
+// without a workspace goes. Every team member gets one when they join (and on
+// page load), so this only looks it up.
+// No person known (a database trigger with no one behind it, a system job):
+// null, so the record stays unassigned (admins still see it). Guessing would
+// put it in somebody else's Personal workspace.
+export const personalOwnerId = async (
+  client: CoreApiClient,
+  memberId: string | null | undefined,
+): Promise<string | null> => {
+  if (!memberId || memberId === SYSTEM) return null;
+
+  const { memberships } = await client.query({
+    memberships: {
+      __args: { filter: { memberId: { eq: memberId }, memberRole: { eq: 'HOST' } }, first: 100 },
+      edges: { node: { owner: { id: true, ownerType: true } } },
+    },
+  });
+  const own = (memberships?.edges ?? []).find(({ node }) => (node.owner?.ownerType as string | null) === 'PERSONAL');
+
+  return own?.node.owner?.id ?? null;
+};
+
+// Every Personal workspace (for "unassigned or Personal" checks).
+const personalOwnerIds = async (client: CoreApiClient): Promise<string[]> => {
   const { owners } = await client.query({
     owners: {
-      __args: { filter: { ownerType: { eq: 'PERSONAL' } }, orderBy: [{ createdAt: 'AscNullsLast' }], first: 1 },
+      __args: { filter: { ownerType: { eq: 'PERSONAL' } }, first: 500 },
       edges: { node: { id: true } },
     },
   });
-  const existing = owners?.edges?.[0]?.node?.id;
 
-  if (existing) return existing;
-
-  const { createOwner } = await client.mutation({
-    createOwner: { __args: { data: { name: 'Personal', ownerType: 'PERSONAL' } }, id: true },
-  });
-
-  return createOwner?.id as string;
+  return (owners?.edges ?? []).map(({ node }) => node.id);
 };
 
 // A team member's own Personal workspace (they host it), created on first use.
@@ -97,8 +113,9 @@ export const propertyOwnerId = async (client: CoreApiClient, propertyId?: string
   return properties?.edges?.[0]?.node?.ownerId ?? null;
 };
 
-// An expense without a workspace takes its property's, else Personal.
-export const fillExpenseOwner = async (client: CoreApiClient, expenseId: string) => {
+// An expense without a workspace takes its property's, else the Personal
+// workspace of whoever added it (else it stays unassigned).
+export const fillExpenseOwner = async (client: CoreApiClient, expenseId: string, memberId?: string | null) => {
   const { expenses } = await client.query({
     expenses: {
       __args: { filter: { id: { eq: expenseId } }, first: 1 },
@@ -109,13 +126,16 @@ export const fillExpenseOwner = async (client: CoreApiClient, expenseId: string)
 
   if (!expense || expense.ownerId) return;
 
-  const ownerId = (await propertyOwnerId(client, expense.propertyId)) ?? (await personalOwnerId(client));
+  const ownerId = (await propertyOwnerId(client, expense.propertyId)) ?? (await personalOwnerId(client, memberId));
+
+  if (!ownerId) return;
 
   await client.mutation({ updateExpense: { __args: { id: expense.id, data: { ownerId } }, id: true } });
 };
 
-// A new property without a workspace goes to Personal.
-export const fillPropertyOwner = async (client: CoreApiClient, propertyId: string) => {
+// A new property without a workspace goes to the Personal workspace of
+// whoever added it (else it stays unassigned).
+export const fillPropertyOwner = async (client: CoreApiClient, propertyId: string, memberId?: string | null) => {
   const { properties } = await client.query({
     properties: {
       __args: { filter: { id: { eq: propertyId } }, first: 1 },
@@ -126,13 +146,18 @@ export const fillPropertyOwner = async (client: CoreApiClient, propertyId: strin
 
   if (!property || property.ownerId) return;
 
+  const ownerId = await personalOwnerId(client, memberId);
+
+  if (!ownerId) return;
+
   await client.mutation({
-    updateProperty: { __args: { id: property.id, data: { ownerId: await personalOwnerId(client) } }, id: true },
+    updateProperty: { __args: { id: property.id, data: { ownerId } }, id: true },
   });
 };
 
-// A new document without a workspace takes its property's, else Personal.
-export const fillDocumentOwner = async (client: CoreApiClient, documentId: string) => {
+// A new document without a workspace takes its property's, else the Personal
+// workspace of whoever added it (else it stays unassigned).
+export const fillDocumentOwner = async (client: CoreApiClient, documentId: string, memberId?: string | null) => {
   const { documents } = await client.query({
     documents: {
       __args: { filter: { id: { eq: documentId } }, first: 1 },
@@ -143,7 +168,9 @@ export const fillDocumentOwner = async (client: CoreApiClient, documentId: strin
 
   if (!document || document.ownerId) return;
 
-  const ownerId = (await propertyOwnerId(client, document.propertyId)) ?? (await personalOwnerId(client));
+  const ownerId = (await propertyOwnerId(client, document.propertyId)) ?? (await personalOwnerId(client, memberId));
+
+  if (!ownerId) return;
 
   await client.mutation({ updateDocument: { __args: { id: document.id, data: { ownerId } }, id: true } });
 };
@@ -155,7 +182,7 @@ export const backfillPropertyOwner = async (client: CoreApiClient, propertyId: s
 
   if (!ownerId) return;
 
-  const personalId = await personalOwnerId(client);
+  const personalIds = await personalOwnerIds(client);
 
   // Contracts always follow their property.
   const { rentals } = await client.query({
@@ -168,7 +195,9 @@ export const backfillPropertyOwner = async (client: CoreApiClient, propertyId: s
   for (const { node } of (rentals?.edges ?? []).filter((edge) => edge.node.ownerId !== ownerId)) {
     await client.mutation({ updateRental: { __args: { id: node.id, data: { ownerId } }, id: true } });
   }
-  const unassigned = { or: [{ ownerId: { is: 'NULL' as const } }, { ownerId: { eq: personalId } }] };
+  const unassigned = {
+    or: [{ ownerId: { is: 'NULL' as const } }, ...(personalIds.length ? [{ ownerId: { in: personalIds } }] : [])],
+  };
 
   const { rentPayments } = await client.query({
     rentPayments: {

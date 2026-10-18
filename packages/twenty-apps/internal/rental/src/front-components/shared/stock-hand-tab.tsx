@@ -148,6 +148,26 @@ const Tile = ({ label, value, note, color, active, onClick }: { label: string; v
   </button>
 );
 
+// One plain word for staff: what to do about this item, if anything.
+const StaffBadge = ({ s, today }: { s: StockStatus; today: string }) => {
+  const expired = s.balance > 0 && expiryState(s.nearestExpiry, today) === 'EXPIRED';
+  const badge = s.balance < 0
+    ? { text: 'Below zero: count it', color: 'red' }
+    : expired
+      ? { text: 'Expired: check shelf', color: 'red' }
+      : s.flag === 'ORDER'
+        ? { text: s.onOrder ? 'On order' : 'Order now', color: s.onOrder ? 'blue' : 'red' }
+        : s.flag === 'LOW'
+          ? { text: 'Running low', color: 'amber' }
+          : null;
+
+  return badge ? (
+    <span style={{ fontSize: 12, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: `var(--t-color-${badge.color}3)`, color: `var(--t-color-${badge.color}11)`, whiteSpace: 'nowrap' }}>{badge.text}</span>
+  ) : (
+    <span style={{ fontSize: 12, color: c.text3 }}>OK</span>
+  );
+};
+
 export const StockHandTab = ({
   statuses,
   today,
@@ -155,7 +175,9 @@ export const StockHandTab = ({
   onRecord,
   onOpen,
   onWriteOffExpired,
+  simple = false,
 }: {
+  simple?: boolean; // staff: item, in stock and one badge; no forecast columns
   statuses: StockStatus[];
   today: string;
   ownerId: string;
@@ -251,30 +273,36 @@ export const StockHandTab = ({
         <CardList groups={groups} today={today} onOpen={onOpen} onRecord={onRecord} />
       ) : (
       <div style={{ overflow: 'auto', border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg, maxHeight: 'calc(100cqh - 250px)', minHeight: 240 }}>
-        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 980 }}>
+        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: simple ? 560 : 980 }}>
           <thead>
             <tr>
               <th style={{ ...head, width: 56 }}>Code</th>
               <th style={head}>Item</th>
-              <th style={{ ...head, textAlign: 'right' }}>In hand</th>
-              <th style={head}>Months left</th>
-              <th style={{ ...head, textAlign: 'right' }}>Used / month</th>
-              <th style={{ ...head, textAlign: 'right' }}>To order</th>
-              <th style={head}>Expiry</th>
+              <th style={{ ...head, textAlign: 'right' }}>In stock</th>
+              {simple ? (
+                <th style={head}>Check</th>
+              ) : (
+                <>
+                  <th style={head}>Months left</th>
+                  <th style={{ ...head, textAlign: 'right' }}>Used / month</th>
+                  <th style={{ ...head, textAlign: 'right' }}>To order</th>
+                  <th style={head}>Expiry</th>
+                </>
+              )}
               <th style={{ ...head, textAlign: 'right' }} />
             </tr>
           </thead>
           <tbody>
             {groups.length ? null : (
               <tr>
-                <td colSpan={8} style={{ ...cell, textAlign: 'center', color: c.text3, padding: 32 }}>
+                <td colSpan={simple ? 5 : 8} style={{ ...cell, textAlign: 'center', color: c.text3, padding: 32 }}>
                   No items match.
                 </td>
               </tr>
             )}
             {groups.map((g) => [
               <tr key={`g-${g.value}`}>
-                <td colSpan={8} style={{ ...cell, background: 'var(--t-color-gray2)', fontWeight: 600, fontSize: 12 }}>
+                <td colSpan={simple ? 5 : 8} style={{ ...cell, background: 'var(--t-color-gray2)', fontWeight: 600, fontSize: 12 }}>
                   {g.label}
                   <span style={{ fontWeight: 400, color: c.text3 }}>
                     {' '}
@@ -305,6 +333,12 @@ export const StockHandTab = ({
                       </span>
                     ) : null}
                   </td>
+                  {simple ? (
+                    <td style={cell}>
+                      <StaffBadge s={s} today={today} />
+                    </td>
+                  ) : (
+                  <>
                   <td style={cell}>
                     <LastsBar s={s} />
                   </td>
@@ -331,6 +365,8 @@ export const StockHandTab = ({
                   <td style={cell}>
                     <Expiry s={s} today={today} />
                   </td>
+                  </>
+                  )}
                   <td style={{ ...cell, textAlign: 'right' }}>
                     {s.item.status !== 'DISCONTINUED' ? (
                       <span style={{ display: 'inline-flex', gap: 4 }}>

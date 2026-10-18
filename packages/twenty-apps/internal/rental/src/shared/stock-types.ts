@@ -21,8 +21,8 @@ export const STOCK_MOVEMENT_TYPES: Array<{ value: string; label: string; directi
   { value: 'RETURN', label: 'Borrow returned', direction: 'IN', color: 'turquoise' },
   { value: 'EXCHANGE_IN', label: 'Exchange received', direction: 'IN', color: 'sky' },
   { value: 'WASTE', label: 'Waste / expired', direction: 'OUT', color: 'red' },
-  { value: 'ADJUST_IN', label: 'Stock take: more', direction: 'IN', color: 'gray' },
-  { value: 'ADJUST_OUT', label: 'Stock take: less', direction: 'OUT', color: 'gray' },
+  { value: 'ADJUST_IN', label: 'Count: more on shelf', direction: 'IN', color: 'gray' },
+  { value: 'ADJUST_OUT', label: 'Count: less on shelf', direction: 'OUT', color: 'gray' },
   // Loans between shops. BORROW (lent to a shop) is a loan going out, BORROW_IN
   // is stock borrowed from a shop; both stay open until settled. RETURN settles
   // a BORROW and GIVE_BACK a BORROW_IN with the same item; an exchange moves the

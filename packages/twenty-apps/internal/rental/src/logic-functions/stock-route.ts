@@ -49,7 +49,10 @@ const fail = (message: string, _status = 400) => json({ success: false, message 
 
 const isDate = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 const num = (value: unknown) => {
-  const n = typeof value === 'number' ? value : Number(String(value ?? '').replace(/[^0-9.-]/g, ''));
+  const raw = String(value ?? '').trim();
+  // "1,5" is one and a half (comma as decimal point); "1,250" is a thousand two hundred and fifty.
+  const decimalComma = /^-?\d+,\d{1,2}$/.test(raw);
+  const n = typeof value === 'number' ? value : Number((decimalComma ? raw.replace(',', '.') : raw).replace(/[^0-9.-]/g, ''));
 
   return Number.isFinite(n) ? n : NaN;
 };
@@ -123,6 +126,65 @@ const bookPurchaseExpense = async (
   }
 };
 
+// Cash for a loan, booked once per settlement (its notes carry the request id, so a
+// retry finds it): income for stock lent, an expense for stock borrowed.
+const bookLoanCash = async (
+  client: CoreApiClient,
+  c: { loanId: string; requestId: string; borrowedIn: boolean; party: string; item: StockItem; units: number; amount: number; date: string; method: string; note: string },
+) => {
+  const tag = [`stock-loan:${c.loanId}`, c.requestId ? `batch:${c.requestId}` : ''].filter(Boolean).join(' ');
+
+  if (c.requestId) {
+    const filter = { notes: { like: `%batch:${c.requestId}%` } };
+    const found = c.borrowedIn
+      ? (await client.query({ expenses: { __args: { filter, first: 1 }, edges: { node: { id: true } } } })).expenses?.edges?.length
+      : (await client.query({ incomes: { __args: { filter, first: 1 }, edges: { node: { id: true } } } })).incomes?.edges?.length;
+
+    if (found) return;
+  }
+  const amount = { amountMicros: Math.round(c.amount * 1_000_000), currencyCode: 'MYR' };
+  const notes = [tag, c.note].filter(Boolean).join('\n');
+
+  if (c.borrowedIn) {
+    await client.mutation({
+      createExpense: {
+        __args: {
+          data: {
+            name: `Paid ${c.party || 'shop'} for ${c.item.name} borrowed (${cartonsAndUnits(c.units, c.item)})`,
+            expenseDate: c.date,
+            amount,
+            category: 'STOCK_PURCHASE' as never,
+            noBillNeeded: true,
+            method: (c.method || 'OTHER') as never,
+            paidTo: c.party,
+            notes,
+            ownerId: c.item.ownerId,
+          },
+        },
+        id: true,
+      },
+    });
+  } else {
+    await client.mutation({
+      createIncome: {
+        __args: {
+          data: {
+            name: `Paid for ${cartonsAndUnits(c.units, c.item)} ${c.item.name} lent`,
+            incomeDate: c.date,
+            amount,
+            category: 'BUSINESS' as never,
+            method: (c.method || 'OTHER') as never,
+            receivedFrom: c.party,
+            notes,
+            ownerId: c.item.ownerId,
+          },
+        },
+        id: true,
+      },
+    });
+  }
+};
+
 // After a purchase line is removed: the delivery's expense follows what is left.
 const resyncPurchaseExpense = async (client: CoreApiClient, batchId: string) => {
   if (!batchId) return;
@@ -178,6 +240,28 @@ const alreadySaved = async (client: CoreApiClient, requestId: string) => {
   const { stockMovements } = await client.query({ stockMovements: { __args: { filter: { batchId: { eq: requestId } }, first: 1 }, edges: { node: { id: true } } } });
 
   return Boolean(stockMovements?.edges?.length);
+};
+
+// Taking out more than is in stock: staff are stopped (count the shelf first);
+// a manager may go below zero, but only after saying yes (allowNegative).
+const shortOfStock = async (client: CoreApiClient, scope: Scope, wanted: Array<{ item: StockItem; units: number }>, allowNegative: boolean) => {
+  const byItem = new Map<string, { item: StockItem; units: number }>();
+
+  for (const w of wanted) byItem.set(w.item.id, { item: w.item, units: (byItem.get(w.item.id)?.units ?? 0) + w.units });
+  const movements = groupMovements(await loadMovementsOf(client, [...byItem.keys()]));
+  const short = [...byItem.values()]
+    .map((w) => ({ ...w, have: balanceOf(movements.get(w.item.id) ?? []) }))
+    .filter((w) => w.units > w.have + 0.005);
+
+  if (!short.length) return null;
+  const list = short.map((w) => `${w.item.name}: only ${cartonsAndUnits(Math.max(0, w.have), w.item)} in stock`).join('; ');
+
+  if (short.some((w) => !canManage(scope, w.item.ownerId))) {
+    return json({ success: false, message: `Not enough stock. ${list}. Count the shelf first (Count button), or ask a manager.` });
+  }
+  if (!allowNegative) return json({ success: false, needsNegativeOk: true, message: `Not enough stock. ${list}. Saving takes it below zero.` });
+
+  return null;
 };
 
 const movementData = (item: StockItem, data: MovementInput, recordedBy = '') => ({
@@ -330,7 +414,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
   importExcel: async (client, scope, body) => {
     const ownerId = text(body.ownerId, 64);
 
-    if (!ownerId || !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!ownerId || !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED });
     if (!canManage(scope, ownerId)) return fail("Only an admin or this business's host can import products. Ask them to do it.", 403);
     const base64 = typeof body.fileBase64 === 'string' ? body.fileBase64 : '';
 
@@ -490,7 +574,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
   readCounts: async (client, scope, body) => {
     const ownerId = text(body.ownerId, 64);
 
-    if (ownerId && !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (ownerId && !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED });
     const base64 = typeof body.fileBase64 === 'string' ? body.fileBase64 : '';
 
     if (!base64) return fail('Choose the filled-in count sheet first.');
@@ -503,7 +587,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       return fail(error instanceof Error ? error.message : 'Could not read that file.');
     }
     const clean = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
-    const data = await loadStockData(client, scope);
+    const data = await loadStockData(client, scope, ownerId || null);
     const items = data.items.filter((i) => i.status !== 'DISCONTINUED' && (!ownerId || i.ownerId === ownerId));
     const byCode = new Map(items.filter((i) => i.code).map((i) => [i.code, i]));
     const byName = new Map(items.map((i) => [i.name.toLowerCase(), i]));
@@ -563,7 +647,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       const item = items.get(itemId);
 
       if (!item) return fail('One of the items no longer exists.', 404);
-      if (!inScope(scope, item.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+      if (!inScope(scope, item.ownerId)) return json({ ...NOT_ALLOWED });
       if (ownerId && item.ownerId !== ownerId) return fail('A request is for one business: remove the items that belong to another.');
       ownerId = item.ownerId;
     }
@@ -575,7 +659,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       const request = await loadRequest(client, text(body.id, 64));
 
       if (!request) return fail('Request not found.', 404);
-      if (!inScope(scope, request.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+      if (!inScope(scope, request.ownerId)) return json({ ...NOT_ALLOWED });
       if (request.status !== 'REQUESTED') return fail('Only a request that has not been issued can be changed.');
       await client.mutation({ updateStockRequest: { __args: { id: request.id, data: { lines: lines as never, branch, notes, name: request.number + ' · ' + branch } }, id: true } });
 
@@ -618,7 +702,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const request = await loadRequest(client, text(body.id, 64));
 
     if (!request) return fail('Request not found.', 404);
-    if (!inScope(scope, request.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!inScope(scope, request.ownerId)) return json({ ...NOT_ALLOWED });
     if (request.status !== 'REQUESTED') return fail('This request was already issued or cancelled. Reload the page.');
     const date = isDate(body.date) ? body.date : todayIso();
     const given = new Map((Array.isArray(body.lines) ? (body.lines as Json[]) : []).map((l) => [text(l.itemId, 64), num(l.issuedUnits)]));
@@ -631,14 +715,27 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     if (!lines.some((l) => (l.issuedUnits ?? 0) > 0)) return fail('Issue at least one item, or cancel the request.');
     const items = await loadItems(client, lines.map((l) => l.itemId));
 
-    if ([...items.values()].some((item) => !inScope(scope, item.ownerId))) return json({ ...NOT_ALLOWED }, 403);
+    if ([...items.values()].some((item) => !inScope(scope, item.ownerId))) return json({ ...NOT_ALLOWED });
     const locked = lockedMessage(await loadLocks(client, [request.ownerId]), request.ownerId, date);
 
     if (locked) return fail(locked);
     const requestId = text(body.requestId, 64);
+    const issuedBefore = await alreadySaved(client, requestId);
+
+    // Sending more than the warehouse has: staff are stopped, a manager says yes first.
+    if (!issuedBefore) {
+      const short = await shortOfStock(
+        client,
+        scope,
+        lines.filter((l) => (l.issuedUnits ?? 0) > 0 && items.has(l.itemId)).map((l) => ({ item: items.get(l.itemId) as StockItem, units: l.issuedUnits as number })),
+        body.allowNegative === true,
+      );
+
+      if (short) return short;
+    }
 
     // A retried save: the take-outs exist already, only the status may be missing.
-    if (!(await alreadySaved(client, requestId))) {
+    if (!issuedBefore) {
       await createMovements(
         client,
         lines
@@ -657,7 +754,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const request = await loadRequest(client, text(body.id, 64));
 
     if (!request) return fail('Request not found.', 404);
-    if (!inScope(scope, request.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!inScope(scope, request.ownerId)) return json({ ...NOT_ALLOWED });
     if (request.status !== 'ISSUED') return fail('This delivery was already confirmed, or has not been issued yet. Reload the page.');
     const items = await loadItems(client, request.lines.map((l) => l.itemId));
     const got = new Map((Array.isArray(body.lines) ? (body.lines as Json[]) : []).map((l) => [text(l.itemId, 64), num(l.receivedUnits)]));
@@ -691,7 +788,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const request = await loadRequest(client, text(body.id, 64));
 
     if (!request) return fail('Request not found.', 404);
-    if (!inScope(scope, request.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!inScope(scope, request.ownerId)) return json({ ...NOT_ALLOWED });
     if (!canManage(scope, request.ownerId)) return fail("Only an admin or this business's host can settle a short delivery.", 403);
     if (request.status !== 'SHORT') return fail('Nothing short to settle on this request.');
     const how = body.how === 'WRITE_OFF' ? 'WRITE_OFF' : 'RETURN';
@@ -736,7 +833,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const request = await loadRequest(client, text(body.id, 64));
 
     if (!request) return fail('Request not found.', 404);
-    if (!inScope(scope, request.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!inScope(scope, request.ownerId)) return json({ ...NOT_ALLOWED });
     if (request.status !== 'REQUESTED') return fail('Only a request that has not been issued can be cancelled.');
     await client.mutation({ updateStockRequest: { __args: { id: request.id, data: { status: 'CANCELLED' as never } }, id: true } });
 
@@ -762,7 +859,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     if (id && !existing) return fail('Item not found.', 404);
     const ownerId = existing?.ownerId ?? (text(body.ownerId, 64) || null);
 
-    if (!ownerId || !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!ownerId || !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED });
     if (!canManage(scope, ownerId)) return fail("Only an admin or this business's host can add or change items and prices. Ask them, or record the stock IN/OUT instead.", 403);
 
     const data = {
@@ -811,7 +908,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const item = await loadItem(client, text(body.itemId, 64));
 
     if (!item) return fail('Item not found.', 404);
-    if (!inScope(scope, item.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!inScope(scope, item.ownerId)) return json({ ...NOT_ALLOWED });
     if (!canManage(scope, item.ownerId)) return fail("Only an admin or this business's host can discontinue or reactivate items. Ask them, or record the stock IN/OUT instead.", 403);
     const status = body.status === 'DISCONTINUED' ? 'DISCONTINUED' : 'ACTIVE';
 
@@ -819,7 +916,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       const balance = balanceOf(await loadItemMovements(client, item.id));
 
       if (balance > 0 && body.writeOff !== true) {
-        return json({ success: false, needsWriteOff: true, balance, message: `${cartonsAndUnits(balance, item)} is still in stock. Use it up first, or write it off as waste.` }, 409);
+        return json({ success: false, needsWriteOff: true, balance, message: `${cartonsAndUnits(balance, item)} is still in stock. Use it up first, or write it off as waste.` });
       }
       if (balance > 0) {
         const writeOffDate = isDate(body.date) ? body.date : todayIso();
@@ -842,14 +939,21 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     if (!RECORDABLE.includes(type)) return fail('Pick what happened (purchase, taken out, lent...).');
     if (!isDate(body.date)) return fail('Pick a date.');
     if (!lines.length) return fail('Add at least one item.');
-    if (type === 'BORROW' && !text(body.party)) return fail('Say which branch borrowed it.');
+    if (type === 'BORROW' && !text(body.party)) return fail('Say which shop borrowed it.');
     if (type === 'BORROW_IN' && !text(body.party)) return fail('Say which shop lent it to you.');
     const reason = type === 'WASTE' ? text(body.reason, 20) : '';
 
     if (type === 'WASTE' && !WASTE_REASONS.some((r) => r.pick && r.value === reason)) return fail('Pick why it was wasted (expired, spilled, staff meal...).');
     const requestId = text(body.requestId, 64) || `srv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
-    if (await alreadySaved(client, requestId)) return json({ success: true, message: 'Already saved.' });
+    const saved = await alreadySaved(client, requestId);
+    // A retry after the connection dropped: the stock lines are in, but the delivery's expense may not be.
+    const expenseMissing =
+      saved && type === 'PURCHASE' && body.addExpense !== false
+        ? !(await client.query({ expenses: { __args: { filter: { notes: { like: `stock:${requestId}%` } }, first: 1 }, edges: { node: { id: true } } } })).expenses?.edges?.length
+        : false;
+
+    if (saved && !expenseMissing) return json({ success: true, message: 'Already saved.' });
 
     const items = await loadItems(client, lines.map((line) => text(line.itemId, 64)));
 
@@ -858,7 +962,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
       if (!(num(line.quantity) > 0)) return fail('Each line needs a quantity more than 0.');
       if (!item) return fail('One of the items no longer exists.', 404);
-      if (!inScope(scope, item.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+      if (!inScope(scope, item.ownerId)) return json({ ...NOT_ALLOWED });
       if (item.status === 'DISCONTINUED' && type === 'PURCHASE') return fail(`${item.name} is discontinued. Reactivate it before buying more.`);
     }
     const locks = await loadLocks(client, [...items.values()].map((i) => i.ownerId));
@@ -868,8 +972,13 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
       if (locked) return fail(locked);
     }
+    if (!saved && (type === 'TAKE' || type === 'WASTE' || type === 'BORROW')) {
+      const short = await shortOfStock(client, scope, lines.map((line) => ({ item: items.get(text(line.itemId, 64)) as StockItem, units: num(line.quantity) })), body.allowNegative === true);
 
-    await createMovements(
+      if (short) return short;
+    }
+
+    if (!saved) await createMovements(
       client,
       lines.map((line) => {
         const item = items.get(text(line.itemId, 64)) as StockItem;
@@ -883,7 +992,8 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
         quantity: num(line.quantity),
         party: text(body.party, 120),
         unitCost: type === 'PURCHASE' ? (cost >= 0 ? cost : unitPrice(item)) : null,
-        expiryDate: isDate(line.expiryDate) ? line.expiryDate : type === 'PURCHASE' ? defaultExpiry(item, body.date as string) || null : null,
+        // noExpiry: the person cleared the date on purpose, so the shelf-life default is not filled in.
+        expiryDate: isDate(line.expiryDate) ? line.expiryDate : type === 'PURCHASE' && line.noExpiry !== true ? defaultExpiry(item, body.date as string) || null : null,
         reference: text(body.reference, 120),
         notes: text(body.notes, 500),
             reason: reason || null,
@@ -926,15 +1036,31 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
   settleBorrow: async (client, scope, body) => {
     const id = text(body.movementId, 64);
     const { stockMovements } = await client.query({
-      stockMovements: { __args: { filter: { id: { eq: id } }, first: 1 }, edges: { node: { id: true, itemId: true, movementType: true, quantity: true, party: true, borrowStatus: true, ownerId: true } } },
+      stockMovements: { __args: { filter: { id: { eq: id } }, first: 1 }, edges: { node: { id: true, itemId: true, movementType: true, quantity: true, party: true, borrowStatus: true, ownerId: true, movementDate: true } } },
     });
     const loan = stockMovements?.edges?.[0]?.node;
 
     if (!loan || !isLoan(loan.movementType ?? '')) return fail('That loan was not found.', 404);
-    if (!inScope(scope, loan.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!inScope(scope, loan.ownerId)) return json({ ...NOT_ALLOWED });
     const requestId = text(body.requestId, 64);
 
-    if (await alreadySaved(client, requestId)) return json({ success: true, message: 'Already settled.' });
+    if (await alreadySaved(client, requestId)) {
+      // A retry after the connection dropped: finish what the first try may not have reached.
+      const cash = await client.query({ stockMovements: { __args: { filter: { and: [{ batchId: { eq: requestId } }, { amount: { gt: 0 } }] }, first: 1 }, edges: { node: { amount: true, settlesUnits: true } } } });
+      const paid = cash.stockMovements?.edges?.[0]?.node;
+      const loanItem = await loadItem(client, loan.itemId as string);
+
+      if (paid && loanItem) {
+        await bookLoanCash(client, { loanId: loan.id, requestId, borrowedIn: (loan.movementType as string) === 'BORROW_IN', party: loan.party ?? '', item: loanItem, units: Number(paid.settlesUnits) || 0, amount: Number(paid.amount) || 0, date: isDate(body.date) ? body.date : todayIso(), method: text(body.method, 20), note: text(body.notes, 300) });
+      }
+      const leftNow = await loanLeft(client, { id: loan.id, itemId: loan.itemId as string, quantity: Number(loan.quantity) || 0 });
+
+      if (leftNow <= 0.005 && (loan.borrowStatus ?? 'OUTSTANDING') === 'OUTSTANDING') {
+        await client.mutation({ updateStockMovement: { __args: { id: loan.id, data: { borrowStatus: (text(body.how, 20) || 'RETURNED') as never } }, id: true } });
+      }
+
+      return json({ success: true, message: 'Already settled.' });
+    }
     if ((loan.borrowStatus ?? 'OUTSTANDING') !== 'OUTSTANDING') return fail('This loan is already settled.');
 
     const borrowedIn = (loan.movementType as string) === 'BORROW_IN';
@@ -943,6 +1069,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const item = await loadItem(client, loan.itemId as string);
 
     if (!item) return fail('The item no longer exists.', 404);
+    if (loan.movementDate && date < loan.movementDate) return fail(`The loan started on ${loan.movementDate}: the settlement cannot be dated before it.`);
     const party = loan.party ?? '';
     // Cash moves no stock, so it is allowed in a closed month (like the books).
     const settleLocked = how !== 'PAID' ? lockedMessage(await loadLocks(client, [item.ownerId]), item.ownerId, date) : null;
@@ -958,67 +1085,38 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const common = { party, borrowId: loan.id, batchId: requestId || null };
 
     if (how === 'RETURNED') {
+      if (borrowedIn) {
+        const short = await shortOfStock(client, scope, [{ item, units: covers }], body.allowNegative === true);
+
+        if (short) return short;
+      }
       await createMovement(client, item, { ...common, date, type: borrowedIn ? 'GIVE_BACK' : 'RETURN', quantity: covers, settlesUnits: covers, notes: note });
     } else if (how === 'EXCHANGED') {
       const other = await loadItem(client, text(body.exchangeItemId, 64));
       const quantity = num(body.exchangeQuantity);
 
       if (!other) return fail(borrowedIn ? 'Pick the item you are giving instead.' : 'Pick the item received in exchange.');
-      if (!inScope(scope, other.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+      if (!inScope(scope, other.ownerId)) return json({ ...NOT_ALLOWED });
       if (!(quantity > 0)) return fail(borrowedIn ? 'How many of it are you giving?' : 'How many of it came in?');
+      if (other.id === item.id) return fail(borrowedIn ? 'That is the same item: use "Give it back" instead.' : 'That is the same item: use "Returned" instead.');
+      if (borrowedIn) {
+        const short = await shortOfStock(client, scope, [{ item: other, units: quantity }], body.allowNegative === true);
+
+        if (short) return short;
+      }
       // The other item moves. A line on the loan's own item says how much of the loan it settled.
-      await createMovement(client, other, {
-        ...common,
-        date,
-        type: borrowedIn ? 'GIVE_BACK' : 'EXCHANGE_IN',
-        quantity,
-        notes: `For ${cartonsAndUnits(covers, item)} ${item.name} ${borrowedIn ? 'borrowed' : 'lent'}${note ? ` · ${note}` : ''}`,
-      });
-      await createMovement(client, item, { ...common, date, type: 'LOAN_SETTLED', quantity: 0, settlesUnits: covers, notes: `Exchanged for ${cartonsAndUnits(quantity, other)} ${other.name}${note ? ` · ${note}` : ''}` });
+      // Both lines go in one request, so a dropped connection never leaves half a swap.
+      await createMovements(client, [
+        { item: other, data: { ...common, date, type: borrowedIn ? 'GIVE_BACK' : 'EXCHANGE_IN', quantity, notes: `For ${cartonsAndUnits(covers, item)} ${item.name} ${borrowedIn ? 'borrowed' : 'lent'}${note ? ` · ${note}` : ''}` } },
+        { item, data: { ...common, date, type: 'LOAN_SETTLED', quantity: 0, settlesUnits: covers, notes: `Exchanged for ${cartonsAndUnits(quantity, other)} ${other.name}${note ? ` · ${note}` : ''}` } },
+      ]);
     } else if (how === 'PAID') {
       const amount = Math.round(num(body.amount) * 100) / 100;
 
       if (!(amount > 0)) return fail('How much was paid?');
       // Saved on the loan itself (nothing moves in stock), and also booked: income for a lending, an expense for a borrowing.
       await createMovement(client, item, { ...common, date, type: 'LOAN_SETTLED', quantity: 0, settlesUnits: covers, amount, notes: note });
-      if (borrowedIn) {
-        await client.mutation({
-          createExpense: {
-            __args: {
-              data: {
-                name: `Paid ${party || 'shop'} for ${item.name} borrowed (${cartonsAndUnits(covers, item)})`,
-                expenseDate: date,
-                amount: { amountMicros: Math.round(amount * 1_000_000), currencyCode: 'MYR' },
-                category: 'STOCK_PURCHASE' as never,
-                noBillNeeded: true,
-                method: (text(body.method, 20) || 'OTHER') as never,
-                paidTo: party,
-                notes: [`stock-loan:${loan.id}`, note].filter(Boolean).join('\n'),
-                ownerId: item.ownerId,
-              },
-            },
-            id: true,
-          },
-        });
-      } else {
-        await client.mutation({
-          createIncome: {
-            __args: {
-              data: {
-                name: `Paid for ${cartonsAndUnits(covers, item)} ${item.name} lent`,
-                incomeDate: date,
-                amount: { amountMicros: Math.round(amount * 1_000_000), currencyCode: 'MYR' },
-                category: 'BUSINESS' as never,
-                method: (text(body.method, 20) || 'OTHER') as never,
-                receivedFrom: party,
-                notes: note,
-                ownerId: item.ownerId,
-              },
-            },
-            id: true,
-          },
-        });
-      }
+      await bookLoanCash(client, { loanId: loan.id, requestId, borrowedIn, party, item, units: covers, amount, date, method: text(body.method, 20), note });
     } else {
       return fail('Choose returned, exchanged or paid.');
     }
@@ -1042,7 +1140,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const counts = (Array.isArray(body.counts) ? (body.counts as Json[]) : []).filter((entry) => entry.counted !== '' && num(entry.counted) >= 0);
     const items = await loadItems(client, counts.map((entry) => text(entry.itemId, 64)));
 
-    if ([...items.values()].some((item) => !inScope(scope, item.ownerId))) return json({ ...NOT_ALLOWED }, 403);
+    if ([...items.values()].some((item) => !inScope(scope, item.ownerId))) return json({ ...NOT_ALLOWED });
     const takeLocks = await loadLocks(client, [...items.values()].map((i) => i.ownerId));
 
     for (const item of items.values()) {
@@ -1081,20 +1179,31 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const movement = stockMovements?.edges?.[0]?.node;
 
     if (!movement) return fail('Movement not found.', 404);
-    if (!inScope(scope, movement.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!inScope(scope, movement.ownerId)) return json({ ...NOT_ALLOWED });
     if (!canManage(scope, movement.ownerId)) return fail("Only an admin or this business's host can remove recorded lines. Ask them, or record the stock IN/OUT instead.", 403);
     const removeLocked = lockedMessage(await loadLocks(client, [movement.ownerId ?? null]), movement.ownerId ?? null, movement.movementDate ?? '');
 
     if (removeLocked) return fail(removeLocked);
+    if (isLoan(movement.movementType ?? '')) {
+      const { stockMovements: settled } = await client.query({ stockMovements: { __args: { filter: { borrowId: { eq: id } }, first: 1 }, edges: { node: { id: true } } } });
+
+      if (settled?.edges?.length) return fail('This loan has been (partly) settled. Remove its settlement lines first, then the loan.');
+    }
+    // A settlement is several lines (a swap moves another item and marks the loan): they go together.
+    const together =
+      movement.borrowId && movement.batchId
+        ? ((await client.query({ stockMovements: { __args: { filter: { and: [{ batchId: { eq: movement.batchId } }, { borrowId: { eq: movement.borrowId } }] }, first: 20 }, edges: { node: { id: true } } } })).stockMovements?.edges ?? []).map((e) => e.node.id as string)
+        : [id];
+
     // Soft delete: it can be restored from the deleted records.
-    await client.mutation({ deleteStockMovement: { __args: { id }, id: true } });
+    for (const lineId of together.length ? together : [id]) await client.mutation({ deleteStockMovement: { __args: { id: lineId }, id: true } });
     if (movement.movementType === 'PURCHASE' && movement.batchId) await resyncPurchaseExpense(client, movement.batchId);
     // A line that settled a loan is gone: the loan is open again if units of it are left.
     if (movement.borrowId) await reopenLoan(client, movement.borrowId);
 
     const books = (movement.movementType as string) === 'LOAN_SETTLED' && movement.amount ? ' The payment stays in Transactions: remove it there too if it was a mistake.' : '';
 
-    return json({ success: true, message: 'Removed. It can be restored from deleted stock movements.' + books });
+    return json({ success: true, message: (together.length > 1 ? `Removed the whole settlement (${together.length} lines).` : 'Removed.') + ' It can be restored from deleted stock movements.' + books });
   },
 
   saveOrder: async (client, scope, body) => {
@@ -1108,7 +1217,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       const item = items.get(l.itemId);
 
       if (!item) return fail('One of the items no longer exists.', 404);
-      if (!inScope(scope, item.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+      if (!inScope(scope, item.ownerId)) return json({ ...NOT_ALLOWED });
     }
     const lineOf = (l: { itemId: string; cartons: number }): OrderLine => {
       const item = items.get(l.itemId) as StockItem;
@@ -1121,7 +1230,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       const order = await loadOrder(client, text(body.id, 64));
 
       if (!order) return fail('Order not found.', 404);
-      if (!inScope(scope, order.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+      if (!inScope(scope, order.ownerId)) return json({ ...NOT_ALLOWED });
       if (order.status !== 'DRAFT') return fail('Only a draft order can be changed. Cancel it and make a new one instead.');
       await saveOrderFields(client, order, { lines: wanted.map(lineOf), orderDate: date, notes: text(body.notes, 500) });
 
@@ -1178,7 +1287,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const order = await loadOrder(client, text(body.orderId, 64));
 
     if (!order) return fail('Order not found.', 404);
-    if (!inScope(scope, order.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!inScope(scope, order.ownerId)) return json({ ...NOT_ALLOWED });
     if (order.status === 'CANCELLED' || order.status === 'RECEIVED') return fail('This order is already finished.');
     if (!isDate(body.date)) return fail('Pick the date the goods arrived.');
     const receiveLocked = lockedMessage(await loadLocks(client, [order.ownerId]), order.ownerId, body.date);
@@ -1266,7 +1375,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const order = await loadOrder(client, text(body.orderId, 64));
 
     if (!order) return fail('Order not found.', 404);
-    if (!inScope(scope, order.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!inScope(scope, order.ownerId)) return json({ ...NOT_ALLOWED });
     const phone = normalizePhone(text(body.phone, 40));
 
     if (!phone) return fail('That does not look like a phone number. Use the supplier\'s WhatsApp number, e.g. 012-345 6789 or +60 12 345 6789.');
@@ -1279,7 +1388,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const order = await loadOrder(client, text(body.orderId, 64));
 
     if (!order) return fail('Order not found.', 404);
-    if (!inScope(scope, order.ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!inScope(scope, order.ownerId)) return json({ ...NOT_ALLOWED });
     const wanted = text(body.status, 20);
     const progress = orderProgress(order, await orderMovements(client, order.id));
 
@@ -1316,7 +1425,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const month = text(body.month, 7);
 
     if (!ownerId) return fail('Pick a business first: each business closes its own months.');
-    if (!inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!inScope(scope, ownerId)) return json({ ...NOT_ALLOWED });
     if (!canManage(scope, ownerId)) return fail("Only an admin or this business's host can close months. Ask them, or record the stock IN/OUT instead.", 403);
     if (!/^\d{4}-\d{2}$/.test(month)) return fail('Pick a month.');
     const end = monthEnd(month);
@@ -1335,7 +1444,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const ownerId = text(body.ownerId, 64);
 
     if (!ownerId) return fail('Pick a business first.');
-    if (!inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!inScope(scope, ownerId)) return json({ ...NOT_ALLOWED });
     if (!canManage(scope, ownerId)) return fail("Only an admin or this business's host can reopen months. Ask them, or record the stock IN/OUT instead.", 403);
     const through = (await loadLocks(client, [ownerId])).get(ownerId);
 
@@ -1354,7 +1463,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const orderUpTo = num(body.orderUpTo);
     const leadDays = body.leadDays === undefined || body.leadDays === '' ? 0 : num(body.leadDays);
 
-    if (!ownerId || !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED }, 403);
+    if (!ownerId || !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED });
     if (!canManage(scope, ownerId)) return fail("Only an admin or this business's host can change the re-order rule. Ask them, or record the stock IN/OUT instead.", 403);
     if (!(reorderBelow > 0) || !(orderUpTo > 0)) return fail('Both numbers must be more than 0 months.');
     if (orderUpTo < reorderBelow) return fail('"Order enough for" must be at least the re-order level.');

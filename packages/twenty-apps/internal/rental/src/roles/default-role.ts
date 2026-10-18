@@ -36,7 +36,8 @@ export default defineApplicationRole({
   canDestroyAllObjectRecords: false,
   canAccessAllTools: false,
   canBeAssignedToAgents: false,
-  permissionFlagUniversalIdentifiers: [SystemPermissionFlag.UPLOAD_FILE],
+  // WORKSPACE_MEMBERS: a host's "Invite" also creates the CRM invitation (the route checks they host it first).
+  permissionFlagUniversalIdentifiers: [SystemPermissionFlag.UPLOAD_FILE, SystemPermissionFlag.WORKSPACE_MEMBERS],
   objectPermissions: SOFT_DELETABLE.map((objectUniversalIdentifier) => ({
     objectUniversalIdentifier,
     canReadObjectRecords: true,

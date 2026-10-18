@@ -1,11 +1,11 @@
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useMemo, useRef, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 import { enqueueSnackbar } from 'twenty-sdk/front-component';
 
 import { readValue } from 'src/front-components/shared/read-value';
 import { ItemPicker } from 'src/front-components/shared/item-picker';
 import { Sheet } from 'src/front-components/shared/sheet';
-import { c, control, Field, input, knownShop, PriceNote, primary, qty, ReasonPicker, select, ShopChips, small } from 'src/front-components/shared/stock-ui';
+import { c, control, Field, input, knownShop, parseNumber, PriceNote, primary, qty, ReasonPicker, select, ShopChips, small } from 'src/front-components/shared/stock-ui';
 import type { StockOwner } from 'src/logic-functions/utils/stock-data';
 import { cartonsAndUnits, defaultExpiry, loanRemaining, type StockItem, type StockMovement, type StockRule, unitPrice } from 'src/shared/stock';
 import { STOCK_GROUPS, STOCK_MOVEMENT_TYPES } from 'src/shared/stock-types';
@@ -13,16 +13,33 @@ import { STOCK_GROUPS, STOCK_MOVEMENT_TYPES } from 'src/shared/stock-types';
 // The Stock page's forms: add/edit an item, record IN/OUT, settle a lending,
 // stock take and the re-order rule.
 
-type Result = { success: boolean; message?: string; needsWriteOff?: boolean };
+type Result = { success: boolean; message?: string; needsWriteOff?: boolean; needsNegativeOk?: boolean; offline?: boolean };
 
-const requestId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`;
+export const requestId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`;
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // Saves that are safe to send again: the server recognises the request id
 // (or the change is the same whatever the number of times).
 const RETRYABLE = ['setOrderPhone', 'saveRequest', 'issueRequest', 'resolveShort', 'alerts', 'importExcel', 'readCounts', 'record', 'settleBorrow', 'stockTake', 'setStatus', 'saveRule', 'deleteMovement', 'data', 'saveOrder', 'receiveOrder', 'setOrderStatus', 'closeMonth', 'reopenMonth'];
 
+// An answer the server gave with an error status (older routes): the client throws
+// "<status>: <body>", so read the body back instead of treating it as a dropped connection.
+const answerIn = (error: unknown): Result | null => {
+  const text = error instanceof Error ? error.message : String(error ?? '');
+  const start = text.indexOf('{');
+
+  if (start < 0) return null;
+  try {
+    const parsed = JSON.parse(text.slice(start)) as Result;
+
+    return typeof parsed === 'object' && parsed && 'success' in parsed ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
 export const stockAction = async (body: Record<string, unknown>): Promise<Result> => {
-  const payload = { ...body, requestId: requestId() };
+  // The same id on every try (and on a second tap after a dropped connection), so the server saves it once.
+  const payload = { ...body, requestId: typeof body.requestId === 'string' && body.requestId ? body.requestId : requestId() };
   // A new item has no id yet, so it is only sent once.
   const attempts = RETRYABLE.includes(String(body.action)) || (body.action === 'saveItem' && body.id) ? 3 : 1;
   let lastError: unknown;
@@ -31,10 +48,18 @@ export const stockAction = async (body: Record<string, unknown>): Promise<Result
     try {
       const result = await new RestApiClient().post<Result>('/s/stock', payload);
 
-      if (!result.needsWriteOff) await enqueueSnackbar({ message: result.message ?? (result.success ? 'Saved.' : 'Could not save.'), variant: result.success ? 'success' : 'error' });
+      if (!result.needsWriteOff && !result.needsNegativeOk) await enqueueSnackbar({ message: result.message ?? (result.success ? 'Saved.' : 'Could not save.'), variant: result.success ? 'success' : 'error' });
 
       return result;
     } catch (error) {
+      const answer = answerIn(error);
+
+      // A real answer (not allowed, not found...): show it, do not retry.
+      if (answer) {
+        if (!answer.needsWriteOff && !answer.needsNegativeOk) await enqueueSnackbar({ message: answer.message ?? 'Could not save.', variant: 'error' });
+
+        return answer;
+      }
       // The connection dropped or the server was busy starting up: try again.
       lastError = error;
       if (attempt < attempts) await wait(attempt * 1500);
@@ -42,16 +67,62 @@ export const stockAction = async (body: Record<string, unknown>): Promise<Result
   }
 
   await enqueueSnackbar({
-    message: `Could not reach the server, so nothing was saved. Please try again in a moment. (${lastError instanceof Error ? lastError.message : 'connection problem'})`,
+    message: `The connection dropped, so it may or may not have saved. Check the list; if it is not there, tap Save again (it will not be saved twice). (${lastError instanceof Error ? lastError.message : 'connection problem'})`,
     variant: 'error',
   });
 
-  return { success: false };
+  return { success: false, offline: true };
 };
+
+// Saving from a sheet: one request id until the server answers (so a second tap after a
+// dropped connection never saves twice), and a "below zero" question for a manager.
+export const useStockSave = (onDone: () => void) => {
+  const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState('');
+  const id = useRef(requestId());
+  const last = useRef<Record<string, unknown>>({});
+
+  const run = async (body: Record<string, unknown>, allowNegative = false) => {
+    if (busy) return;
+    last.current = body;
+    setBusy(true);
+    const result = await stockAction({ ...body, requestId: id.current, ...(allowNegative ? { allowNegative: true } : {}) });
+
+    setBusy(false);
+    if (result.needsNegativeOk) {
+      setConfirm(result.message ?? 'Not enough stock.');
+
+      return;
+    }
+    setConfirm('');
+    // A definite answer: the next save is a new one.
+    if (!result.offline) id.current = requestId();
+    if (result.success) onDone();
+  };
+
+  return { busy, confirm, run, confirmYes: () => run(last.current, true), confirmNo: () => setConfirm('') };
+};
+
+// A manager taking out more than the system says is there.
+export const BelowZeroBar = ({ message, busy, onYes, onNo }: { message: string; busy: boolean; onYes: () => void; onNo: () => void }) =>
+  message ? (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 10, borderRadius: 8, border: '1px solid var(--t-color-amber9)', background: 'var(--t-color-amber2)' }}>
+      <span style={{ fontSize: 13, color: 'var(--t-color-amber11)', fontWeight: 500 }}>{message}</span>
+      <span style={{ fontSize: 12, color: c.text2 }}>Better: count the shelf first. Only save if you are sure the stock really went out.</span>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={onNo} style={control}>
+          No, go back
+        </button>
+        <button onClick={onYes} disabled={busy} style={{ ...primary, background: 'var(--t-color-amber9)', borderColor: 'var(--t-color-amber9)' }}>
+          {busy ? 'Saving…' : 'Yes, save below zero'}
+        </button>
+      </div>
+    </div>
+  ) : null;
 
 const isFullDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
-const toNumber = (value: string) => Number(value.replace(/[^0-9.]/g, '')) || 0;
+const toNumber = parseNumber;
 
 const Shell = ({ title, intro, onClose, children }: { title: string; intro?: string; onClose: () => void; children: ReactNode }) => (
   <Sheet width={520} onClose={onClose}>
@@ -63,7 +134,9 @@ const Shell = ({ title, intro, onClose, children }: { title: string; intro?: str
   </Sheet>
 );
 
-const Buttons = ({ onClose, onSave, busy, ready, label }: { onClose: () => void; onSave: () => void; busy: boolean; ready: boolean; label: string }) => (
+const Buttons = ({ onClose, onSave, busy, ready, label, why }: { onClose: () => void; onSave: () => void; busy: boolean; ready: boolean; label: string; why?: string }) => (
+  <>
+  {why && !ready ? <div style={{ fontSize: 13, color: 'var(--t-color-amber11)', fontWeight: 500, textAlign: 'right' }}>{why}</div> : null}
   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', paddingTop: 4 }}>
     <button onClick={onClose} style={control}>
       Cancel
@@ -72,6 +145,7 @@ const Buttons = ({ onClose, onSave, busy, ready, label }: { onClose: () => void;
       {busy ? 'Saving…' : label}
     </button>
   </div>
+  </>
 );
 
 // Cartons + loose units, stored as units.
@@ -228,6 +302,7 @@ export const RecordSheet = ({
   initialReference,
   lastPaid,
   shops = [],
+  lastParty = () => '',
   today,
   onClose,
   onDone,
@@ -236,6 +311,7 @@ export const RecordSheet = ({
   balances: Map<string, number>;
   lastPaid?: Map<string, number>; // per unit, the last delivery's price
   shops?: string[]; // shops used in earlier loans
+  lastParty?: (type: string) => string; // the name used last time for this kind
   initialType: string;
   initialItemId?: string;
   initialLines?: Array<{ itemId: string; units: number }>;
@@ -246,7 +322,7 @@ export const RecordSheet = ({
 }) => {
   const [type, setType] = useState(initialType);
   const [date, setDate] = useState(today);
-  const [party, setParty] = useState(initialType === 'TAKE' ? 'Wawa' : initialType === 'PURCHASE' ? 'WeDrink' : '');
+  const [party, setParty] = useState(initialType === 'TAKE' || initialType === 'PURCHASE' ? lastParty(initialType) : '');
   const [reference, setReference] = useState(initialReference ?? '');
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
@@ -257,7 +333,8 @@ export const RecordSheet = ({
       ? initialLines.map((l, index) => ({ key: index + 1, itemId: l.itemId, units: l.units, unitCost: '', expiryDate: '' }))
       : [{ key: 1, itemId: initialItemId ?? '', units: 0, unitCost: '', expiryDate: '' }],
   );
-  const [busy, setBusy] = useState(false);
+  const saver = useStockSave(onDone);
+  const busy = saver.busy;
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const choosable = items.filter((i) => i.status !== 'DISCONTINUED' || type !== 'PURCHASE');
   const isOut = STOCK_MOVEMENT_TYPES.find((t) => t.value === type)?.direction === 'OUT';
@@ -270,9 +347,20 @@ export const RecordSheet = ({
 
   const setLine = (key: number, patch: Partial<Line>) => setLines(lines.map((l) => (l.key === key ? { ...l, ...patch } : l)));
 
-  const save = async () => {
-    setBusy(true);
-    const result = await stockAction({
+  const why = !isFullDate(date)
+    ? 'Pick a full date.'
+    : !lines.some((l) => l.itemId && l.units > 0)
+      ? 'Pick an item and type how much.'
+      : lines.some((l) => l.itemId && !(l.units > 0))
+        ? 'Every item needs a quantity (or remove the line).'
+        : ['BORROW', 'BORROW_IN'].includes(type) && !party.trim()
+          ? 'Say which shop.'
+          : type === 'WASTE' && !reason
+            ? 'Pick why it was wasted.'
+            : '';
+
+  const save = () =>
+    saver.run({
       action: 'record',
       type,
       date,
@@ -281,12 +369,10 @@ export const RecordSheet = ({
       notes,
       reason: type === 'WASTE' ? reason : undefined,
       addExpense: type === 'PURCHASE' ? addExpense : undefined,
-      lines: lines.filter((l) => l.itemId && l.units > 0).map((l) => ({ itemId: l.itemId, quantity: l.units, unitCost: l.unitCost ? toNumber(l.unitCost) : undefined, expiryDate: l.expiryDate || undefined })),
+      lines: lines
+        .filter((l) => l.itemId && l.units > 0)
+        .map((l) => ({ itemId: l.itemId, quantity: l.units, unitCost: l.unitCost ? toNumber(l.unitCost) : undefined, ...(l.expiryDate === 'none' ? { noExpiry: true } : { expiryDate: l.expiryDate || undefined }) })),
     });
-
-    setBusy(false);
-    if (result.success) onDone();
-  };
 
   return (
     <Shell title="Record stock in / out" intro="One date, one kind of movement, as many items as you like." onClose={onClose}>
@@ -298,7 +384,7 @@ export const RecordSheet = ({
               const next = readValue(e);
 
               setType(next);
-              setParty(next === 'TAKE' ? 'Wawa' : next === 'PURCHASE' ? 'WeDrink' : '');
+              setParty(next === 'TAKE' || next === 'PURCHASE' ? lastParty(next) : '');
             }}
             style={select}
           >
@@ -365,7 +451,7 @@ export const RecordSheet = ({
                         style={{ ...input, width: 130 }}
                         title="Cost per unit (empty = carton price ÷ units)"
                       />
-                      <input type="date" value={l.expiryDate || defaultExpiry(item, date)} onChange={(e) => setLine(l.key, { expiryDate: readValue(e) })} style={{ ...input, width: 150 }} title={item.shelfLifeDays ? `Expiry date (filled in from the ${item.shelfLifeDays}-day shelf life)` : 'Expiry date'} />
+                      <input type="date" value={l.expiryDate === 'none' ? '' : l.expiryDate || defaultExpiry(item, date)} onChange={(e) => setLine(l.key, { expiryDate: readValue(e) || 'none' })} style={{ ...input, width: 150 }} title={item.shelfLifeDays ? `Expiry date (filled in from the ${item.shelfLifeDays}-day shelf life)` : 'Expiry date'} />
                     </>
                   ) : null}
                   <span style={{ fontSize: 12, color: isOut && l.units > left ? 'var(--t-color-red11)' : c.text3 }}>
@@ -397,7 +483,8 @@ export const RecordSheet = ({
         </button>
         ) : null}
       </div>
-      <Buttons onClose={onClose} onSave={save} busy={busy} ready={Boolean(ready)} label="Save" />
+      <BelowZeroBar message={saver.confirm} busy={busy} onYes={saver.confirmYes} onNo={saver.confirmNo} />
+      <Buttons onClose={onClose} onSave={save} busy={busy} ready={Boolean(ready) && !saver.confirm} label="Save" why={why} />
     </Shell>
   );
 };
@@ -432,21 +519,30 @@ export const SettleSheet = ({
   const [exchangeUnits, setExchangeUnits] = useState(0);
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
-  const [busy, setBusy] = useState(false);
-  const other = items.find((i) => i.id === exchangeItemId);
+  const saver = useStockSave(onDone);
+  const busy = saver.busy;
+  // "Another item" means another item: the same one is "give it back".
+  const others = items.filter((i) => i.id !== item.id);
+  const other = others.find((i) => i.id === exchangeItemId);
   const suggested = (units * unitPrice(item)).toFixed(2);
   const paid = toNumber(amount || suggested);
   const covered = units > 0 && units <= left + 0.005;
   const ready = isFullDate(date) && covered && (how === 'RETURNED' ? true : how === 'EXCHANGED' ? Boolean(other && exchangeUnits > 0) : paid > 0);
   const who = borrow.party || (borrowedIn ? 'the shop' : 'a shop');
 
-  const save = async () => {
-    setBusy(true);
-    const result = await stockAction({ action: 'settleBorrow', movementId: borrow.id, how, date, units, exchangeItemId, exchangeQuantity: exchangeUnits, amount: paid, notes });
-
-    setBusy(false);
-    if (result.success) onDone();
-  };
+  const tooEarly = isFullDate(date) && date < borrow.date;
+  const why = tooEarly
+    ? `The loan started on ${borrow.date}: pick that day or later.`
+    : !covered
+      ? units > left + 0.005
+        ? `Only ${cartonsAndUnits(left, item)} is still open.`
+        : 'Type how much of the loan this settles.'
+      : how === 'EXCHANGED' && !(other && exchangeUnits > 0)
+        ? 'Pick the other item and how much of it.'
+        : how === 'PAID' && !(paid > 0)
+          ? 'Type the amount paid.'
+          : '';
+  const save = () => saver.run({ action: 'settleBorrow', movementId: borrow.id, how, date, units, exchangeItemId, exchangeQuantity: exchangeUnits, amount: paid, notes });
 
   const choices = borrowedIn
     ? ([
@@ -492,7 +588,7 @@ export const SettleSheet = ({
           <Field label={borrowedIn ? 'Item you give instead' : 'Item received instead'}>
             <select value={exchangeItemId} onChange={(e) => setExchangeItemId(readValue(e))} style={select}>
               <option value="">Choose an item…</option>
-              {items.map((i) => (
+              {others.map((i) => (
                 <option key={i.id} value={i.id}>
                   {i.code ? `${i.code} ` : ''}
                   {i.name}
@@ -518,7 +614,8 @@ export const SettleSheet = ({
       <Field label={how === 'PAID' ? 'Note (who was paid, how, receipt no.)' : 'Notes'}>
         <input value={notes} onChange={(e) => setNotes(readValue(e))} style={input} />
       </Field>
-      <Buttons onClose={onClose} onSave={save} busy={busy} ready={ready} label="Settle" />
+      <BelowZeroBar message={saver.confirm} busy={busy} onYes={saver.confirmYes} onNo={saver.confirmNo} />
+      <Buttons onClose={onClose} onSave={save} busy={busy} ready={ready && !tooEarly && !saver.confirm} label="Settle" why={why} />
     </Shell>
   );
 };

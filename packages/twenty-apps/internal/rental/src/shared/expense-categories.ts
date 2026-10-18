@@ -135,7 +135,26 @@ export const EXPENSE_CATEGORIES: ExpenseCategory[] = [
   { value: 'OTHER', label: 'Other', group: 'OTHER', id: 'f83ca586-ab0e-4f68-afac-4ea0dc9bfa2b' },
   // F&B stock bought from suppliers (booked automatically from Stock purchases).
   { value: 'STOCK_PURCHASE', label: 'Stock & ingredients', group: 'BUSINESS', id: '92ada5f5-f04c-442a-ad00-28467d9a6e45' },
+  // Shop costs (the Expenses page's shop tiles).
+  { value: 'PACKAGING', label: 'Packaging (cups / straws / bags)', group: 'BUSINESS', id: '123bec3d-75c1-45b6-95db-4555720a520a' },
+  { value: 'SHOP_RENT', label: 'Shop rent', group: 'BUSINESS', id: 'cc3b27ca-b9c1-4329-b1e3-6b2be8f5c4c7' },
 ];
+
+// A shop (company, NGO...) sees eight plain tiles instead of every household and
+// property category. A tile with more than one category asks which, in one tap.
+export const SHOP_TILES: Array<{ key: string; label: string; icon: string; values: string[] }> = [
+  { key: 'STOCK', label: 'Ingredients & stock', icon: '🥤', values: ['STOCK_PURCHASE'] },
+  { key: 'PACKAGING', label: 'Packaging', icon: '🥡', values: ['PACKAGING'] },
+  { key: 'RENT', label: 'Shop rent', icon: '🏪', values: ['SHOP_RENT'] },
+  { key: 'UTILITIES', label: 'Electricity & water', icon: '💡', values: ['ELECTRICITY', 'WATER', 'INTERNET_TV'] },
+  { key: 'SALARY', label: 'Salary', icon: '👥', values: ['SALARIES'] },
+  { key: 'REPAIRS', label: 'Repairs & cleaning', icon: '🔧', values: ['REPAIRS', 'CLEANING', 'PEST_CONTROL'] },
+  { key: 'MARKETING', label: 'Marketing', icon: '📣', values: ['MARKETING'] },
+  { key: 'OTHER', label: 'Other', icon: '📦', values: ['BUSINESS_OTHER'] },
+];
+
+// Personal, family and individual workspaces keep the everyday categories; the rest are shops.
+export const isShopType = (type: string | null | undefined) => !!type && !['PERSONAL', 'FAMILY', 'INDIVIDUAL'].includes(type);
 
 const GROUP_BY_KEY = Object.fromEntries(EXPENSE_GROUPS.map((group) => [group.key, group]));
 const CATEGORY_BY_VALUE = Object.fromEntries(EXPENSE_CATEGORIES.map((category) => [category.value, category]));

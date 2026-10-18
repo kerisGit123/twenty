@@ -6,6 +6,7 @@ import { AppPath, enqueueSnackbar, navigate } from 'twenty-sdk/front-component';
 import { readValue } from 'src/front-components/shared/read-value';
 import { WORKSPACES_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
 import { openPage } from 'src/front-components/shared/open-page';
+import { InviteSheet } from 'src/front-components/shared/invite-sheet';
 import { rememberOwnerScope } from 'src/front-components/shared/owner-switcher';
 import type { WorkspaceCard } from 'src/logic-functions/workspaces-route';
 
@@ -149,6 +150,8 @@ const Workspaces = () => {
   const [busy, setBusy] = useState(false);
   // The workspace being renamed, with its draft name and type.
   const [editing, setEditing] = useState<{ id: string; name: string; type: string } | null>(null);
+  // The business someone is being invited to.
+  const [inviting, setInviting] = useState<WorkspaceCard | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -358,6 +361,11 @@ const Workspaces = () => {
               <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {card.hosts.length ? `Host: ${card.hosts.join(', ')}` : 'No host yet'}
               </span>
+              {card.canManage && card.type !== 'PERSONAL' && (
+                <button style={{ ...smallButton, fontWeight: 600 }} onClick={() => setInviting(card)}>
+                  Invite
+                </button>
+              )}
               {card.canManage && (
                 <button style={smallButton} onClick={() => startEdit(card)}>
                   Rename
@@ -425,6 +433,11 @@ const Workspaces = () => {
                 <td style={num}>{rm(card.expenses)}</td>
                 <td style={{ ...num, color: net < 0 ? 'var(--t-color-red11)' : 'var(--t-color-green11)', fontWeight: 600 }}>{rm(net)}</td>
                 <td style={{ ...cell, textAlign: 'right' }}>
+                  {card.canManage && card.type !== 'PERSONAL' && (
+                    <button style={{ ...smallButton, fontWeight: 600, marginRight: 6 }} onClick={() => setInviting(card)}>
+                      Invite
+                    </button>
+                  )}
                   {card.canManage && (
                     <button style={smallButton} onClick={() => startEdit(card)}>
                       Rename
@@ -485,6 +498,7 @@ const Workspaces = () => {
         </div>
       )}
 
+      {inviting && <InviteSheet key={inviting.id} ownerId={inviting.id} businessName={inviting.name} onClose={() => setInviting(null)} onDone={load} />}
       {workspaces.length > 0 && (view === 'grid' ? grid : cards)}
     </div>
   );
@@ -493,6 +507,6 @@ const Workspaces = () => {
 export default defineFrontComponent({
   universalIdentifier: WORKSPACES_FRONT_COMPONENT_ID,
   name: 'workspaces',
-  description: 'All your businesses as cards or a grid; add one, and rename the ones you host',
+  description: 'All your businesses as cards or a grid; add one, and rename or invite people to the ones you host',
   component: Workspaces,
 });
