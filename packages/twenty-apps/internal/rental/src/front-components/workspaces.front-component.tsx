@@ -7,6 +7,7 @@ import { readValue } from 'src/front-components/shared/read-value';
 import { WORKSPACES_FRONT_COMPONENT_ID } from 'src/constants/universal-identifiers-v3';
 import { openPage } from 'src/front-components/shared/open-page';
 import { InviteSheet } from 'src/front-components/shared/invite-sheet';
+import { MembersPanel } from 'src/front-components/shared/members-panel';
 import { rememberOwnerScope } from 'src/front-components/shared/owner-switcher';
 import type { WorkspaceCard } from 'src/logic-functions/workspaces-route';
 
@@ -152,6 +153,8 @@ const Workspaces = () => {
   const [editing, setEditing] = useState<{ id: string; name: string; type: string } | null>(null);
   // The business someone is being invited to.
   const [inviting, setInviting] = useState<WorkspaceCard | null>(null);
+  // The business whose member list is open.
+  const [membersOf, setMembersOf] = useState<WorkspaceCard | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -358,9 +361,16 @@ const Workspaces = () => {
               </span>
             </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: c.text3, minHeight: 26 }}>
-              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {card.hosts.length ? `Host: ${card.hosts.join(', ')}` : 'No host yet'}
-              </span>
+              <button
+                onClick={() => {
+                  setInviting(null);
+                  setMembersOf(card);
+                }}
+                title={card.hosts.length ? `Host: ${card.hosts.join(', ')}` : 'No host yet'}
+                style={{ ...plainButton, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: 'var(--t-color-blue11)' }}
+              >
+                👥 Members
+              </button>
               {card.canManage && card.type !== 'PERSONAL' && (
                 <button style={{ ...smallButton, fontWeight: 600 }} onClick={() => setInviting(card)}>
                   Invite
@@ -425,7 +435,11 @@ const Workspaces = () => {
                   <RoleTag role={card.role} />
                 </td>
                 <td style={{ ...cell, color: c.text2 }}>{card.hosts.join(', ') || '—'}</td>
-                <td style={num}>{card.members}</td>
+                <td style={num}>
+                  <button onClick={() => { setInviting(null); setMembersOf(card); }} style={{ ...plainButton, color: 'var(--t-color-blue11)' }} title="See who is in it">
+                    {card.members}
+                  </button>
+                </td>
                 <td style={num}>
                   {card.properties} <span style={{ color: c.text3 }}>· {card.occupied} rented</span>
                 </td>
@@ -498,6 +512,16 @@ const Workspaces = () => {
         </div>
       )}
 
+      {membersOf && !inviting && (
+        <MembersPanel
+          key={membersOf.id}
+          ownerId={membersOf.id}
+          businessName={membersOf.name}
+          onInvite={() => setInviting(membersOf)}
+          onClose={() => setMembersOf(null)}
+          onChanged={load}
+        />
+      )}
       {inviting && <InviteSheet key={inviting.id} ownerId={inviting.id} businessName={inviting.name} onClose={() => setInviting(null)} onDone={load} />}
       {workspaces.length > 0 && (view === 'grid' ? grid : cards)}
     </div>
