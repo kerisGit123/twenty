@@ -256,3 +256,4 @@ export const INCOME_METHOD_OPTION_IDS = [
 ];
 export const DOCUMENT_FILE_SIZES_FIELD_ID = 'f3e10a4e-7cfd-4b42-b9db-86585d64b692';
 export const OWNER_PAID_PLAN_FIELD_ID = '7170e594-0675-47a6-a630-06e24aa91ceb';
+export const SCAN_ROUTE_FUNCTION_ID = '5071515a-3a9d-4616-b4cc-5562bb5bdf05';

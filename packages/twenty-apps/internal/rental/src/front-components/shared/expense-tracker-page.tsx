@@ -6,6 +6,7 @@ import { MONTHS } from 'src/shared/months';
 import { readValue } from 'src/front-components/shared/read-value';
 import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { FileDrop, filesFromEvent, type PickedFile, uploadFile } from 'src/front-components/shared/file-drop';
+import { scanReceipt } from 'src/front-components/shared/scan-photo';
 import { FileViewer, type ViewerFile } from 'src/front-components/shared/file-viewer';
 import { Sheet } from 'src/front-components/shared/sheet';
 import type { Expense, ExpensesData, Option } from 'src/logic-functions/page-data/expenses-data';
@@ -921,6 +922,11 @@ const AddExpenseSheet = ({
 }) => {
   // Bill / receipt picked before saving; uploaded once the expense exists.
   const [bills, setBills] = useState<PickedFile[]>([]);
+  // Scan: a photo read by Claude fills the form; fields it was unsure of are marked.
+  const [scanning, setScanning] = useState(false);
+  const [scanNote, setScanNote] = useState<{ text: string; tone: 'ok' | 'warn' | 'bad' } | null>(null);
+  const [unsure, setUnsure] = useState<string[]>([]);
+  const [scanHash, setScanHash] = useState('');
   const today = todayIso();
   const personal = owners.find((o) => /^personal$/i.test(o.name))?.id ?? '';
   // The workspace picked in the sidebar is where the expense goes.
@@ -983,6 +989,58 @@ const AddExpenseSheet = ({
   // A shop may skip the description: the category says what it was.
   const finalName = name.trim() || (category ? expenseCategory(category).label : '');
 
+  const scan = async (files: PickedFile[]) => {
+    const file = files[0];
+
+    if (!file || scanning) return;
+    setScanning(true);
+    setScanNote(null);
+    const result = await scanReceipt(file);
+
+    setScanning(false);
+    if (!result.success) {
+      setScanNote({ text: result.message ?? 'Could not read it. Fill in by hand.', tone: 'bad' });
+
+      return;
+    }
+    if (result.duplicate) {
+      setScanNote({
+        text: `This receipt was already saved: “${result.duplicate.name}”${result.duplicate.date ? ` on ${result.duplicate.date}` : ''}. Only save it again if it is a different purchase.`,
+        tone: 'bad',
+      });
+
+      return;
+    }
+    const r = result.scan;
+
+    if (!r) return;
+    if (!r.isReceipt) {
+      setScanNote({ text: 'This does not look like a receipt or bill. Fill in by hand, or snap the receipt again.', tone: 'bad' });
+
+      return;
+    }
+    // Fill only what was read; what is left empty stays for the person.
+    if (r.total) setAmount(r.total.toFixed(2));
+    if (r.currency && CURRENCIES.some((x) => x.code === r.currency)) setCurrency(r.currency);
+    if (r.date) setDate(r.date);
+    if (r.category) setCategory(r.category);
+    if (r.method) setMethod(r.method);
+    if (r.merchant) setPaidTo(r.merchant);
+    const what = [r.merchant, r.description].filter(Boolean).join(' · ');
+
+    if (what) setName(what);
+    const extra = [r.receiptNo ? `Receipt no. ${r.receiptNo}` : '', r.sst ? `SST ${r.sst.toFixed(2)}` : ''].filter(Boolean).join(' · ');
+
+    if (extra) setNotes(extra);
+    setBills([file]);
+    setScanHash(result.hash ?? '');
+    setUnsure([...r.unsure, ...(r.total ? [] : ['total']), ...(r.date ? [] : ['date']), ...(r.category ? [] : ['category'])]);
+    setScanNote({
+      text: r.warning ? `Read it, but check: ${r.warning}` : 'Filled in from the receipt. Check the amber parts, then Save.',
+      tone: r.warning || r.unsure.length ? 'warn' : 'ok',
+    });
+  };
+
   const save = async (again: boolean) => {
     if (!ready) {
       await enqueueSnackbar({ message: missingText, variant: 'error' });
@@ -999,7 +1057,7 @@ const AddExpenseSheet = ({
         category,
         method,
         paidTo,
-        notes,
+        notes: [notes.trim(), scanHash ? `scan:${scanHash}` : ''].filter(Boolean).join('\n'),
         propertyId: showProperty ? shownPropertyId || null : null,
         ownerId: ownerId || null,
         repeatEvery,
@@ -1029,6 +1087,9 @@ const AddExpenseSheet = ({
         setCategory(null);
         setRepeatEvery('NONE');
         setBills([]);
+        setScanNote(null);
+        setUnsure([]);
+        setScanHash('');
         setSavedCount(savedCount + 1);
       }
       await onSaved(result.id, again, attached > 0);
@@ -1197,9 +1258,52 @@ const AddExpenseSheet = ({
         </div>
 
         <div style={{ flex: 1, overflow: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {/* Scan: snap the receipt (phone camera, gallery or a PDF) and the form fills itself */}
+          <label
+            style={{
+              position: 'relative',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '14px 16px',
+              borderRadius: 14,
+              background: scanning ? c.bg2 : c.blueSoft,
+              color: c.blueText,
+              cursor: scanning ? 'default' : 'pointer',
+              border: `1px solid ${c.border}`,
+            }}
+          >
+            <span style={{ fontSize: 30, lineHeight: 1 }}>{scanning ? '⏳' : '📷'}</span>
+            <span style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
+              <span style={{ fontSize: 16, fontWeight: 700 }}>{scanning ? 'Reading the receipt…' : bills.length && scanHash ? 'Scan another receipt' : 'Scan receipt'}</span>
+              <span style={{ fontSize: 12.5, color: c.text2 }}>{scanning ? 'Takes a few seconds. Keep this page open.' : 'Take a photo or pick one: the form fills itself'}</span>
+            </span>
+            {!scanning && (
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                onChange={(event) => scan(filesFromEvent(event))}
+                style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%' }}
+              />
+            )}
+          </label>
+          {scanNote && (
+            <div
+              style={{
+                fontSize: 13,
+                padding: '8px 12px',
+                borderRadius: 10,
+                background: scanNote.tone === 'ok' ? 'var(--t-color-green2)' : scanNote.tone === 'warn' ? 'var(--t-color-amber2)' : 'var(--t-color-red2)',
+                color: scanNote.tone === 'ok' ? 'var(--t-color-green11)' : scanNote.tone === 'warn' ? 'var(--t-color-amber11)' : 'var(--t-color-red11)',
+              }}
+            >
+              {scanNote.text}
+            </div>
+          )}
+
           {/* Amount first, big; tap the currency to change it */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, borderBottom: `2px solid ${amountValue > 0 ? c.blue : c.border2}`, paddingBottom: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, borderBottom: `2px solid ${unsure.includes('total') ? 'var(--t-color-amber9)' : amountValue > 0 ? c.blue : c.border2}`, paddingBottom: 6 }}>
               <button
                 onClick={() => setPickingCurrency(!pickingCurrency)}
                 title="Change currency"
@@ -1273,7 +1377,7 @@ const AddExpenseSheet = ({
               <button onClick={() => setDate(addDays(today, -1))} style={chip(date === addDays(today, -1))}>
                 Yesterday
               </button>
-              <input type="date" value={date} onChange={(e) => { const v = readValue(e); if (v) setDate(v); }} style={{ ...control, width: 'auto', height: 32 }} />
+              <input type="date" value={date} onChange={(e) => { const v = readValue(e); if (v) setDate(v); setUnsure(unsure.filter((f) => f !== 'date')); }} style={{ ...control, width: 'auto', height: 32, ...(unsure.includes('date') ? { borderColor: 'var(--t-color-amber9)', borderWidth: 2 } : {}) }} />
             </div>,
           )}
 

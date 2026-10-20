@@ -20,6 +20,24 @@ export default defineApplication({
   description:
     'Track properties, tenants, rent and deposit payments, and send receipts.',
   applicationVariables: {
+    OPENROUTER_API_KEY: {
+      universalIdentifier: '8bb23e2a-927b-4719-a74e-5037a1cca870',
+      description: 'OpenRouter key (openrouter.ai → Keys) for reading receipt photos: Expenses → Add expense → Scan receipt. Used instead of ANTHROPIC_API_KEY when set.',
+      value: '',
+      isSecret: true,
+    },
+    SCAN_MODEL: {
+      universalIdentifier: 'e3371c30-6b1d-44a7-a3c6-50faa705b4ce',
+      description: 'OpenRouter model that reads receipts. Empty = anthropic/claude-opus-5.5 (anthropic/claude-haiku-5.5 is cheaper).',
+      value: '',
+      isSecret: false,
+    },
+    ANTHROPIC_API_KEY: {
+      universalIdentifier: 'd5e80af1-f2d1-4800-9c45-1fb3278da10b',
+      description: 'Claude API key (console.anthropic.com) for reading receipt photos: Expenses → Add expense → Scan receipt.',
+      value: '',
+      isSecret: true,
+    },
     WORKSPACE_JOIN_CODE: {
       universalIdentifier: 'c5ba6e56-0248-4345-a360-dc047fc478d1',
       description:
