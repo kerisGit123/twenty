@@ -22,6 +22,7 @@ export type Rental = {
   ownerId: string | null;
   tenantName: string;
   tenantPhone: TenantPhone;
+  payerNames: string[]; // who paid before, as their bank shows it (learned from scanned receipts)
 };
 
 export type Payment = {
@@ -58,6 +59,7 @@ const loadRentals = async (client: CoreApiClient): Promise<Rental[]> => {
             monthlyRent: { amountMicros: true },
             newRent: { amountMicros: true },
             newRentFrom: true,
+            payerNames: true,
             property: { name: true, propertyType: true, ownerId: true, monthlyRent: { amountMicros: true } },
             tenant: {
               name: { firstName: true, lastName: true },
@@ -88,6 +90,7 @@ const loadRentals = async (client: CoreApiClient): Promise<Rental[]> => {
         ownerId: node.property?.ownerId ?? null,
         tenantName: [node.tenant?.name?.firstName, node.tenant?.name?.lastName].filter(Boolean).join(' '),
         tenantPhone: node.tenant?.phones ?? null,
+        payerNames: String((node as { payerNames?: string | null }).payerNames ?? '').split('\n').map((n) => n.trim()).filter(Boolean),
       });
     }
 

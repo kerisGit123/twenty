@@ -22,6 +22,7 @@ type LedgerRecordBody = {
   paidOn?: string;
   method?: string;
   notes?: string;
+  scanRef?: string; // from a scanned bank receipt: 'ref:<bank reference> scan:<file>'
   receiptDate?: string | null; // YYYY-MM-DD to back-date the receipt; empty = issue date
   // waive: don't charge the month (or what's left of it); unwaive: undo.
   action?: 'preview' | 'issue' | 'send' | 'waive' | 'unwaive';
@@ -189,6 +190,7 @@ const handler = async (
             paidOn: body.paidOn || null,
             ...(body.method ? { method: body.method } : {}),
             notes: body.notes ?? '',
+            ...(body.scanRef ? { scanRef: String(body.scanRef).slice(0, 200) } : {}),
             receiptDate: /^\d{4}-\d{2}-\d{2}$/.test(body.receiptDate ?? '') ? body.receiptDate : null,
           } as never,
         },

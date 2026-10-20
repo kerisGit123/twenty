@@ -37,16 +37,19 @@ const shrink = async (blob: Blob): Promise<Blob | null> => {
   }
 };
 
-export const scanReceipt = async (file: PickedFile): Promise<ScanResponse> => {
-  if (!file.blob) return { success: false, message: 'Reload the page, then try again.' };
+// Sends a picked photo / PDF to POST /s/scan (extra: e.g. { kind: 'transfer' }).
+export const scanFile = async <T extends { success: boolean; message?: string }>(file: PickedFile, extra: Record<string, unknown> = {}): Promise<T> => {
+  if (!file.blob) return { success: false, message: 'Reload the page, then try again.' } as T;
   const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
   const small = isPdf ? null : await shrink(file.blob);
   const blob = small ?? file.blob;
   const type = small ? 'image/jpeg' : isPdf ? 'application/pdf' : file.type || 'image/jpeg';
 
   try {
-    return await new RestApiClient().post<ScanResponse>('/s/scan', { file: { name: file.name, type, data: await toBase64(blob) } });
+    return await new RestApiClient().post<T>('/s/scan', { ...extra, file: { name: file.name, type, data: await toBase64(blob) } });
   } catch (error) {
-    return { success: false, message: `Could not reach the server. Check the connection and try again. (${error instanceof Error ? error.message : 'connection'})` };
+    return { success: false, message: `Could not reach the server. Check the connection and try again. (${error instanceof Error ? error.message : 'connection'})` } as T;
   }
 };
+
+export const scanReceipt = (file: PickedFile) => scanFile<ScanResponse>(file);

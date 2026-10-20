@@ -10,6 +10,9 @@ import { ReceiptView, type ReceiptViewData } from 'src/front-components/shared/r
 import { Sheet } from 'src/front-components/shared/sheet';
 import { StatementPanel } from 'src/front-components/shared/statement-panel';
 import type { LedgerData, Payment, Rental } from 'src/logic-functions/page-data/ledger-data';
+import { uploadFile } from 'src/front-components/shared/file-drop';
+import { rememberPayer, type RentPrefill, RentScan } from 'src/front-components/shared/rent-scan';
+import type { OpenMonth } from 'src/shared/rent-match';
 import { toE164, whatsappLink } from 'src/shared/whatsapp-link';
 import { isReceipted, rentForMonth, type Settlement, settleMonth, isRentMonth, rentDueDate } from 'src/shared/rent-month';
 import {
@@ -247,6 +250,9 @@ export const RentLedger = () => {
   const [loadError, setLoadError] = useState('');
   const [selection, setSelection] = useState<Selection | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Scan a bank receipt; a match opens that month's form filled in (prefill).
+  const [scanOpen, setScanOpen] = useState(false);
+  const [prefill, setPrefill] = useState<RentPrefill | null>(null);
   // Contract whose year statement is open.
   const [statementFor, setStatementFor] = useState<Rental | null>(null);
   // Contract being caught up (several past months at once).
@@ -334,6 +340,32 @@ export const RentLedger = () => {
 
     return map;
   }, [payments]);
+  // What a scanned bank receipt can pay: months still owed, plus the coming month.
+  const openMonths = useMemo<OpenMonth[]>(() => {
+    const next = nextMonthStart(monthStart(today));
+    const list: OpenMonth[] = [];
+
+    for (const rental of rentals) {
+      for (const month of months) {
+        if (month > next) continue;
+        const cell = buildCell(rental, month, payments.filter((p) => p.rentalId === rental.id && p.month === month), today);
+
+        if (cell.status === 'none' || cell.status === 'paid' || cell.status === 'waived') continue;
+        list.push({
+          rentalId: rental.id,
+          month,
+          owed: cell.settlement.remaining || cell.rent,
+          dueDate: dueDateInMonth(month, rental.dueDay),
+          tenantName: rental.tenantName,
+          propertyName: rental.propertyName,
+          payerNames: rental.payerNames ?? [],
+        });
+      }
+    }
+
+    return list;
+  }, [rentals, payments, months, today]);
+
   const cellFor = (rental: Rental, month: string) =>
     buildCell(
       rental,
@@ -507,8 +539,28 @@ export const RentLedger = () => {
             selection={selection}
             cell={cellFor(selection.rental, selection.month)}
             lastMethod={[...payments].reverse().find((p) => p.rentalId === selection.rental.id && p.method)?.method ?? 'BANK_TRANSFER'}
-            onClose={() => setSelection(null)}
+            prefill={prefill}
+            onClose={() => {
+              setSelection(null);
+              setPrefill(null);
+            }}
             onSaved={reload}
+          />
+        </Sheet>
+      )}
+      {scanOpen && (
+        <Sheet width={500} onClose={() => setScanOpen(false)}>
+          <RentScan
+            openMonths={openMonths}
+            onClose={() => setScanOpen(false)}
+            onRecord={(m, fill) => {
+              const rental = rentals.find((r) => r.id === m.rentalId);
+
+              if (!rental) return;
+              setScanOpen(false);
+              setPrefill(fill);
+              setSelection({ rental, month: m.month });
+            }}
           />
         </Sheet>
       )}
@@ -519,6 +571,18 @@ export const RentLedger = () => {
             <div style={{ fontSize: 20, fontWeight: 650 }}>Rent ledger</div>
             <div style={{ fontSize: 13, color: c.text3 }}>Who paid, who hasn’t — tap a month to record rent and send the receipt.</div>
           </div>
+          <button
+            onClick={() => {
+              setSelection(null);
+              setSettingsOpen(false);
+              setScanOpen(true);
+            }}
+            disabled={loading && !rentals.length}
+            style={{ ...button(true), height: 38, fontWeight: 600 }}
+            title="A tenant sent a bank transfer receipt: snap it, the system finds whose rent it is"
+          >
+            📷 Scan bank receipt
+          </button>
           <button
             onClick={() => {
               setSelection(null);
@@ -841,12 +905,14 @@ const PaymentPanel = ({
   selection,
   cell,
   lastMethod,
+  prefill = null,
   onClose,
   onSaved,
 }: {
   selection: Selection;
   cell: Cell;
   lastMethod: string;
+  prefill?: RentPrefill | null;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) => {
@@ -863,12 +929,12 @@ const PaymentPanel = ({
   const dueIso = dueDateInMonth(month, rental.dueDay);
   // A past month can be dated back to its due date, but that is a choice.
   const pastMonth = month < monthStart(todayIso());
-  const [amount, setAmount] = useState(String(settlement.remaining || cell.rent || ''));
-  const [paidOn, setPaidOn] = useState(todayIso());
-  const [method, setMethod] = useState(payment?.method ?? lastMethod);
+  const [amount, setAmount] = useState(prefill?.amount ? prefill.amount.toFixed(2) : String(settlement.remaining || cell.rent || ''));
+  const [paidOn, setPaidOn] = useState(prefill?.paidOn && prefill.paidOn <= todayIso() ? prefill.paidOn : todayIso());
+  const [method, setMethod] = useState(prefill?.method ?? payment?.method ?? lastMethod);
   const [waiving, setWaiving] = useState(false);
   const [waiveReason, setWaiveReason] = useState('');
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState(prefill?.notes ?? '');
   const [sendToTenant, setSendToTenant] = useState(true);
   // More than this month owes: put the rest towards the next months.
   const [spread, setSpread] = useState(true);
@@ -944,6 +1010,7 @@ const PaymentPanel = ({
         paidOn,
         method,
         notes,
+        ...(prefill?.scanRef ? { scanRef: prefill.scanRef } : {}),
         receiptDate: receiptOnPaidDate && paidOn < todayIso() ? paidOn : null,
         action,
         spread: extra > 0.005 && spread,
@@ -951,6 +1018,11 @@ const PaymentPanel = ({
 
       if (result.paymentId) setPaymentId(result.paymentId);
       if (result.success && action === 'preview' && result.paymentId) await loadReceipt(result.paymentId);
+      // Paid from a scanned bank receipt: keep the slip with the contract and learn the payer's name.
+      if (result.success && action !== 'preview' && prefill) {
+        if (prefill.payerName) await rememberPayer(rental.id, prefill.payerName);
+        await uploadFile(prefill.file, { newDocument: { type: 'OTHER', name: `Bank slip – ${monthLabel(month)} – ${rental.tenantName || rental.propertyName}`, rentalId: rental.id } });
+      }
       // Saved, but nobody was messaged: no channel is set up, or delivery failed.
       const savedNotSent = action === 'send' && Boolean(result.receiptNumber) && (!result.success || (!result.emailed && !result.whatsapped));
 
