@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createHash } from 'crypto';
+import { getDefaultAutoSelectFamilyAttemptTimeout, setDefaultAutoSelectFamilyAttemptTimeout } from 'net';
 import { defineLogicFunction, type RoutePayload } from 'twenty-sdk/define';
 import { Response } from 'twenty-sdk/logic-function';
 
@@ -7,9 +8,10 @@ import { SCAN_ROUTE_FUNCTION_ID } from 'src/constants/universal-identifiers-v3';
 import { appClient } from 'src/logic-functions/utils/app-client';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { resolveScope } from 'src/logic-functions/utils/scope';
+import { DOC_TYPES } from 'src/shared/documents';
 import { EXPENSE_CATEGORIES } from 'src/shared/expense-categories';
 import { type TransferScan } from 'src/shared/rent-match';
-import { type ReceiptScan, SCAN_METHODS } from 'src/shared/scan';
+import { type DocumentScan, type ReceiptScan, SCAN_METHODS } from 'src/shared/scan';
 
 // POST /scan — a photo or PDF of a receipt, invoice or bill is read by Claude
 // (through OpenRouter when OPENROUTER_API_KEY is set, else Anthropic directly) and
@@ -19,7 +21,12 @@ import { type ReceiptScan, SCAN_METHODS } from 'src/shared/scan';
 //
 //   { file: { name, type, data (base64) } }                  ->  { success, scan, hash, duplicate? }
 //   { kind: 'transfer', file }                                ->  { success, transfer, hash, duplicate? }
+//   { kind: 'document', file }                                ->  { success, document } (type, name, expiry, property)
 //   { action: 'rememberPayer', rentalId, name }              ->  the payer name is kept on the contract
+
+// Node tries each server address for only 250 ms before the next; on a slow, far link
+// (Malaysia to Cloudflare) every try times out and the scan fails after ~10 s. 2.5 s each works.
+if (getDefaultAutoSelectFamilyAttemptTimeout() < 2500) setDefaultAutoSelectFamilyAttemptTimeout(2500);
 
 const MODEL = 'claude-opus-5-5';
 // OpenRouter's name for the same model; SCAN_MODEL in the app settings can change it.
@@ -85,6 +92,32 @@ Rules:
 - Dates may be DD/MM/YYYY, DD MMM YYYY or use Malay months (Jan, Feb, Mac, Apr, Mei, Jun, Jul, Ogos, Sep, Okt, Nov, Dis). Return YYYY-MM-DD. Today is {TODAY}.
 - If it is not a transfer receipt at all, set isTransfer false and leave the rest null (status UNKNOWN).`;
 
+// Any document for Records: agreement, stamp certificate, IC, insurance, bill...
+const DOCUMENT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['docType', 'title', 'expiresOn', 'issuedOn', 'parties', 'propertyText', 'summary', 'warning'],
+  properties: {
+    docType: { type: 'string', description: 'One of the type codes in the rules' },
+    title: { type: ['string', 'null'], description: 'A short file name, e.g. "Tenancy agreement – B-12-3 – Tan Ah Kow" or "Fire insurance 2026/27 – Taman Melati"' },
+    expiresOn: { type: ['string', 'null'], description: 'When it ends or expires, YYYY-MM-DD (tenancy end date, policy end, licence expiry, bill due date)' },
+    issuedOn: { type: ['string', 'null'], description: 'Date issued or signed, YYYY-MM-DD' },
+    parties: { type: ['string', 'null'], description: 'The people or companies named: tenant, landlord, insured, account holder' },
+    propertyText: { type: ['string', 'null'], description: 'The property address or unit as written, e.g. "B-12-3, Residensi Melati"' },
+    summary: { type: ['string', 'null'], description: 'One sentence on what it is' },
+    warning: { type: ['string', 'null'], description: 'One short sentence if something is off (unsigned, pages missing, already expired, unreadable)' },
+  },
+} as const;
+
+const DOCUMENT_PROMPT = `Read this document for a Malaysian landlord / small business and fill in the fields so it can be filed.
+
+Rules:
+- docType: one of ${DOC_TYPES.map((t) => `${t.value} (${t.label})`).join(', ')}. Tenancy agreements are AGREEMENT; LHDN stamp duty certificates are STAMP_DUTY; MyKad / passport is ID; assessment (cukai pintu) and quit rent (cukai tanah) are TAX; TNB, water, IWK, internet are BILL.
+- Return null for anything not clearly visible. Never guess dates.
+- expiresOn: the end of the tenancy / policy / licence, or the due date of a bill. Dates may be DD/MM/YYYY, DD MMM YYYY or use Malay months (Jan, Feb, Mac, Apr, Mei, Jun, Jul, Ogos, Sep, Okt, Nov, Dis). Return YYYY-MM-DD. Today is {TODAY}.
+- For an IC or passport, do NOT copy the IC / passport number anywhere; the title is just "IC – <name>".
+- title: short and plain, at most 80 characters.`;
+
 const CATEGORY_LIST = EXPENSE_CATEGORIES.map((c) => `${c.value}: ${c.label}`).join('\n');
 
 const PROMPT = `Read this receipt, invoice, bill or payment slip for a small business in Malaysia and fill in the fields.
@@ -100,10 +133,10 @@ ${CATEGORY_LIST}
   Hints: drinks shop stock (powders, syrups, jams, tea, pearls, milk) is STOCK_PURCHASE; cups, straws, lids, plastic bags are PACKAGING; TNB is ELECTRICITY; Air Selangor, Syabas, SAJ are WATER; Unifi, Maxis, CelcomDigi are INTERNET_TV; IWK and Indah Water are SEWERAGE.
 - If it is not a receipt or bill at all, set isReceipt false and leave the rest null.`;
 
-type Read = { scan: ReceiptScan & TransferScan } | { refused: true } | { problem: string };
+type Read = { scan: ReceiptScan & TransferScan & DocumentScan } | { refused: true } | { problem: string };
 
 // The answer as JSON, even when wrapped in a code fence.
-const parseScan = (text: string) => JSON.parse(text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()) as ReceiptScan & TransferScan;
+const parseScan = (text: string) => JSON.parse(text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()) as ReceiptScan & TransferScan & DocumentScan;
 
 const readWithAnthropic = async (apiKey: string, isPdf: boolean, type: string, data: string, prompt: string, schema: object): Promise<Read> => {
   const client = new Anthropic({ apiKey, timeout: 90_000, maxRetries: 1 });
@@ -165,6 +198,7 @@ const readWithOpenRouter = async (key: string, isPdf: boolean, type: string, dat
     return { scan: parseScan(choice?.message?.content ?? '') };
   } catch (error) {
     if (error instanceof SyntaxError) throw error;
+    console.error('[rental] scan: OpenRouter request failed:', error instanceof Error ? `${error.name}: ${error.message} ${String((error as { cause?: unknown }).cause ?? '')}` : error);
 
     return { problem: 'Could not reach the reading service. Check the connection and try again.' };
   } finally {
@@ -172,10 +206,17 @@ const readWithOpenRouter = async (key: string, isPdf: boolean, type: string, dat
   }
 };
 
-// A rent payment whose scanned bank reference carries this marker (scan:<file> or ref:<bank reference>).
+// A dropped connection is tried once more before the person is told.
+const readWithOpenRouterRetry = async (...args: Parameters<typeof readWithOpenRouter>): Promise<Read> => {
+  const first = await readWithOpenRouter(...args);
+
+  return 'problem' in first && first.problem.startsWith('Could not reach') ? readWithOpenRouter(...args) : first;
+};
+
+// A rent payment (not voided: a voided one may be recorded again) whose scanned bank reference carries this marker (scan:<file> or ref:<bank reference>).
 const paymentWithNote = async (marker: string) => {
   const { rentPayments } = await appClient().query({
-    rentPayments: { __args: { filter: { scanRef: { like: `%${marker}%` } }, first: 1 }, edges: { node: { id: true, name: true, paidOn: true } } },
+    rentPayments: { __args: { filter: { and: [{ scanRef: { like: `%${marker}%` } }, { status: { neq: 'VOID' } }] }, first: 1 }, edges: { node: { id: true, name: true, paidOn: true } } },
   } as never) as { rentPayments?: { edges?: Array<{ node: { id: string; name?: string | null; paidOn?: string | null } }> } };
   const found = rentPayments?.edges?.[0]?.node;
 
@@ -209,6 +250,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
   // After a scanned rent payment is saved: remember who paid, so next month matches by name.
   if (body.action === 'rememberPayer') return rememberPayer(scope, String(body.rentalId ?? ''), String(body.name ?? ''));
   const transfer = body.kind === 'transfer';
+  const document = body.kind === 'document';
   const openRouterKey = process.env.OPENROUTER_API_KEY?.trim();
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
 
@@ -226,7 +268,9 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
 
   // The same file twice is caught before any reading cost.
   const hash = createHash('sha256').update(data).digest('hex').slice(0, 16);
-  if (transfer) {
+  if (document) {
+    // Documents are filed by the page; no duplicate check here.
+  } else if (transfer) {
     const paid = await paymentWithNote(`scan:${hash}`);
 
     if (paid) return json({ success: true, duplicate: paid, hash });
@@ -241,14 +285,24 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
     }
   }
 
-  const prompt = (transfer ? TRANSFER_PROMPT : PROMPT).replace('{TODAY}', todayIso());
-  const schema = transfer ? TRANSFER_SCHEMA : SCHEMA;
+  const prompt = (document ? DOCUMENT_PROMPT : transfer ? TRANSFER_PROMPT : PROMPT).replace('{TODAY}', todayIso());
+  const schema = document ? DOCUMENT_SCHEMA : transfer ? TRANSFER_SCHEMA : SCHEMA;
 
   try {
-    const read = openRouterKey ? await readWithOpenRouter(openRouterKey, isPdf, type, data, prompt, schema) : await readWithAnthropic(apiKey as string, isPdf, type, data, prompt, schema);
+    const read = openRouterKey ? await readWithOpenRouterRetry(openRouterKey, isPdf, type, data, prompt, schema) : await readWithAnthropic(apiKey as string, isPdf, type, data, prompt, schema);
 
     if ('refused' in read) return fail('This file could not be read. Fill in the form by hand.');
     if ('problem' in read) return fail(read.problem);
+    if (document) {
+      const d = read.scan as DocumentScan;
+
+      if (!DOC_TYPES.some((t) => t.value === d.docType)) d.docType = 'OTHER';
+      if (d.expiresOn && !/^\d{4}-\d{2}-\d{2}$/.test(d.expiresOn)) d.expiresOn = null;
+      if (d.issuedOn && !/^\d{4}-\d{2}-\d{2}$/.test(d.issuedOn)) d.issuedOn = null;
+      if (d.title) d.title = d.title.slice(0, 80);
+
+      return json({ success: true, document: d, hash });
+    }
     if (transfer) {
       const t = read.scan as TransferScan;
 

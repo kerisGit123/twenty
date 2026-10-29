@@ -7,18 +7,59 @@ import { memberPersonalOwnerId } from 'src/logic-functions/utils/owner-sync';
 import { inScope, resolveScope } from 'src/logic-functions/utils/scope';
 import { workspaceLabel } from 'src/logic-functions/utils/workspace-label';
 
+// Matches nothing: a person in no business gets an empty list, not an error.
+const NO_ID = '00000000-0000-0000-0000-000000000000';
+
+// Pending memberships (email set, no member yet) for this person's sign-in email
+// are given to them. Emails are compared in lower case, as invites store them.
+const linkPendingInvites = async (client: ReturnType<typeof appClient>, memberId: string) => {
+  const { workspaceMembers } = await client.query({
+    workspaceMembers: {
+      __args: { filter: { id: { eq: memberId } }, first: 1 },
+      edges: { node: { userEmail: true, name: { firstName: true, lastName: true } } },
+    },
+  });
+  const member = workspaceMembers?.edges?.[0]?.node;
+  const email = member?.userEmail?.trim().toLowerCase();
+
+  if (!email) return;
+  const { memberships } = await client.query({
+    memberships: {
+      __args: { filter: { email: { eq: email }, memberId: { is: 'NULL' } }, first: 50 },
+      edges: { node: { id: true } },
+    },
+  });
+  const name = [member?.name?.firstName, member?.name?.lastName].filter(Boolean).join(' ') || email;
+
+  for (const { node } of memberships?.edges ?? []) {
+    await client.mutation({ updateMembership: { __args: { id: node.id, data: { memberId, name } }, id: true } });
+  }
+};
+
 // POST {} -> { all, owners }: the rental workspaces the caller may switch
 // between (all of them for admins).
 const handler = async (_event: RoutePayload, context?: { workspaceMemberId?: string | null }): Promise<Response> => {
   try {
     const client = appClient();
-    let scope = await resolveScope(client, context?.workspaceMemberId);
     const memberId = context?.workspaceMemberId;
 
+    // Invites kept by email (the person had not signed up yet) are linked by a
+    // background job that needs the worker, which this server may not run.
+    // Link them here instead, on every load: someone invited to a business sees
+    // it as soon as they sign in with that email.
+    // A failure here must not hide the businesses they already have.
+    if (memberId) await linkPendingInvites(client, memberId).catch((error) => console.error('[rental] linking invites failed:', error));
+    let scope = await resolveScope(client, memberId);
+
     // The background job that gives a new member a Personal business needs the
-    // worker, which this server may not run. A member with no business yet gets
-    // theirs here, on their first load.
-    if (memberId && !scope.all && scope.ownerIds.size === 0) {
+    // worker, which this server may not run. A member who hosts no business that
+    // still exists (new, only invited as a member, or theirs was deleted) gets
+    // their Personal one here, on their first load.
+    const hostsLive =
+      scope.hostIds.size > 0 &&
+      ((await client.query({ owners: { __args: { filter: { id: { in: [...scope.hostIds] } }, first: 1 }, edges: { node: { id: true } } } })).owners?.edges ?? []).length > 0;
+
+    if (memberId && !scope.all && !hostsLive) {
       const { workspaceMembers } = await client.query({
         workspaceMembers: {
           __args: { filter: { id: { eq: memberId } }, first: 1 },
@@ -35,7 +76,8 @@ const handler = async (_event: RoutePayload, context?: { workspaceMemberId?: str
     const [{ owners }, { memberships }] = await Promise.all([
       client.query({
         owners: {
-          __args: { first: 200, orderBy: [{ name: 'AscNullsLast' }] },
+          // Only theirs (an admin sees all): a long list of other businesses must not push theirs past the page.
+          __args: { first: 200, orderBy: [{ name: 'AscNullsLast' }], ...(scope.all ? {} : { filter: { id: { in: scope.ownerIds.size ? [...scope.ownerIds] : [NO_ID] } } }) },
           edges: { node: { id: true, name: true, ownerType: true } },
         },
       }),

@@ -26,3 +26,15 @@ export type ScanResponse = {
   hash?: string;
   duplicate?: { id: string; name: string; date: string };
 };
+
+// A document for Records (agreement, stamp certificate, IC, insurance, bill...).
+export type DocumentScan = {
+  docType: string;
+  title: string | null;
+  expiresOn: string | null;
+  issuedOn: string | null;
+  parties: string | null;
+  propertyText: string | null;
+  summary: string | null;
+  warning: string | null;
+};
