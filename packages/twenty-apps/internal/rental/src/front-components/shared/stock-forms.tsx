@@ -644,6 +644,45 @@ export const WriteOffSheet = ({ item, message, today, onClose, onDone }: { item:
   );
 };
 
+// ---------------------------------------------------------------- Reset (host / admin)
+
+export const ResetSheet = ({ owner, onClose, onDone }: { owner: StockOwner; onClose: () => void; onDone: () => void }) => {
+  const [confirm, setConfirm] = useState('');
+  const [withItems, setWithItems] = useState(false);
+  const [withExpenses, setWithExpenses] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const ready = confirm.trim().toLowerCase() === owner.name.trim().toLowerCase();
+
+  const save = async () => {
+    setBusy(true);
+    const result = await stockAction({ action: 'resetStock', ownerId: owner.id, confirm, withItems, withExpenses });
+
+    setBusy(false);
+    if (result.success) onDone();
+  };
+
+  return (
+    <Shell
+      title={`Reset stock · ${owner.name}`}
+      intro="Removes every stock IN and OUT line, order and branch request for this business, so every item starts again at zero. Only a host or admin can do this."
+      onClose={onClose}
+    >
+      <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: c.text2 }}>
+        <input type="checkbox" checked={withItems} onChange={() => setWithItems(!withItems)} />
+        <span>Also delete the products (the whole item list), not only their stock.</span>
+      </label>
+      <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: c.text2 }}>
+        <input type="checkbox" checked={withExpenses} onChange={() => setWithExpenses(!withExpenses)} />
+        <span>Also remove the "Stock purchase" expenses that were booked from deliveries. Other expenses stay.</span>
+      </label>
+      <Field label={`Type "${owner.name}" to confirm`} hint="Nothing is permanently erased: the removed records can be restored from the deleted records.">
+        <input value={confirm} onChange={(e) => setConfirm(readValue(e))} style={input} />
+      </Field>
+      <Buttons onClose={onClose} onSave={save} busy={busy} ready={ready} label="Reset stock" why="Type the business name to turn the button on." />
+    </Shell>
+  );
+};
+
 // ---------------------------------------------------------------- Re-order rule
 
 export const RuleSheet = ({ owner, onClose, onDone }: { owner: StockOwner; onClose: () => void; onDone: () => void }) => {

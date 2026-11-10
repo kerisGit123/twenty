@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 
 import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
-import { ItemSheet, RecordSheet, RuleSheet, SettleSheet, stockAction, WriteOffSheet } from 'src/front-components/shared/stock-forms';
+import { ItemSheet, RecordSheet, ResetSheet, RuleSheet, SettleSheet, stockAction, WriteOffSheet } from 'src/front-components/shared/stock-forms';
 import { StockTakeSheet } from 'src/front-components/shared/stock-take-sheet';
 import { ItemDetailSheet } from 'src/front-components/shared/stock-detail';
 import { StockHandTab } from 'src/front-components/shared/stock-hand-tab';
@@ -55,7 +55,7 @@ const SIMPLE_TABS: string[] = ['stock', 'ordering', 'borrowed'];
 const BIG_BUTTONS = [
   { key: 'TAKE', label: 'Take out', hint: 'to the shop', icon: '↑', color: 'blue' },
   { key: 'PURCHASE', label: 'Stock in', hint: 'a delivery came', icon: '↓', color: 'green' },
-  { key: 'WASTE', label: 'Waste', hint: 'thrown away', icon: '🗑', color: 'red' },
+  { key: 'WASTE', label: 'Waste / missing', hint: 'thrown away or lost', icon: '🗑', color: 'red' },
   { key: 'COUNT', label: 'Count', hint: 'check the shelf', icon: '✔', color: 'gray' },
   { key: 'BORROW_IN', label: 'Borrow / lend', hint: 'with another shop', icon: '⇄', color: 'purple' },
 ] as const;
@@ -74,6 +74,7 @@ type Open =
   | { kind: 'settleRequest'; request: StockRequest }
   | { kind: 'expired' }
   | { kind: 'rule' }
+  | { kind: 'reset' }
   | { kind: 'writeOff'; item: StockItem; message: string }
   | null;
 
@@ -274,6 +275,7 @@ export const StockPage = () => {
     }
     if (open.kind === 'writeOff') return <WriteOffSheet item={open.item} message={open.message} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'rule' && owner) return <RuleSheet owner={owner} onClose={() => setOpen(null)} onDone={done} />;
+    if (open.kind === 'reset' && owner?.canManage) return <ResetSheet owner={owner} onClose={() => setOpen(null)} onDone={done} />;
 
     return null;
   })();
@@ -336,6 +338,11 @@ export const StockPage = () => {
                   {mayAddItems ? (
                     <button onClick={() => setOpen({ kind: 'import' })} style={control} disabled={!data} title="Add products and starting stock from your monthly stock Excel (订货单)">
                       ⬆ Import Excel
+                    </button>
+                  ) : null}
+                  {owner?.canManage ? (
+                    <button onClick={() => setOpen({ kind: 'reset' })} style={{ ...control, color: 'var(--t-color-red11)' }} disabled={!data} title="Host / admin: start this business's stock over">
+                      Reset stock…
                     </button>
                   ) : null}
                 </>

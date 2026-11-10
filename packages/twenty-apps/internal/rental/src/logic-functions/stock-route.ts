@@ -35,6 +35,7 @@ import { isLoan, movementType, STOCK_GROUPS, WASTE_REASONS } from 'src/shared/st
 //   settleBorrow  { movementId, how: RETURNED | EXCHANGED | PAID, date, quantity?, exchangeItemId?, exchangeQuantity?, amount? }
 //   stockTake     { date, counts: [{ itemId, counted }] }
 //   deleteMovement { movementId }                 (soft delete, restorable)
+//   resetStock    { ownerId, confirm, withItems?, withExpenses? }   start a business's stock over (host / admin; soft delete)
 //   saveRule      { ownerId, reorderBelow, orderUpTo }
 //   saveSales     { ownerId, month, amount }          the shop's sales that month (RM)
 //   saveOrder     { id?, date, notes, lines: [{ itemId, cartons }] }   new: one order per supplier and workspace
@@ -1205,6 +1206,50 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const books = (movement.movementType as string) === 'LOAN_SETTLED' && movement.amount ? ' The payment stays in Transactions: remove it there too if it was a mistake.' : '';
 
     return json({ success: true, message: (together.length > 1 ? `Removed the whole settlement (${together.length} lines).` : 'Removed.') + ' It can be restored from deleted stock movements.' + books });
+  },
+
+  // Host / admin only: start this business's stock over. Everything removed is a
+  // soft delete, so it can be restored from the deleted records.
+  //   { ownerId, confirm: the business name, withItems?, withExpenses? }
+  // Always removed: every IN/OUT line, order and branch request, and the month lock.
+  // withItems: the product list too. withExpenses: the "Stock purchase" expenses booked from deliveries.
+  resetStock: async (client, scope, body) => {
+    const ownerId = text(body.ownerId, 64);
+
+    if (!ownerId || !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED });
+    if (!canManage(scope, ownerId)) return fail("Only an admin or this business's host can reset its stock.", 403);
+    const { owners } = await client.query({ owners: { __args: { filter: { id: { eq: ownerId } }, first: 1 }, edges: { node: { id: true, name: true } } } });
+    const owner = owners?.edges?.[0]?.node;
+
+    if (!owner) return fail('Business not found.', 404);
+    if (text(body.confirm, 120).toLowerCase() !== (owner.name ?? '').trim().toLowerCase()) return fail('Type the business name exactly to confirm the reset.');
+
+    const withItems = body.withItems === true;
+    const withExpenses = body.withExpenses === true;
+    const idsOf = async (plural: string, filter: Record<string, unknown>) => (await queryAll<{ id: string }>(client, plural, { filter }, { id: true })).map((row) => row.id);
+    const mine = { ownerId: { eq: ownerId } };
+    const movementIds = await idsOf('stockMovements', mine);
+    const orderIds = await idsOf('stockOrders', mine);
+    const requestIds = await idsOf('stockRequests', mine);
+    const itemIds = withItems ? await idsOf('stockItems', mine) : [];
+    const expenseIds = withExpenses ? await idsOf('expenses', { and: [mine, { category: { eq: 'STOCK_PURCHASE' } }, { notes: { like: 'stock:%' } }] }) : [];
+    // Ten at a time: quick enough, and gentle on the database. A second try carries on where a timeout stopped.
+    const remove = async (mutation: string, list: string[]) => {
+      for (let i = 0; i < list.length; i += 10) {
+        await Promise.all(list.slice(i, i + 10).map((id) => client.mutation({ [mutation]: { __args: { id }, id: true } } as never)));
+      }
+    };
+
+    await remove('deleteStockMovement', movementIds);
+    await remove('deleteStockOrder', orderIds);
+    await remove('deleteStockRequest', requestIds);
+    await remove('deleteStockItem', itemIds);
+    await remove('deleteExpense', expenseIds);
+    await client.mutation({ updateOwner: { __args: { id: ownerId, data: { stockLockedThrough: null } }, id: true } });
+
+    const parts = [`${movementIds.length} lines`, `${orderIds.length} orders`, `${requestIds.length} requests`, ...(withItems ? [`${itemIds.length} items`] : []), ...(withExpenses ? [`${expenseIds.length} purchase expenses`] : [])];
+
+    return json({ success: true, message: `Stock reset for ${owner.name}: removed ${parts.join(', ')}. They can be restored from the deleted records.` });
   },
 
   saveOrder: async (client, scope, body) => {

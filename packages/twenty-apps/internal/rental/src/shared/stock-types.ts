@@ -20,7 +20,7 @@ export const STOCK_MOVEMENT_TYPES: Array<{ value: string; label: string; directi
   { value: 'BORROW', label: 'Lent to branch', direction: 'OUT', color: 'orange' },
   { value: 'RETURN', label: 'Borrow returned', direction: 'IN', color: 'turquoise' },
   { value: 'EXCHANGE_IN', label: 'Exchange received', direction: 'IN', color: 'sky' },
-  { value: 'WASTE', label: 'Waste / expired', direction: 'OUT', color: 'red' },
+  { value: 'WASTE', label: 'Waste / missing', direction: 'OUT', color: 'red' },
   { value: 'ADJUST_IN', label: 'Count: more on shelf', direction: 'IN', color: 'gray' },
   { value: 'ADJUST_OUT', label: 'Count: less on shelf', direction: 'OUT', color: 'gray' },
   // Loans between shops. BORROW (lent to a shop) is a loan going out, BORROW_IN
@@ -73,7 +73,7 @@ export const WASTE_REASONS: Array<{ value: string; label: string; color: string;
   { value: 'STAFF_MEAL', label: 'Staff meal', color: 'blue', pick: true },
   { value: 'SAMPLE', label: 'Sample / promotion', color: 'purple', pick: true },
   { value: 'WRONG_ORDER', label: 'Wrong order / returned', color: 'yellow', pick: true },
-  { value: 'OTHER', label: 'Other', color: 'gray', pick: true },
+  { value: 'OTHER', label: 'Other / missing', color: 'gray', pick: true },
   { value: 'DISCONTINUED', label: 'Discontinued item', color: 'gray', pick: false },
   { value: 'COUNT', label: 'Count short', color: 'amber', pick: false },
   { value: 'LOST', label: 'Lost on the way to a branch', color: 'red', pick: false },

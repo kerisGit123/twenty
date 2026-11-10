@@ -15,7 +15,7 @@ const isFullDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 const KINDS = [
   { value: 'TAKE', label: 'Take out', party: '', hint: 'Taken to (which shop / outlet)' },
-  { value: 'WASTE', label: 'Waste', party: '', hint: 'Reason (expired, spilled…)' },
+  { value: 'WASTE', label: 'Waste / missing', party: '', hint: 'Reason (expired, spilled, missing…)' },
   { value: 'PURCHASE', label: 'Stock in', party: '', hint: 'Supplier' },
   // Stock that moves between shops: it has to be given back, swapped or paid for later (Loans tab).
   { value: 'BORROW_IN', label: 'Borrowed in', party: '', hint: 'Which shop lent it to you?' },
