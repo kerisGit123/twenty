@@ -35,6 +35,7 @@ import { isLoan, movementType, STOCK_GROUPS, WASTE_REASONS } from 'src/shared/st
 //   settleBorrow  { movementId, how: RETURNED | EXCHANGED | PAID, date, quantity?, exchangeItemId?, exchangeQuantity?, amount? }
 //   stockTake     { date, counts: [{ itemId, counted }] }
 //   deleteMovement { movementId }                 (soft delete, restorable)
+//   saveOpening   { date, lines: [{ itemId, quantity, expiryDate? }] }   opening stock for many items at once (host / admin; no expense)
 //   resetStock    { ownerId, confirm, withItems?, withExpenses? }   start a business's stock over (host / admin; soft delete)
 //   saveRule      { ownerId, reorderBelow, orderUpTo }
 //   saveSales     { ownerId, month, amount }          the shop's sales that month (RM)
@@ -1206,6 +1207,58 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const books = (movement.movementType as string) === 'LOAN_SETTLED' && movement.amount ? ' The payment stays in Transactions: remove it there too if it was a mistake.' : '';
 
     return json({ success: true, message: (together.length > 1 ? `Removed the whole settlement (${together.length} lines).` : 'Removed.') + ' It can be restored from deleted stock movements.' + books });
+  },
+
+  // Opening stock for many items at once: one date, then a list of items with how many were on
+  // the shelf. Saved as "Opening balance" count lines, the way the Excel import does it: no
+  // supplier and no expense. It adds to what is already counted; to correct a quantity use Count.
+  //   { date, lines: [{ itemId, quantity, expiryDate? }] }     (host / admin)
+  saveOpening: async (client, scope, body) => {
+    const lines = Array.isArray(body.lines) ? (body.lines as Json[]) : [];
+
+    if (!isDate(body.date)) return fail('Pick a date.');
+    if (!lines.length) return fail('Add at least one item.');
+    const requestId = text(body.requestId, 64) || `srv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+    if (await alreadySaved(client, requestId)) return json({ success: true, message: 'Already saved.' });
+    const items = await loadItems(client, lines.map((line) => text(line.itemId, 64)));
+
+    for (const line of lines) {
+      const item = items.get(text(line.itemId, 64));
+
+      if (!(num(line.quantity) > 0)) return fail('Each line needs a quantity more than 0.');
+      if (!item) return fail('One of the items no longer exists.', 404);
+      if (!inScope(scope, item.ownerId)) return json({ ...NOT_ALLOWED });
+      if (!canManage(scope, item.ownerId)) return fail("Only an admin or this business's host can set opening stock. Ask them, or record a Stock in instead.", 403);
+    }
+    const locks = await loadLocks(client, [...items.values()].map((i) => i.ownerId));
+
+    for (const item of items.values()) {
+      const locked = lockedMessage(locks, item.ownerId, body.date as string);
+
+      if (locked) return fail(locked);
+    }
+    await createMovements(
+      client,
+      lines.map((line) => {
+        const item = items.get(text(line.itemId, 64)) as StockItem;
+
+        return {
+          item,
+          data: {
+            date: body.date as string,
+            type: 'ADJUST_IN',
+            quantity: num(line.quantity),
+            unitCost: unitPrice(item),
+            expiryDate: isDate(line.expiryDate) ? line.expiryDate : null,
+            notes: 'Opening balance',
+            batchId: requestId,
+          },
+        };
+      }),
+    );
+
+    return json({ success: true, message: `Opening stock saved for ${lines.length} item${lines.length === 1 ? '' : 's'}.` });
   },
 
   // Host / admin only: start this business's stock over. Everything removed is a

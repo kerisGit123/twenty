@@ -66,7 +66,7 @@ type Open =
   | { kind: 'record'; type: string; itemId?: string; lines?: Array<{ itemId: string; units: number }> }
   | { kind: 'settle'; borrow: StockMovement }
   | { kind: 'take'; date?: string }
-  | { kind: 'quick'; quickKind?: 'TAKE' | 'WASTE' | 'PURCHASE' | 'BORROW_IN' | 'BORROW' }
+  | { kind: 'quick'; quickKind?: 'TAKE' | 'WASTE' | 'PURCHASE' | 'BORROW_IN' | 'BORROW' | 'OPENING' }
   | { kind: 'import' }
   | { kind: 'request'; request: StockRequest | null }
   | { kind: 'issue'; request: StockRequest }
@@ -320,7 +320,7 @@ export const StockPage = () => {
           {!simple ? (
             <>
               <button onClick={() => setOpen({ kind: 'quick' })} style={primary} disabled={!data} title="Take out, waste or stock in: search, tap, save">
-                ⚡ Quick entry
+                ⚡ Quick entry (many items)
               </button>
               <button onClick={() => setOpen({ kind: 'take' })} style={control} disabled={!data} title="Count the shelf and fix the differences">
                 Count
@@ -333,6 +333,11 @@ export const StockPage = () => {
                   {mayAddItems ? (
                     <button onClick={() => setOpen({ kind: 'item', item: null })} style={control} disabled={!data}>
                       + Add item
+                    </button>
+                  ) : null}
+                  {mayAddItems ? (
+                    <button onClick={() => setOpen({ kind: 'quick', quickKind: 'OPENING' })} style={control} disabled={!data} title="Starting stock for many items at once: pick a date, search by code or name, add the quantities">
+                      Opening stock
                     </button>
                   ) : null}
                   {mayAddItems ? (
