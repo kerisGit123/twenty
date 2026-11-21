@@ -3,6 +3,7 @@ import { defineObject, FieldType } from 'twenty-sdk/define';
 import {
   DOCUMENT_EXPIRY_FIELD_ID,
   DOCUMENT_FILES_FIELD_ID,
+  DOCUMENT_FOLDER_FIELD_ID,
   DOCUMENT_FILE_SIZES_FIELD_ID,
   DOCUMENT_GROUP_FIELD_ID,
   DOCUMENT_NAME_FIELD_ID,
@@ -73,6 +74,15 @@ export default defineObject({
         { id: DOCUMENT_TYPE_MOVE_IN_OPTION_ID, value: 'MOVE_IN', label: 'Move-in photos', position: 12, color: 'green' },
         { id: DOCUMENT_TYPE_MOVE_OUT_OPTION_ID, value: 'MOVE_OUT', label: 'Move-out photos', position: 13, color: 'red' },
       ],
+    },
+    {
+      universalIdentifier: DOCUMENT_FOLDER_FIELD_ID,
+      type: FieldType.TEXT,
+      name: 'folder',
+      label: 'Folder',
+      description: 'Your own folder on the Documents page, e.g. Tutorial',
+      icon: 'IconFolder',
+      isNullable: true,
     },
     {
       universalIdentifier: DOCUMENT_FILES_FIELD_ID,

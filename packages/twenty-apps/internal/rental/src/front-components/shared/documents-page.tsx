@@ -4,12 +4,13 @@ import { AppPath, enqueueSnackbar, navigate, openSidePanelPage, SidePanelPages }
 
 import { MONTHS } from 'src/shared/months';
 import { readValue } from 'src/front-components/shared/read-value';
-import { FileDrop, type PickedFile, uploadFile } from 'src/front-components/shared/file-drop';
+import { FileDrop, filesFromEvent, type PickedFile, uploadFile } from 'src/front-components/shared/file-drop';
 import { FileViewer, type ViewerFile } from 'src/front-components/shared/file-viewer';
 import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { todayIso } from 'src/logic-functions/utils/dates';
-import { DOC_TYPES, docType, EXPIRY_REMIND_DAYS, EXPIRY_WARN_DAYS, formatBytes, guessDocType, isHeic, isShowableImage, type LibraryDoc } from 'src/shared/documents';
+import { baseOf, DOC_TYPES, docType, EXPIRY_REMIND_DAYS, EXPIRY_WARN_DAYS, formatBytes, guessDocType, inTree, isHeic, isShowableImage, type LibraryDoc, parentOf } from 'src/shared/documents';
+import { type FolderShare, SHARE_DAY_CHOICES } from 'src/shared/folder-shares';
 
 // Documents: every paper in your workspaces in one place. Drop a pile of
 // files to file them (each becomes a document, typed from its name), find
@@ -23,6 +24,7 @@ type QueueItem = {
   type: string;
   ownerId: string | null;
   propertyId: string | null;
+  folder: string;
   state: 'waiting' | 'uploading' | 'done' | 'failed';
   message?: string;
 };
@@ -124,6 +126,28 @@ const chip = (active: boolean): CSSProperties => ({
   border: `1px solid ${active ? 'var(--t-color-blue7)' : c.border2}`,
 });
 
+// Folders with nothing in them yet are remembered in this browser until a document is put in.
+const EXTRA_KEY = 'rental.documentFolders';
+const readExtra = (key: string): string[] => {
+  try {
+    const all = JSON.parse(globalThis.localStorage?.getItem(EXTRA_KEY) ?? '{}') as Record<string, string[]>;
+
+    return Array.isArray(all[key]) ? all[key] : [];
+  } catch {
+    return [];
+  }
+};
+const writeExtra = (key: string, list: string[]) => {
+  try {
+    const all = JSON.parse(globalThis.localStorage?.getItem(EXTRA_KEY) ?? '{}') as Record<string, string[]>;
+
+    all[key] = list;
+    globalThis.localStorage?.setItem(EXTRA_KEY, JSON.stringify(all));
+  } catch {
+    // per-person convenience only
+  }
+};
+
 const post = <T,>(body: Record<string, unknown>) => new RestApiClient().post<T & { success: boolean; message?: string }>('/s/files', body);
 
 const expiryBadge = (doc: LibraryDoc, today: string) => {
@@ -161,6 +185,15 @@ export const Documents = () => {
   const [undo, setUndo] = useState<{ id: string; name: string } | null>(null);
   // name+size of files already filed in this session (re-dropping them would duplicate).
   const filed = useRef(new Set<string>());
+  // Folders: the one being browsed ('' = the top), what is being dragged and where it is over, and the open menus.
+  const [folder, setFolder] = useState('');
+  const [dragging, setDragging] = useState<{ kind: 'doc' | 'folder'; id: string } | null>(null);
+  const [dropOn, setDropOn] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ id: string; mode?: 'move' } | null>(null);
+  const [renaming, setRenaming] = useState<{ path: string; value: string } | null>(null);
+  const [newFolder, setNewFolder] = useState<string | null>(null);
+  const [sharing, setSharing] = useState<string | null>(null);
+  const [extra, setExtra] = useState<string[]>([]);
 
   const reload = useCallback(async () => {
     try {
@@ -212,6 +245,38 @@ export const Documents = () => {
   }, [undo]);
 
   const mine = useMemo(() => docs.filter((d) => scope.matches(d.ownerId)), [docs, scope.key]);
+  const extraKey = scope.ownerId || 'all';
+
+  useEffect(() => {
+    setExtra(readExtra(extraKey));
+  }, [extraKey]);
+
+  const saveExtra = (list: string[]) => {
+    setExtra(list);
+    writeExtra(extraKey, list);
+  };
+
+  // Every folder: those holding documents (and the folders above them) plus the empty ones made here.
+  const folderPaths = useMemo(() => {
+    const set = new Set<string>();
+    const add = (value: string) => {
+      let current = '';
+
+      for (const part of value.split('/').filter(Boolean)) {
+        current = current ? `${current}/${part}` : part;
+        set.add(current);
+      }
+    };
+
+    for (const d of mine) if (d.folder) add(d.folder);
+    for (const p of extra) add(p);
+
+    return set;
+  }, [mine, extra]);
+  const allFolders = useMemo(() => [...folderPaths].sort((a, b) => a.localeCompare(b)), [folderPaths]);
+  const subfolders = allFolders.filter((p) => parentOf(p) === folder);
+  const countIn = (value: string) => mine.filter((d) => inTree(d.folder ?? '', value)).length;
+  const crumbs = folder.split('/').filter(Boolean).map((label, index, list) => ({ label, path: list.slice(0, index + 1).join('/') }));
   const expiring = mine.filter((d) => d.expiresOn && daysUntil(today, d.expiresOn) <= EXPIRY_WARN_DAYS);
   const empty = mine.filter((d) => d.files.length === 0);
   const typeCounts = useMemo(() => {
@@ -222,7 +287,7 @@ export const Documents = () => {
     return DOC_TYPES.filter((t) => map.has(t.value)).map((t) => ({ ...t, count: map.get(t.value) ?? 0 }));
   }, [mine]);
 
-  const rows = useMemo(() => {
+  const matches = useMemo(() => {
     const term = search.trim().toLowerCase();
 
     return mine
@@ -240,6 +305,9 @@ export const Documents = () => {
       )
       .sort((a, b) => (filter === 'EXPIRING' ? (a.expiresOn ?? '').localeCompare(b.expiresOn ?? '') : b.createdAt.localeCompare(a.createdAt)));
   }, [mine, filter, propertyFilter, search, today]);
+  // Browsing = no filter or search: then you see this folder's folders and documents. Otherwise every match, flat.
+  const browsing = filter === 'ALL' && !propertyFilter && !search.trim();
+  const rows = useMemo(() => (browsing ? matches.filter((d) => (d.folder ?? '') === folder) : matches), [matches, browsing, folder]);
 
   const ownerForUpload = scope.ownerId || fileOwner || owners.find((o) => /^personal$/i.test(o.name))?.id || owners[0]?.id || '';
   const propertyChoices = properties.filter((p) => !ownerForUpload || p.ownerId === ownerForUpload);
@@ -262,7 +330,14 @@ export const Documents = () => {
     setFilter('ALL');
     setPropertyFilter('');
     setFileProperty('');
+    setFolder('');
+    setMenu(null);
   }, [scope.key]);
+
+  // An open folder that no longer exists (moved or emptied elsewhere): back to the top.
+  useEffect(() => {
+    if (!loading && folder && !folderPaths.has(folder)) setFolder('');
+  }, [loading, folder, folderPaths]);
 
   useEffect(() => {
     setLimit(PAGE_SIZE);
@@ -276,7 +351,7 @@ export const Documents = () => {
       setQueue((current) => current.map((q) => (q.key === item.key ? { ...q, state: 'uploading', message: undefined } : q)));
 
       const result = await uploadFile(item.file, {
-        newDocument: { type: item.type, name: titleFromFile(item.file.name), ownerId: item.ownerId, propertyId: item.propertyId },
+        newDocument: { type: item.type, name: titleFromFile(item.file.name), ownerId: item.ownerId, propertyId: item.propertyId, folder: item.folder },
       });
 
       if (result.success) {
@@ -292,7 +367,7 @@ export const Documents = () => {
   };
 
   // Each dropped file becomes its own document, typed from its name.
-  const fileAll = async (files: PickedFile[]) => {
+  const fileAll = async (files: PickedFile[], into?: string) => {
     const seen = new Set<string>();
     const fresh = files.filter((file) => {
       const signature = fileSignature(file);
@@ -318,6 +393,7 @@ export const Documents = () => {
       type: guessDocType(file.name, 'OTHER'),
       ownerId: ownerForUpload || null,
       propertyId: fileProperty || null,
+      folder: into ?? folder,
       state: 'waiting',
     }));
 
@@ -328,6 +404,159 @@ export const Documents = () => {
   const retry = async (item: QueueItem) => {
     setQueue((current) => current.map((q) => (q.key === item.key ? { ...q, state: 'waiting', message: undefined } : q)));
     await runItems([item]);
+  };
+
+  const updateDoc = async (id: string, data: Record<string, unknown>) => {
+    try {
+      const result = await post<Record<string, never>>({ action: 'update', documentId: id, ...data });
+
+      return result.success;
+    } catch {
+      return false;
+    }
+  };
+
+  const moveDoc = async (id: string, to: string) => {
+    const doc = docs.find((d) => d.id === id);
+
+    if (!doc || (doc.folder ?? '') === to) return;
+    const ok = await updateDoc(id, { folder: to });
+
+    await enqueueSnackbar({ message: ok ? `Moved “${doc.name || 'document'}” to ${to ? `“${baseOf(to)}”` : 'All documents'}.` : 'Could not move it.', variant: ok ? 'success' : 'error' });
+    if (ok) await reload();
+  };
+
+  // A folder moved or renamed: every document in it (and in the folders inside) gets the new path.
+  const relocate = async (from: string, to: string) => {
+    if (!to || to === from || inTree(to, from)) return;
+    if (folderPaths.has(to)) {
+      await enqueueSnackbar({ message: `A folder called “${baseOf(to)}” is already there.`, variant: 'warning' });
+
+      return;
+    }
+    const swap = (value: string) => (value === from ? to : `${to}${value.slice(from.length)}`);
+    const inside = mine.filter((d) => inTree(d.folder ?? '', from));
+    let failed = 0;
+
+    for (const d of inside) if (!(await updateDoc(d.id, { folder: swap(d.folder) }))) failed += 1;
+    saveExtra(extra.map((p) => (inTree(p, from) ? swap(p) : p)));
+    if (inTree(folder, from)) setFolder(swap(folder));
+    await enqueueSnackbar({
+      message: failed ? `${failed} document${failed === 1 ? '' : 's'} could not be moved.` : `“${baseOf(from)}” ${parentOf(from) === parentOf(to) ? `renamed to “${baseOf(to)}”` : 'moved'}.`,
+      variant: failed ? 'error' : 'success',
+    });
+    await reload();
+  };
+  const moveFolder = (from: string, into: string) => relocate(from, into ? `${into}/${baseOf(from)}` : baseOf(from));
+  const renameFolder = async (from: string, name: string) => {
+    const clean = name.replace(/\//g, '-').trim().slice(0, 60);
+
+    setRenaming(null);
+    if (!clean || clean === baseOf(from)) return;
+    await relocate(from, parentOf(from) ? `${parentOf(from)}/${clean}` : clean);
+  };
+  const createFolder = (name: string) => {
+    const clean = name.replace(/\//g, '-').trim().slice(0, 60);
+
+    setNewFolder(null);
+    if (!clean) return;
+    const path = folder ? `${folder}/${clean}` : clean;
+
+    if (folderPaths.has(path)) {
+      void enqueueSnackbar({ message: `“${clean}” is already here.`, variant: 'warning' });
+
+      return;
+    }
+    saveExtra([...extra, path]);
+    setFolder(path);
+  };
+  const deleteFolder = async (path: string) => {
+    if (countIn(path) > 0) {
+      await enqueueSnackbar({ message: 'Move or delete the documents in this folder first.', variant: 'warning' });
+
+      return;
+    }
+    saveExtra(extra.filter((p) => !inTree(p, path)));
+    if (inTree(folder, path)) setFolder(parentOf(path));
+  };
+
+  // A folder (tile or path link) you can drop on: a dragged document or folder moves into it, files from the computer upload into it.
+  const dropProps = (target: string) => ({
+    onDragOver: () => {
+      if (dropOn !== target) setDropOn(target);
+    },
+    onDragEnter: () => setDropOn(target),
+    onDragLeave: () => setDropOn((current) => (current === target ? null : current)),
+    onDrop: (event: unknown) => {
+      const drag = dragging;
+
+      setDropOn(null);
+      setDragging(null);
+      const files = filesFromEvent(event);
+
+      if (files.length) void fileAll(files, target);
+      else if (drag?.kind === 'doc') void moveDoc(drag.id, target);
+      else if (drag?.kind === 'folder' && drag.id !== target) void moveFolder(drag.id, target);
+    },
+  });
+  const dragProps = (kind: 'doc' | 'folder', id: string) => ({
+    draggable: 'true' as const,
+    onDragStart: () => setDragging({ kind, id }),
+    onDragEnd: () => {
+      setDragging(null);
+      setDropOn(null);
+    },
+  });
+
+  const menuItem = (label: string, onClick: () => void, danger = false) => (
+    <button key={label} onClick={onClick} style={{ ...button(), height: 32, width: '100%', border: 'none', background: 'transparent', justifyContent: 'flex-start', textAlign: 'left', color: danger ? 'var(--t-color-red11)' : c.text }}>
+      {label}
+    </button>
+  );
+  const folderMenu = (target: string) => {
+    const targets = ['', ...allFolders].filter((p) => p !== target && p !== parentOf(target) && !inTree(p, target));
+    const items =
+      menu?.mode === 'move'
+        ? [
+            <span key="h" style={{ padding: '6px 12px', fontSize: 11.5, fontWeight: 600, color: c.text3, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+              Move to
+            </span>,
+            ...targets.map((p) =>
+              menuItem(p ? `📁 ${p.split('/').join(' › ')}` : '🗂 All documents', () => {
+                setMenu(null);
+                void moveFolder(target, p);
+              }),
+            ),
+          ]
+        : [
+            menuItem('📂 Open', () => {
+              setMenu(null);
+              setFolder(target);
+            }),
+            ...(scope.ownerId
+              ? [
+                  menuItem('🔗 Share…', () => {
+                    setMenu(null);
+                    setSharing(target);
+                  }),
+                ]
+              : []),
+            menuItem('✎ Rename', () => {
+              setMenu(null);
+              setRenaming({ path: target, value: baseOf(target) });
+            }),
+            menuItem('↗ Move to…', () => setMenu({ id: target, mode: 'move' })),
+            menuItem('🗑 Delete folder', () => {
+              setMenu(null);
+              void deleteFolder(target);
+            }, true),
+          ];
+
+    return (
+      <div style={{ position: 'absolute', top: 40, right: 8, zIndex: 20, minWidth: 200, maxHeight: 300, overflowY: 'auto', background: c.bg, border: `1px solid ${c.border2}`, borderRadius: 10, boxShadow: '0 6px 24px rgba(0,0,0,0.18)', padding: 4, display: 'flex', flexDirection: 'column' }}>
+        {items}
+      </div>
+    );
   };
 
   const openDoc = docs.find((d) => d.id === open) ?? null;
@@ -364,6 +593,7 @@ export const Documents = () => {
 
   return (
     <div style={{ fontFamily: c.font, color: c.text, background: c.bg, height: '100%', overflowY: 'auto', containerType: 'size', boxSizing: 'border-box', position: 'relative' }}>
+      {sharing && scope.ownerId ? <SharePanel ownerId={scope.ownerId} folder={sharing} onClose={() => setSharing(null)} /> : null}
       {viewing && (
         <Sheet width={900} onClose={() => setViewing(null)}>
           <FileViewer files={viewing.files} start={viewing.start} title={viewing.title} onClose={() => setViewing(null)} />
@@ -375,6 +605,7 @@ export const Documents = () => {
             key={openDoc.id}
             doc={openDoc}
             properties={properties.filter((p) => !openDoc.ownerId || p.ownerId === openDoc.ownerId)}
+            folders={allFolders}
             onClose={() => setOpen(null)}
             onView={(start) => setViewing({ files: openDoc.files, start, title: openDoc.name })}
             onChanged={reload}
@@ -423,7 +654,8 @@ export const Documents = () => {
           <FileDrop
             onFiles={fileAll}
             disabled={busy}
-            title={busy ? 'Filing…' : 'Drop documents here — as many as you like'}
+            title={busy ? 'Filing…' : folder ? `Drop documents here: they go into “${baseOf(folder)}”` : 'Drop documents here — as many as you like'}
+            accept="application/pdf,image/*,video/*,.heic,.heif,.doc,.docx,.xls,.xlsx,.txt,.mp4,.mov,.webm"
             hint="or tap to choose / take a photo · each file becomes a document, typed from its name"
           />
           {queue.length > 0 && (
@@ -507,12 +739,97 @@ export const Documents = () => {
           </div>
         </div>
 
+        {/* Folders: where you are, a new folder, the folders in here */}
+        {browsing && !loading ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
+              {[{ path: '', label: 'All documents' }, ...crumbs].map((crumb, index) => (
+                <span key={crumb.path || 'top'} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {index > 0 ? <span style={{ color: c.text3 }}>›</span> : null}
+                  <button
+                    onClick={() => setFolder(crumb.path)}
+                    {...dropProps(crumb.path)}
+                    style={{ ...button(), height: 30, border: `1px solid ${dropOn === crumb.path ? c.accent : 'transparent'}`, background: dropOn === crumb.path ? 'var(--t-color-blue2)' : 'transparent', fontWeight: crumb.path === folder ? 650 : 500 }}
+                  >
+                    {index === 0 ? '🗂 ' : '📁 '}
+                    {crumb.label}
+                  </button>
+                </span>
+              ))}
+              <span style={{ flex: 1 }} />
+              {newFolder === null ? (
+                <button onClick={() => setNewFolder('')} style={button()}>
+                  + New folder
+                </button>
+              ) : (
+                <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input placeholder="Folder name" value={newFolder} onChange={(e) => setNewFolder(readValue(e))} style={{ ...control, width: 170 }} />
+                  <button onClick={() => createFolder(newFolder)} disabled={!newFolder.trim()} style={button(true)}>
+                    Create
+                  </button>
+                  <button onClick={() => setNewFolder(null)} style={button()}>
+                    Cancel
+                  </button>
+                </span>
+              )}
+            </div>
+            {allFolders.length > 0 ? (
+              <span style={{ fontSize: 12, color: c.text3 }}>Drag a file or folder onto a folder to move it there · drop files from your computer onto a folder to upload into it.</span>
+            ) : null}
+            {subfolders.length > 0 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(210px, 100%), 1fr))', gap: 10 }}>
+                {subfolders.map((p) => {
+                  const hot = dropOn === p;
+                  const count = countIn(p);
+
+                  return (
+                    <div key={p} style={{ position: 'relative' }}>
+                      {renaming?.path === p ? (
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', border: `1px solid ${c.accent}`, borderRadius: 12, padding: 10 }}>
+                          <input value={renaming.value} onChange={(e) => setRenaming({ path: p, value: readValue(e) })} style={{ ...control, flex: 1 }} />
+                          <button onClick={() => void renameFolder(p, renaming.value)} style={button(true)}>
+                            Save
+                          </button>
+                          <button onClick={() => setRenaming(null)} style={button()}>
+                            ×
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setFolder(p)}
+                          {...dragProps('folder', p)}
+                          {...dropProps(p)}
+                          style={{ all: 'unset', cursor: 'pointer', boxSizing: 'border-box', width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 44px 10px 12px', border: `1px solid ${hot ? c.accent : c.border}`, background: hot ? 'var(--t-color-blue2)' : c.bg2, borderRadius: 12, opacity: dragging?.kind === 'folder' && dragging.id === p ? 0.5 : 1 }}
+                        >
+                          <span style={{ fontSize: 26 }}>📁</span>
+                          <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{baseOf(p)}</span>
+                            <span style={{ fontSize: 12, color: c.text3 }}>
+                              {count} document{count === 1 ? '' : 's'}
+                            </span>
+                          </span>
+                        </button>
+                      )}
+                      {renaming?.path !== p ? (
+                        <button onClick={() => setMenu(menu?.id === p ? null : { id: p })} aria-label="Folder menu" style={{ ...button(), position: 'absolute', top: 8, right: 8, height: 28, padding: '0 8px', border: 'none', background: 'transparent' }}>
+                          ⋯
+                        </button>
+                      ) : null}
+                      {menu?.id === p ? folderMenu(p) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {/* Documents */}
         {loading ? (
           <div style={{ color: c.text3, fontSize: 13, padding: 24, textAlign: 'center' }}>Loading…</div>
-        ) : rows.length === 0 ? (
+        ) : rows.length === 0 && browsing && subfolders.length > 0 ? null : rows.length === 0 ? (
           <div style={{ border: `1px solid ${c.border}`, borderRadius: 12, color: c.text3, fontSize: 14, padding: '32px 16px', textAlign: 'center' }}>
-            {mine.length === 0 ? 'No documents yet — drop some files above.' : 'Nothing matches.'}
+            {folder && browsing ? 'This folder is empty. Drop files above, or drag documents onto it.' : mine.length === 0 ? 'No documents yet — drop some files above.' : 'Nothing matches.'}
           </div>
         ) : view === 'grid' ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(160px, calc(50% - 5px)), 1fr))', gap: 10 }}>
@@ -523,7 +840,8 @@ export const Documents = () => {
                 <button
                   key={d.id}
                   onClick={() => setOpen(d.id)}
-                  style={{ all: 'unset', cursor: 'pointer', boxSizing: 'border-box', border: `1px solid ${c.border}`, borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}
+                  {...dragProps('doc', d.id)}
+                  style={{ opacity: dragging?.kind === 'doc' && dragging.id === d.id ? 0.5 : 1, all: 'unset', cursor: 'pointer', boxSizing: 'border-box', border: `1px solid ${c.border}`, borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}
                 >
                   <span style={{ display: 'block', position: 'relative' }}>
                     {(() => {
@@ -557,6 +875,7 @@ export const Documents = () => {
                 <button
                   key={d.id}
                   onClick={() => setOpen(d.id)}
+                  {...dragProps('doc', d.id)}
                   style={{ all: 'unset', cursor: 'pointer', boxSizing: 'border-box', width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderTop: index ? `1px solid ${c.border}` : 'none' }}
                 >
                   {thumb(d, 40)}
@@ -633,6 +952,7 @@ export const Documents = () => {
 const DocumentSheet = ({
   doc,
   properties,
+  folders,
   onClose,
   onView,
   onChanged,
@@ -640,6 +960,7 @@ const DocumentSheet = ({
 }: {
   doc: LibraryDoc;
   properties: Option[];
+  folders: string[];
   onClose: () => void;
   onView: (start: number) => void;
   onChanged: () => Promise<void>;
@@ -846,6 +1167,25 @@ const DocumentSheet = ({
               </select>
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: c.text2 }}>
+              Folder
+              <select
+                value={doc.folder ?? ''}
+                onChange={(e) => {
+                  const next = readValue(e);
+
+                  if (next !== (doc.folder ?? '')) void save({ folder: next }, next ? `Moved to “${baseOf(next)}”.` : 'Taken out of the folder.');
+                }}
+                style={control}
+              >
+                <option value="">No folder (top level)</option>
+                {(doc.folder && !folders.includes(doc.folder) ? [...folders, doc.folder] : folders).map((p) => (
+                  <option key={p} value={p}>
+                    {p.split('/').join(' › ')}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: c.text2 }}>
               Property
               <select value={doc.propertyId ?? ''} onChange={(e) => save({ propertyId: readValue(e) || null })} style={control}>
                 <option value="">None</option>
@@ -904,5 +1244,116 @@ const DocumentSheet = ({
         )}
       </div>
     </div>
+  );
+};
+
+// ---------------------------------------------------------------- share a folder
+
+// A link anyone can open to see and download every file in the folder (and the folders inside it).
+const SharePanel = ({ ownerId, folder, onClose }: { ownerId: string; folder: string; onClose: () => void }) => {
+  const [shares, setShares] = useState<Array<FolderShare & { url?: string }> | null>(null);
+  const [days, setDays] = useState('7');
+  const [busy, setBusy] = useState(false);
+  const call = <T,>(body: Record<string, unknown>) => new RestApiClient().post<T & { success: boolean; message?: string }>('/s/files/shares', body);
+
+  const load = useCallback(async () => {
+    try {
+      const result = await call<{ shares?: Array<FolderShare & { url?: string }> }>({ action: 'list', ownerId, folder });
+
+      if (!result.success) throw new Error(result.message ?? 'Could not load the links.');
+      setShares(result.shares ?? []);
+    } catch (error) {
+      setShares([]);
+      await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not load the links.', variant: 'error' });
+    }
+  }, [ownerId, folder]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const create = async () => {
+    setBusy(true);
+    try {
+      const result = await call<Record<string, never>>({ action: 'create', ownerId, folder, days: Number(days) });
+
+      if (!result.success) throw new Error(result.message ?? 'Could not make the link.');
+      await enqueueSnackbar({ message: 'Link made. Copy it and send it.', variant: 'success' });
+      await load();
+    } catch (error) {
+      await enqueueSnackbar({ message: error instanceof Error ? error.message : 'Could not make the link.', variant: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stop = async (token: string) => {
+    setBusy(true);
+    try {
+      const result = await call<Record<string, never>>({ action: 'stop', token });
+
+      await enqueueSnackbar({ message: result.message ?? (result.success ? 'Link stopped.' : 'Could not stop it.'), variant: result.success ? 'success' : 'error' });
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const linkOf = (share: FolderShare & { url?: string }) => share.url ?? `${globalThis.location?.origin ?? ''}/s/files/shared?t=${share.token}`;
+  const copy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      await enqueueSnackbar({ message: 'Link copied.', variant: 'success' });
+    } catch {
+      await enqueueSnackbar({ message: 'Select the link and copy it (Ctrl+C).', variant: 'warning' });
+    }
+  };
+
+  return (
+    <Sheet width={520} onClose={onClose}>
+      <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: c.font, color: c.text, overflowY: 'auto', height: '100%', boxSizing: 'border-box' }}>
+        <span style={{ fontSize: 17, fontWeight: 600 }}>Share “{baseOf(folder)}”</span>
+        <span style={{ fontSize: 13, color: c.text2 }}>
+          Anyone with the link can see and download every file in this folder, and the folders inside it, without signing in. Stop the link to close it again.
+        </span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <select value={days} onChange={(e) => setDays(readValue(e))} style={{ ...control, width: 'auto' }}>
+            {SHARE_DAY_CHOICES.map((d) => (
+              <option key={d.days} value={String(d.days)}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+          <button onClick={() => void create()} disabled={busy} style={button(true)}>
+            Make a link
+          </button>
+        </div>
+        {shares === null ? (
+          <span style={{ fontSize: 13, color: c.text3 }}>Loading…</span>
+        ) : shares.length === 0 ? (
+          <span style={{ fontSize: 13, color: c.text3 }}>No link yet.</span>
+        ) : (
+          shares.map((share) => (
+            <div key={share.token} style={{ border: `1px solid ${c.border}`, borderRadius: 10, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <input readOnly value={linkOf(share)} style={{ ...control, width: '100%' }} />
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: c.text3, flex: 1 }}>{share.expiresAt ? `Works until ${day(share.expiresAt.slice(0, 10))}` : 'Works until you stop it'}</span>
+                <button onClick={() => void copy(linkOf(share))} style={button()}>
+                  Copy
+                </button>
+                <button onClick={() => void stop(share.token)} disabled={busy} style={{ ...button(), color: 'var(--t-color-red11)' }}>
+                  Stop link
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={button()}>
+            Close
+          </button>
+        </div>
+      </div>
+    </Sheet>
   );
 };

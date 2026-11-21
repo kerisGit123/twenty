@@ -257,3 +257,8 @@ export const INCOME_METHOD_OPTION_IDS = [
 export const DOCUMENT_FILE_SIZES_FIELD_ID = 'f3e10a4e-7cfd-4b42-b9db-86585d64b692';
 export const OWNER_PAID_PLAN_FIELD_ID = '7170e594-0675-47a6-a630-06e24aa91ceb';
 export const SCAN_ROUTE_FUNCTION_ID = '5071515a-3a9d-4616-b4cc-5562bb5bdf05';
+
+// Documents folders and shared-folder links. Ids match the live app.
+export const DOCUMENT_FOLDER_FIELD_ID = '48c0b5cb-72bc-47cc-a931-258f8a810082';
+export const SHARED_FOLDER_ROUTE_FUNCTION_ID = '5b3df4ba-1337-4308-91f4-062c703b7060';
+export const FOLDER_SHARES_ROUTE_FUNCTION_ID = 'efeb80e2-903d-446e-9f00-4395f8771d1f';

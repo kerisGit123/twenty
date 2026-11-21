@@ -15,6 +15,7 @@ import {
   type ContractDoc,
   type LibraryDoc,
   DOC_TYPES,
+  cleanFolder,
   docType,
   extensionOf,
   formatBytes,
@@ -29,7 +30,7 @@ import {
 //
 //   { action: 'contractDocs', rentalId }
 //   { action: 'upload', file: { name, type, data }, documentId? | newDocument? | expenseId? }
-//   { action: 'update', documentId, name?, type?, expiresOn? }
+//   { action: 'update', documentId, name?, type?, expiresOn?, folder? }   folder: 'A/B', '' = take it out of its folder
 //   { action: 'removeFile', documentId, fileId }
 //   { action: 'delete', documentId }
 //   { action: 'listDeleted' } | { action: 'restore', documentId }
@@ -49,8 +50,9 @@ type Body = {
   expiresOn?: string | null;
   propertyId?: string | null;
   notes?: string;
+  folder?: string;
   file?: { name?: string; type?: string; data?: string };
-  newDocument?: { type?: string; name?: string; rentalId?: string | null; propertyId?: string | null; personId?: string | null; ownerId?: string | null };
+  newDocument?: { type?: string; name?: string; rentalId?: string | null; propertyId?: string | null; personId?: string | null; ownerId?: string | null; folder?: string | null };
 };
 
 const json = (body: unknown, status = 200) =>
@@ -68,6 +70,7 @@ const DOC_FIELDS = {
   propertyId: true,
   personId: true,
   ownerId: true,
+  folder: true,
   files: { fileId: true, label: true, url: true, extension: true },
   fileSizes: true,
 } as const;
@@ -82,6 +85,7 @@ type DocRow = {
   propertyId?: string | null;
   personId?: string | null;
   ownerId?: string | null;
+  folder?: string | null;
   files?: FileValue[] | null;
   fileSizes?: Record<string, number> | null;
 };
@@ -224,6 +228,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
             personName: [person?.name?.firstName, person?.name?.lastName].filter(Boolean).join(' '),
             ownerId: (row.ownerId as string | null) ?? null,
             ownerName: (row.owner as { name?: string } | null)?.name ?? '',
+            folder: cleanFolder(row.folder),
           };
         });
 
@@ -342,6 +347,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
           propertyId: contract?.propertyId ?? spec.propertyId ?? null,
           personId: spec.personId ?? (type === 'ID' ? contract?.tenantId ?? null : null),
           ownerId,
+          folder: cleanFolder(spec.folder),
         };
       }
 
@@ -495,6 +501,7 @@ const handler = async (event: RoutePayload, context?: { workspaceMemberId?: stri
         }
       }
       if (typeof body.notes === 'string') data.notes = body.notes.slice(0, 2000);
+      if (body.folder !== undefined) data.folder = cleanFolder(body.folder);
       if (body.expiresOn === null || /^\d{4}-\d{2}-\d{2}$/.test(body.expiresOn ?? '')) data.expiresOn = body.expiresOn ?? null;
       await client.mutation({ updateDocument: { __args: { id: doc.id, data: data as never }, id: true } });
 

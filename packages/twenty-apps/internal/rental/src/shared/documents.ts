@@ -59,6 +59,7 @@ export type LibraryDoc = ContractDoc & {
   personName: string;
   ownerId: string | null;
   ownerName: string;
+  folder: string; // '' = not in a folder; 'A/B' = folder B inside A
 };
 
 // Guess the type from a file name, e.g. "Perjanjian sewa.pdf" → Agreement.
@@ -89,7 +90,7 @@ export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 // What a free Personal business may keep in Documents.
 export const FREE_STORAGE_BYTES = 200 * 1024 * 1024;
 
-export const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'txt'];
+export const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'mp4', 'mov', 'webm', 'm4v'];
 
 export const extensionOf = (fileName: string) => (fileName.includes('.') ? fileName.split('.').pop()!.toLowerCase() : '');
 
@@ -102,3 +103,23 @@ export const isShowableImage = (extension: string | null | undefined) => isImage
 
 export const formatBytes = (bytes: number) =>
   bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
+export const isVideoFile = (extension: string | null | undefined) => ['mp4', 'mov', 'webm', 'm4v'].includes((extension ?? '').replace(/^\./, '').toLowerCase());
+
+// ---- folders. A folder is just the path text on its documents ("Tutorial", "Tutorial/Stock").
+export const FOLDER_MAX_DEPTH = 5;
+export const FOLDER_NAME_MAX = 60;
+
+// Tidy a typed or sent path: no slashes at the ends, no odd characters, limited depth and length.
+export const cleanFolder = (value: unknown): string =>
+  String(value ?? '')
+    .split('/')
+    .map((part) => part.replace(/[\\:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, FOLDER_NAME_MAX))
+    .filter(Boolean)
+    .slice(0, FOLDER_MAX_DEPTH)
+    .join('/');
+
+export const baseOf = (path: string) => path.slice(path.lastIndexOf('/') + 1);
+export const parentOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '');
+// Is `path` the folder `root` or something inside it?
+export const inTree = (path: string, root: string) => path === root || path.startsWith(`${root}/`);

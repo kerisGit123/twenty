@@ -19,6 +19,7 @@ import { ImportSheet } from 'src/front-components/shared/stock-import-sheet';
 import { IssueSheet, ReceiveRequestSheet, RequestSheet, RequestsTab, SettleRequestSheet } from 'src/front-components/shared/stock-requests-tab';
 import { c, control, lastPartyFor, primary } from 'src/front-components/shared/stock-ui';
 import { UsageTab } from 'src/front-components/shared/stock-usage-tab';
+import { StockGuide } from 'src/front-components/shared/stock-guide';
 import type { StockData } from 'src/logic-functions/utils/stock-data';
 import { todayIso } from 'src/logic-functions/utils/dates';
 import { balanceOf, DEFAULT_RULE, groupMovements, lastPaidPerUnit, type StockItem, type StockMovement, stockStatus } from 'src/shared/stock';
@@ -49,6 +50,23 @@ const writeSimplePref = (simple: boolean) => {
 };
 // Staff (the simple view) see Stock, Ordering and Loans; managers also History and Month end.
 const SIMPLE_TABS: string[] = ['stock', 'ordering', 'borrowed'];
+
+// The "Getting started" guide at the top: shown until someone hides it; "? How to use" brings it back.
+const GUIDE_KEY = 'stock.guideHidden';
+const readGuideHidden = () => {
+  try {
+    return globalThis.localStorage?.getItem(GUIDE_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+const writeGuideHidden = (hidden: boolean) => {
+  try {
+    globalThis.localStorage?.setItem(GUIDE_KEY, hidden ? '1' : '0');
+  } catch {
+    // per-person convenience only
+  }
+};
 
 // The everyday jobs, one big button each. Borrowing and lending share one button
 // (Quick entry has both inside).
@@ -111,6 +129,7 @@ export const StockPage = () => {
   const [open, setOpen] = useState<Open>(null);
   const [simplePref, setSimplePref] = useState<boolean | null>(readSimplePref);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [guideHidden, setGuideHidden] = useState<boolean>(readGuideHidden);
 
   useEffect(() => {
     let cancelled = false;
@@ -312,6 +331,16 @@ export const StockPage = () => {
             <span style={{ fontSize: 18, fontWeight: 600 }}>Stock{scope.owner ? ` · ${scope.owner.name}` : ''}</span>
             <span style={{ fontSize: 13, color: c.text3 }}>What's in hand, every IN and OUT, and what to order next.</span>
           </div>
+          <button
+            onClick={() => {
+              writeGuideHidden(!guideHidden);
+              setGuideHidden(!guideHidden);
+            }}
+            style={{ ...control, color: c.text2 }}
+            title="Show or hide the step-by-step guide"
+          >
+            ? How to use
+          </button>
           {mayAddItems ? (
             <button onClick={() => chooseSimple(!simple)} style={{ ...control, color: c.text2 }} title={simple ? 'Manager tools: history, ordering plan, month end, items' : 'Back to the everyday buttons'}>
               {simple ? 'Manager view' : 'Simple view'}
@@ -355,6 +384,22 @@ export const StockPage = () => {
             </>
           ) : null}
         </div>
+
+        {data && !guideHidden ? (
+          <StockGuide
+            itemCount={items.length}
+            movements={movements}
+            canAddItems={mayAddItems}
+            onAddItem={() => setOpen({ kind: 'item', item: null })}
+            onImport={() => setOpen({ kind: 'import' })}
+            onStockIn={() => setOpen({ kind: 'quick', quickKind: 'PURCHASE' })}
+            onTakeOut={() => setOpen({ kind: 'quick', quickKind: 'TAKE' })}
+            onHide={() => {
+              writeGuideHidden(true);
+              setGuideHidden(true);
+            }}
+          />
+        ) : null}
 
         {simple && data ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
