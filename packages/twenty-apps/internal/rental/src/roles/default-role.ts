@@ -5,7 +5,7 @@ import { DOCUMENT_OBJECT_ID, MEMBERSHIP_OBJECT_ID } from 'src/constants/universa
 import { DOCUMENT_TEMPLATE_OBJECT_ID } from 'src/objects/document-template.object';
 import { EXPENSE_OBJECT_ID } from 'src/constants/universal-identifiers-v2';
 import { CAMPAIGN_OBJECT_ID, SAVED_AUDIENCE_OBJECT_ID } from 'src/constants/universal-identifiers-v4';
-import { STOCK_MOVEMENT_OBJECT_ID } from 'src/constants/universal-identifiers-stock';
+import { STOCK_ITEM_OBJECT_ID, STOCK_MOVEMENT_OBJECT_ID, STOCK_ORDER_OBJECT_ID, STOCK_REQUEST_OBJECT_ID } from 'src/constants/universal-identifiers-stock';
 
 // The role the app's logic functions run as: read records, update payments
 // (receipt number, receipt file, sent date) and upload files. It never
@@ -24,6 +24,10 @@ const SOFT_DELETABLE = [
   DOCUMENT_TEMPLATE_OBJECT_ID,
   EXPENSE_OBJECT_ID,
   STOCK_MOVEMENT_OBJECT_ID,
+  // "Initialize stock" (a host or admin starting a business's stock over) clears these too; all restorable.
+  STOCK_ITEM_OBJECT_ID,
+  STOCK_ORDER_OBJECT_ID,
+  STOCK_REQUEST_OBJECT_ID,
 ];
 
 export default defineApplicationRole({

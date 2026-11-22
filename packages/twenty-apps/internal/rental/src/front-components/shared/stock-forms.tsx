@@ -219,15 +219,15 @@ export const ItemSheet = ({ item, owners, defaultOwnerId, today, onClose, onDone
       ) : null}
       <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: 8 }}>
         <Field label="Item code">
-          <input value={form.code} onChange={set('code')} placeholder="1.045" style={input} />
+          <input value={form.code} onChange={set('code')} placeholder="e.g. 1.001" style={input} />
         </Field>
         <Field label="Product name">
-          <input value={form.name} onChange={set('name')} placeholder="原味冰淇淋粉 Original Ice Cream Powder" style={input} />
+          <input value={form.name} onChange={set('name')} placeholder="e.g. Milk powder" style={input} />
         </Field>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <Field label="Specification">
-          <input value={form.specification} onChange={set('specification')} placeholder="3kg*8袋/件" style={input} />
+          <input value={form.specification} onChange={set('specification')} placeholder="e.g. 3kg x 8 bags" style={input} />
         </Field>
         <Field label="Group">
           <select value={form.group} onChange={set('group')} style={select}>
@@ -241,7 +241,7 @@ export const ItemSheet = ({ item, owners, defaultOwnerId, today, onClose, onDone
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
         <Field label="Inner unit">
-          <input value={form.unit} onChange={set('unit')} placeholder="bag" style={input} />
+          <input value={form.unit} onChange={set('unit')} placeholder="e.g. bag" style={input} />
         </Field>
         <Field label="Units per carton">
           <input value={form.unitsPerCarton} onChange={set('unitsPerCarton')} inputMode="numeric" style={input} />
@@ -252,10 +252,10 @@ export const ItemSheet = ({ item, owners, defaultOwnerId, today, onClose, onDone
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <Field label="Supplier">
-          <input value={form.supplier} onChange={set('supplier')} placeholder="WeDrink" style={input} />
+          <input value={form.supplier} onChange={set('supplier')} placeholder="e.g. your supplier's name" style={input} />
         </Field>
         <Field label="Re-order below (months)" hint="Empty = the business rule">
-          <input value={form.reorderBelowMonths} onChange={set('reorderBelowMonths')} inputMode="decimal" placeholder="1.5" style={input} />
+          <input value={form.reorderBelowMonths} onChange={set('reorderBelowMonths')} inputMode="decimal" placeholder="e.g. 1.5" style={input} />
         </Field>
       </div>
       <Field label="Shelf life (days)" hint="How long it keeps, e.g. 180. When stock comes in without an expiry date, it gets this many days from the day it arrives. Empty = no automatic expiry.">
@@ -663,8 +663,8 @@ export const ResetSheet = ({ owner, onClose, onDone }: { owner: StockOwner; onCl
 
   return (
     <Shell
-      title={`Reset stock · ${owner.name}`}
-      intro="Removes every stock IN and OUT line, order and branch request for this business, so every item starts again at zero. Only a host or admin can do this."
+      title={`Initialize stock · ${owner.name}`}
+      intro="Clears every stock IN, OUT, waste and missing line, order and branch request of this business, so every item starts again at zero and you can load fresh stock. Only a host or admin can do this."
       onClose={onClose}
     >
       <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: c.text2 }}>
@@ -678,7 +678,7 @@ export const ResetSheet = ({ owner, onClose, onDone }: { owner: StockOwner; onCl
       <Field label={`Type "${owner.name}" to confirm`} hint="Nothing is permanently erased: the removed records can be restored from the deleted records.">
         <input value={confirm} onChange={(e) => setConfirm(readValue(e))} style={input} />
       </Field>
-      <Buttons onClose={onClose} onSave={save} busy={busy} ready={ready} label="Reset stock" why="Type the business name to turn the button on." />
+      <Buttons onClose={onClose} onSave={save} busy={busy} ready={ready} label="Initialize stock" why="Type the business name to turn the button on." />
     </Shell>
   );
 };

@@ -1327,6 +1327,7 @@ const SharePanel = ({ ownerId, folder, onClose }: { ownerId: string; folder: str
           <button onClick={() => void create()} disabled={busy} style={button(true)}>
             Make a link
           </button>
+          {busy ? <span style={{ fontSize: 12, color: c.text3 }}>Working…</span> : null}
         </div>
         {shares === null ? (
           <span style={{ fontSize: 13, color: c.text3 }}>Loading…</span>

@@ -130,6 +130,7 @@ export const StockPage = () => {
   const [simplePref, setSimplePref] = useState<boolean | null>(readSimplePref);
   const [moreOpen, setMoreOpen] = useState(false);
   const [guideHidden, setGuideHidden] = useState<boolean>(readGuideHidden);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,17 +138,23 @@ export const StockPage = () => {
     // The remembered workspace is checked first: loading before that could show another (or none).
     if (!scope.ready) return;
     setError('');
+    setRefreshing(true);
     new RestApiClient()
       .post<{ success: boolean; data?: StockData; today?: string; message?: string }>('/s/stock', { action: 'data', ownerId: scope.ownerId || undefined })
       .then((result) => {
         if (cancelled) return;
+        setRefreshing(false);
         if (!result.success || !result.data) setError(result.message ?? 'Could not load the stock.');
         else {
           setData(result.data);
           if (result.today) setToday(result.today);
         }
       })
-      .catch((reason) => !cancelled && setError(reason instanceof Error ? reason.message : String(reason)));
+      .catch((reason) => {
+        if (cancelled) return;
+        setRefreshing(false);
+        setError(reason instanceof Error ? reason.message : String(reason));
+      });
 
     return () => {
       cancelled = true;
@@ -329,7 +336,10 @@ export const StockPage = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 200, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span style={{ fontSize: 18, fontWeight: 600 }}>Stock{scope.owner ? ` · ${scope.owner.name}` : ''}</span>
-            <span style={{ fontSize: 13, color: c.text3 }}>What's in hand, every IN and OUT, and what to order next.</span>
+            <span style={{ fontSize: 13, color: c.text3 }}>
+              What's in hand, every IN and OUT, and what to order next.
+              {refreshing && data ? <b style={{ color: c.accent, marginLeft: 8 }}>Updating…</b> : null}
+            </span>
           </div>
           <button
             onClick={() => {
@@ -354,6 +364,11 @@ export const StockPage = () => {
               <button onClick={() => setOpen({ kind: 'take' })} style={control} disabled={!data} title="Count the shelf and fix the differences">
                 Count
               </button>
+              {owner?.canManage ? (
+                <button onClick={() => setOpen({ kind: 'reset' })} style={{ ...control, color: 'var(--t-color-red11)' }} disabled={!data} title="Clear all the stock records of this business and start again (host / admin only)">
+                  Initialize stock…
+                </button>
+              ) : null}
               <button onClick={() => setMoreOpen(!moreOpen)} style={{ ...control, color: c.text2 }}>
                 {moreOpen ? 'Less' : 'More ▾'}
               </button>
@@ -374,11 +389,7 @@ export const StockPage = () => {
                       ⬆ Import Excel
                     </button>
                   ) : null}
-                  {owner?.canManage ? (
-                    <button onClick={() => setOpen({ kind: 'reset' })} style={{ ...control, color: 'var(--t-color-red11)' }} disabled={!data} title="Host / admin: start this business's stock over">
-                      Reset stock…
-                    </button>
-                  ) : null}
+
                 </>
               ) : null}
             </>

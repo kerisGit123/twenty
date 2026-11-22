@@ -36,7 +36,7 @@ import { isLoan, movementType, STOCK_GROUPS, WASTE_REASONS } from 'src/shared/st
 //   stockTake     { date, counts: [{ itemId, counted }] }
 //   deleteMovement { movementId }                 (soft delete, restorable)
 //   saveOpening   { date, lines: [{ itemId, quantity, expiryDate? }] }   opening stock for many items at once (host / admin; no expense)
-//   resetStock    { ownerId, confirm, withItems?, withExpenses? }   start a business's stock over (host / admin; soft delete)
+//   resetStock    { ownerId, confirm, withItems?, withExpenses? }   "Initialize stock": start a business's stock over (host / admin; soft delete)
 //   saveRule      { ownerId, reorderBelow, orderUpTo }
 //   saveSales     { ownerId, month, amount }          the shop's sales that month (RM)
 //   saveOrder     { id?, date, notes, lines: [{ itemId, cartons }] }   new: one order per supplier and workspace
@@ -1302,7 +1302,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
 
     const parts = [`${movementIds.length} lines`, `${orderIds.length} orders`, `${requestIds.length} requests`, ...(withItems ? [`${itemIds.length} items`] : []), ...(withExpenses ? [`${expenseIds.length} purchase expenses`] : [])];
 
-    return json({ success: true, message: `Stock reset for ${owner.name}: removed ${parts.join(', ')}. They can be restored from the deleted records.` });
+    return json({ success: true, message: `Stock initialized for ${owner.name}: removed ${parts.join(', ')}. They can be restored from the deleted records.` });
   },
 
   saveOrder: async (client, scope, body) => {
