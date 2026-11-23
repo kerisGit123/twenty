@@ -222,6 +222,11 @@ export const QuickSheet = ({
           </span>
         ) : null}
         {kind === 'PURCHASE' ? <input value={reference} onChange={(e) => setReference(readValue(e))} placeholder="Invoice / DO no. (optional)" style={{ ...input, height: 40 }} /> : null}
+        {kind === 'PURCHASE' ? (
+          <span style={{ fontSize: 12, color: c.text3 }}>
+            Did you order this earlier? Close this and use Ordering, Orders, <b>Receive goods</b> instead, so the order is ticked off and is not counted as still on order.
+          </span>
+        ) : null}
         {kind === 'WASTE' ? <ReasonPicker value={reason} onChange={setReason} /> : null}
         {oldDate || future ? (
           <span style={{ fontSize: 13, color: 'var(--t-color-amber11)', fontWeight: 500 }}>
