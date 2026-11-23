@@ -1359,7 +1359,7 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
       const [ownerId, supplier] = key.split('|');
       const number = await nextOrderNumber(client, date.slice(0, 4));
 
-      await client.mutation({
+      const created = (await client.mutation({
         createStockOrder: {
           __args: {
             data: {
@@ -1375,9 +1375,26 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
           },
           id: true,
         },
-      });
+      })) as { createStockOrder?: { id?: string } };
+
       made.push(`${number} (${supplier})`);
+
+      // "Goods arrived": book the whole list into stock now, as if received in full.
+      if (body.receiveNow === true && created.createStockOrder?.id) {
+        const received = await handlers.receiveOrder(client, scope, {
+          orderId: created.createStockOrder.id,
+          date,
+          reference: text(body.reference, 120) || number,
+          addExpense: body.addExpense !== false,
+          lines: list.map((l) => ({ itemId: l.itemId, units: lineOf(l).orderedUnits })),
+        });
+        const outcome = JSON.parse(String(received.body)) as { success?: boolean; message?: string };
+
+        if (!outcome.success) return json({ success: false, message: `${number} was saved but could not be added to stock: ${outcome.message ?? 'unknown error'}` });
+      }
     }
+
+    if (body.receiveNow === true) return json({ success: true, message: `Stock updated from ${made.join(', ')}. Every line is in stock now.` });
 
     return json({ success: true, message: `Order saved: ${made.join(', ')}. Send it to the supplier, then mark it as sent.` });
   },
