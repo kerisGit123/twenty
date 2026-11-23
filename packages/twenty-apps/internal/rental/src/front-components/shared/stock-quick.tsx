@@ -129,7 +129,7 @@ export const QuickSheet = ({
   const askFirst = (oldDate || future) && !oldOk;
   // Why Save is greyed out, said in words, so nobody has to guess.
   const whyNot = !lines.length
-    ? 'Tap +1 carton or a unit button on an item to add it.'
+    ? 'Search an item, tap it (+1 carton), then type how many. Save when the list is right.'
     : !isFullDate(date)
       ? 'Pick a full date.'
       : kind === 'WASTE' && !reason
@@ -291,13 +291,15 @@ export const QuickSheet = ({
                     {isOut ? '−' : '+'}
                     {cartonsAndUnits(units, item)} {item.name}
                     {short ? ' (more than in stock)' : ''}
-                    {isOpening ? (
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '4px 0 8px' }}>
-                        <QtyInput key={`${id}:${taps[id] ?? 0}`} item={item} units={units} onChange={(next) => setBasket((b) => ({ ...b, [id]: next }))} />
-                        <span style={{ fontSize: 12, color: c.text3 }}>expires</span>
-                        <input type="date" value={expiry[id] ?? ''} onChange={(e) => setExpiry({ ...expiry, [id]: readValue(e) })} title="Expiry date (optional)" style={{ ...input, width: 140, height: 32 }} />
-                      </div>
-                    ) : null}
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '4px 0 8px' }}>
+                      <QtyInput key={`${id}:${taps[id] ?? 0}`} item={item} units={units} onChange={(next) => setBasket((b) => ({ ...b, [id]: next }))} />
+                      {isOpening ? (
+                        <>
+                          <span style={{ fontSize: 12, color: c.text3 }}>expires</span>
+                          <input type="date" value={expiry[id] ?? ''} onChange={(e) => setExpiry({ ...expiry, [id]: readValue(e) })} title="Expiry date (optional)" style={{ ...input, width: 140, height: 32 }} />
+                        </>
+                      ) : null}
+                    </div>
                     {!isOut && !isOpening ? (
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', margin: '4px 0 8px' }}>
                         <span style={{ fontSize: 12, color: c.text3 }}>expires</span>
