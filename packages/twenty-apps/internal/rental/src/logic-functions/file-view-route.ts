@@ -26,6 +26,7 @@ const page = (title: string, body: string, status = 200) =>
   #pages { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 12px; }
   canvas { max-width: 100%; height: auto !important; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.4); border-radius: 2px; }
   .count { position: sticky; top: 0; z-index: 2; text-align: center; font-size: 12px; padding: 6px; background: rgba(43,45,49,.92); }
+  video.clip { display: block; width: 100%; max-height: 100vh; background: #000; }
   img.photo { display: block; max-width: 100%; max-height: 100vh; margin: 0 auto; object-fit: contain; }
 </style></head><body>${body}</body></html>`,
     { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
@@ -65,6 +66,14 @@ const handler = async (event: RoutePayload): Promise<Response> => {
 
     if (type.startsWith('image/') && !/heic|heif/.test(type)) {
       return page(name, `<img class="photo" alt="${escape(name)}" src="data:${type};base64,${base64}">`);
+    }
+
+    // Tutorial videos (mp4 / webm / mov): played right in the viewer. The bytes go in as a
+    // data link, because a sandboxed frame can't always load a signed link from another host.
+    if (type.startsWith('video/') || /\.(mp4|webm|mov)$/i.test(name)) {
+      const videoType = type.startsWith('video/') ? type : /\.webm$/i.test(name) ? 'video/webm' : 'video/mp4';
+
+      return page(name, `<video class="clip" controls playsinline preload="auto" src="data:${videoType};base64,${base64}"></video>`);
     }
 
     if (!isPdf) {
