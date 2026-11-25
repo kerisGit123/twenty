@@ -200,6 +200,12 @@ const MS: Record<string, string> = {
   'Wrong order / returned': 'Salah pesanan / dipulangkan',
   'Other / missing': 'Lain-lain / hilang',
 
+  // Edit / delete a product
+  'Change this product: name, price, packing…': 'Ubah produk ini: nama, harga, bungkusan…',
+  'No stock has ever been recorded for this product. If it was added by mistake, you can delete it.': 'Tiada stok pernah direkodkan untuk produk ini. Jika ia ditambah secara tidak sengaja, anda boleh memadamnya.',
+  'Sure? Tap again to delete': 'Pasti? Tekan sekali lagi untuk padam',
+  'Delete product': 'Padam produk',
+
   // Product panel
   'Edit': 'Ubah',
   'Stop using this product': 'Berhenti guna produk ini',

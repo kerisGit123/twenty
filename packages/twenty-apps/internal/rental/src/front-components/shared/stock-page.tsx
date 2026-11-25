@@ -250,6 +250,11 @@ export const StockPage = () => {
     if (first.needsWriteOff) setOpen({ kind: 'writeOff', item, message: first.message ?? '' });
   };
 
+  // Delete a product that was added by mistake (the server only allows it when nothing was ever recorded).
+  const deleteItem = async (item: StockItem) => {
+    if ((await stockAction({ action: 'deleteItem', itemId: item.id })).success) done();
+  };
+
   const sheet = (() => {
     if (!open || !data) return null;
     if (open.kind === 'detail') {
@@ -264,6 +269,7 @@ export const StockPage = () => {
           onRecord={(type) => setOpen({ kind: 'record', type, itemId: status.item.id })}
           onEdit={mayManage(status.item.ownerId) ? () => setOpen({ kind: 'item', item: status.item }) : null}
           onToggleStatus={mayManage(status.item.ownerId) ? () => toggleStatus(status.item) : null}
+          onDelete={mayManage(status.item.ownerId) ? () => deleteItem(status.item) : null}
         />
       ) : null;
     }
@@ -532,6 +538,7 @@ export const StockPage = () => {
             {tab === 'stock' ? (
               <StockHandTab
                 simple={simple}
+                onEdit={simple ? undefined : (item) => (mayManage(item.ownerId) ? setOpen({ kind: 'item', item }) : undefined)}
                 statuses={statuses}
                 today={today}
                 ownerId={ownerId}

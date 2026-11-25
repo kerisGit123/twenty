@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import { Sheet } from 'src/front-components/shared/sheet';
 import { c, Chip, control, FLAG, primary, qty, rm, shortDate, small } from 'src/front-components/shared/stock-ui';
 import { MONTHS } from 'src/shared/months';
@@ -40,7 +42,9 @@ export const ItemDetailSheet = ({
   onRecord,
   onEdit,
   onToggleStatus,
+  onDelete,
 }: {
+  onDelete?: (() => void) | null; // only offered for a product with no records at all
   status: StockStatus;
   movements: StockMovement[];
   today: string;
@@ -50,6 +54,8 @@ export const ItemDetailSheet = ({
   onToggleStatus: (() => void) | null;
 }) => {
   const { item } = status;
+  const [sure, setSure] = useState(false);
+  const deletable = Boolean(onDelete) && movements.length === 0;
   // Usage over the last 6 months, plus the forecast for next month.
   const takes = new Map(monthlyTakes(movements));
   const months = monthsUpTo(today, 6);
@@ -100,6 +106,17 @@ export const ItemDetailSheet = ({
             </button>
           ) : null}
         </div>
+        {deletable ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: 'var(--t-color-red2)', border: '1px solid var(--t-color-red6)', borderRadius: c.radius, padding: '8px 10px' }}>
+            <span style={{ flex: 1, minWidth: 200, fontSize: 13, color: c.text2 }}>{tr('No stock has ever been recorded for this product. If it was added by mistake, you can delete it.')}</span>
+            <button
+              onClick={() => (sure ? onDelete?.() : setSure(true))}
+              style={{ ...small, color: 'var(--t-color-red11)', borderColor: 'var(--t-color-red9)', fontWeight: 600 }}
+            >
+              {sure ? tr('Sure? Tap again to delete') : tr('Delete product')}
+            </button>
+          </div>
+        ) : null}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
           <Fact

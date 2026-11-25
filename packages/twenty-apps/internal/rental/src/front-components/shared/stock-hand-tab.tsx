@@ -176,8 +176,10 @@ export const StockHandTab = ({
   onRecord,
   onOpen,
   onWriteOffExpired,
+  onEdit,
   simple = false,
 }: {
+  onEdit?: (item: StockItem) => void; // managers: an Edit button on each row
   simple?: boolean; // staff: item, in stock and one badge; no forecast columns
   statuses: StockStatus[];
   today: string;
@@ -369,16 +371,23 @@ export const StockHandTab = ({
                   </>
                   )}
                   <td style={{ ...cell, textAlign: 'right' }}>
-                    {s.item.status !== 'DISCONTINUED' ? (
-                      <span style={{ display: 'inline-flex', gap: 4 }}>
-                        <button onClick={() => onRecord('PURCHASE', s.item.id)} style={{ ...small, width: 28, justifyContent: 'center', padding: 0 }} title="Stock in (purchase)">
-                          +
+                    <span style={{ display: 'inline-flex', gap: 4 }}>
+                      {s.item.status !== 'DISCONTINUED' ? (
+                        <>
+                          <button onClick={() => onRecord('PURCHASE', s.item.id)} style={{ ...small, width: 28, justifyContent: 'center', padding: 0 }} title="Stock in (purchase)">
+                            +
+                          </button>
+                          <button onClick={() => onRecord('TAKE', s.item.id)} style={{ ...small, width: 28, justifyContent: 'center', padding: 0 }} title="Take out">
+                            −
+                          </button>
+                        </>
+                      ) : null}
+                      {onEdit ? (
+                        <button onClick={() => onEdit(s.item)} style={small} title={tr('Change this product: name, price, packing…')}>
+                          {tr('Edit')}
                         </button>
-                        <button onClick={() => onRecord('TAKE', s.item.id)} style={{ ...small, width: 28, justifyContent: 'center', padding: 0 }} title="Take out">
-                          −
-                        </button>
-                      </span>
-                    ) : null}
+                      ) : null}
+                    </span>
                   </td>
                 </tr>
               )),

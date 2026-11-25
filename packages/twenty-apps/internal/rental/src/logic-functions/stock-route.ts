@@ -935,6 +935,34 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     return json({ success: true, message: status === 'DISCONTINUED' ? `${item.name} is discontinued.` : `${item.name} is active again.` });
   },
 
+  // Delete a product that was added by mistake. Only when nothing was ever recorded for it and it is on
+  // no order or branch request (otherwise the history and month-end numbers would break: use
+  // "Stop using this product" instead). A soft delete: it stays restorable from the deleted records.
+  deleteItem: async (client, scope, body) => {
+    const item = await loadItem(client, text(body.itemId, 64));
+
+    if (!item) return fail('Item not found.', 404);
+    if (!inScope(scope, item.ownerId)) return json({ ...NOT_ALLOWED });
+    if (!canManage(scope, item.ownerId)) return fail("Only an admin or this business's host can delete items. Ask them.", 403);
+
+    if ((await loadItemMovements(client, item.id)).length) {
+      return fail('This product has stock records, so it cannot be deleted (that would break the history). Use “Stop using this product” instead.');
+    }
+    if (item.ownerId) {
+      const [orders, requests] = await Promise.all([
+        queryAll<Parameters<typeof toStockOrder>[0]>(client, 'stockOrders', { filter: { ownerId: { eq: item.ownerId } } }, ORDER_FIELDS),
+        queryAll<Parameters<typeof toStockRequest>[0]>(client, 'stockRequests', { filter: { ownerId: { eq: item.ownerId } } }, REQUEST_FIELDS),
+      ]);
+
+      if (orders.some((o) => toStockOrder(o).lines.some((l) => l.itemId === item.id)) || requests.some((r) => toStockRequest(r).lines.some((l) => l.itemId === item.id))) {
+        return fail('This product is on an order or a branch request, so it cannot be deleted. Use “Stop using this product” instead.');
+      }
+    }
+    await client.mutation({ deleteStockItem: { __args: { id: item.id }, id: true } });
+
+    return json({ success: true, message: `${item.name} is deleted. It can be restored from the deleted stock items.` });
+  },
+
   record: async (client, scope, body) => {
     const type = text(body.type, 20);
     const lines = Array.isArray(body.lines) ? (body.lines as Json[]) : [];
