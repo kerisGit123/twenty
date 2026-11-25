@@ -10,18 +10,20 @@ import { STOCK_GROUPS } from 'src/shared/stock-types';
 // Fast entry for the store room (works on a phone): search, tap +1 ctn /
 // +1 unit, collect several items, save once. And writing off expired stock.
 
-const big: CSSProperties = { ...control, height: 40, minWidth: 64, fontSize: 15, fontWeight: 600 };
+const big: CSSProperties = { ...control, height: 44, minWidth: 64, fontSize: 15, fontWeight: 600 };
 const isFullDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
+// "explain" is the one plain sentence shown under the buttons: what this does to the stock;
+// "save" is the Save button's own words, so nobody has to guess what pressing it does.
 const KINDS = [
-  { value: 'TAKE', label: 'Take out', party: '', hint: 'Taken to (which shop / outlet)' },
-  { value: 'WASTE', label: 'Waste / missing', party: '', hint: 'Reason (expired, spilled, missing…)' },
-  { value: 'PURCHASE', label: 'Stock in', party: '', hint: 'Supplier' },
+  { value: 'TAKE', label: 'Take out', party: '', hint: 'Taken to (which shop / outlet)', save: 'Save take out', explain: 'Stock leaves the store room for the shop. The stock goes down.' },
+  { value: 'WASTE', label: 'Waste', party: '', hint: 'Reason (expired, spilled, missing…)', save: 'Save waste', explain: 'Thrown away or spoiled. The stock goes down. Not sure where it went? Close this and use Count.' },
+  { value: 'PURCHASE', label: 'Stock in', party: '', hint: 'Supplier', save: 'Add to stock', explain: 'A delivery came. The stock goes up and the cost is added to Expenses.' },
   // Stock that moves between shops: it has to be given back, swapped or paid for later (Loans tab).
-  { value: 'BORROW_IN', label: 'Borrowed in', party: '', hint: 'Which shop lent it to you?' },
-  { value: 'BORROW', label: 'Lent out', party: '', hint: 'Which shop borrowed it?' },
+  { value: 'BORROW_IN', label: 'Borrow in', party: '', hint: 'Which shop lent it to you?', save: 'Save borrow', explain: 'You got stock from another shop. The stock goes up and you owe it back.' },
+  { value: 'BORROW', label: 'Lend out', party: '', hint: 'Which shop borrowed it?', save: 'Save lend', explain: 'You gave stock to another shop. The stock goes down and they owe it back.' },
   // Starting balances for many items at once: one date, then search and add. No supplier, no expense.
-  { value: 'OPENING', label: 'Starting stock', party: '', hint: '' },
+  { value: 'OPENING', label: 'Starting stock', party: '', hint: '', save: 'Save starting stock', explain: '' },
 ] as const;
 
 const toNumber = parseNumber;
@@ -129,7 +131,7 @@ export const QuickSheet = ({
   const askFirst = (oldDate || future) && !oldOk;
   // Why Save is greyed out, said in words, so nobody has to guess.
   const whyNot = !lines.length
-    ? 'Search an item, tap it (+1 carton), then type how many. Save when the list is right.'
+    ? 'Step 1: tap a product below (+1 carton or +1 each). Step 2: check or type the number on the product. Step 3: press Save.'
     : !isFullDate(date)
       ? 'Pick a full date.'
       : kind === 'WASTE' && !reason
@@ -201,6 +203,7 @@ export const QuickSheet = ({
             </button>
           ))}
         </div>
+        {KINDS.find((k) => k.value === kind)?.explain ? <span style={{ fontSize: 13, color: c.text2 }}>{KINDS.find((k) => k.value === kind)?.explain}</span> : null}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px', gap: 8 }}>
           {kind === 'WASTE' || isOpening ? <span /> : <input value={party} onChange={(e) => setParty(readValue(e))} placeholder={KINDS.find((k) => k.value === kind)?.hint} style={{ ...input, height: 40 }} />}
           <input type="date" value={date} onChange={(e) => {
@@ -252,7 +255,7 @@ export const QuickSheet = ({
             const picked = basket[item.id] ?? 0;
 
             return (
-              <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 8, border: `1px solid ${picked ? c.accent : c.border}`, borderRadius: c.radius, background: picked ? 'var(--t-color-blue2)' : c.bg }}>
+              <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: 8, border: `1px solid ${picked ? c.accent : c.border}`, borderRadius: c.radius, background: picked ? 'var(--t-color-blue2)' : c.bg }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 500, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</div>
                   <div style={{ fontSize: 12, color: c.text3 }}>
@@ -279,6 +282,14 @@ export const QuickSheet = ({
                     ✕
                   </button>
                 ) : null}
+                {/* The number is typed right here on the product, not in a list further down. */}
+                {picked ? (
+                  <div style={{ flexBasis: '100%', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 13, color: c.text2, fontWeight: 600 }}>{isOut ? 'How many to take out:' : 'How many:'}</span>
+                    <QtyInput key={`${item.id}:${taps[item.id] ?? 0}`} item={item} units={picked} onChange={(next) => setBasket((b) => ({ ...b, [item.id]: next }))} />
+                    {isOut && picked > inStock ? <b style={{ fontSize: 12, color: 'var(--t-color-red11)' }}>more than the {cartonsAndUnits(inStock, item)} in stock</b> : null}
+                  </div>
+                ) : null}
               </div>
             );
           })}
@@ -296,15 +307,12 @@ export const QuickSheet = ({
                     {isOut ? '−' : '+'}
                     {cartonsAndUnits(units, item)} {item.name}
                     {short ? ' (more than in stock)' : ''}
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '4px 0 8px' }}>
-                      <QtyInput key={`${id}:${taps[id] ?? 0}`} item={item} units={units} onChange={(next) => setBasket((b) => ({ ...b, [id]: next }))} />
-                      {isOpening ? (
-                        <>
-                          <span style={{ fontSize: 12, color: c.text3 }}>expires</span>
-                          <input type="date" value={expiry[id] ?? ''} onChange={(e) => setExpiry({ ...expiry, [id]: readValue(e) })} title="Expiry date (optional)" style={{ ...input, width: 140, height: 32 }} />
-                        </>
-                      ) : null}
-                    </div>
+                    {isOpening ? (
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '4px 0 8px' }}>
+                        <span style={{ fontSize: 12, color: c.text3 }}>expires</span>
+                        <input type="date" value={expiry[id] ?? ''} onChange={(e) => setExpiry({ ...expiry, [id]: readValue(e) })} title="Expiry date (optional)" style={{ ...input, width: 140, height: 32 }} />
+                      </div>
+                    ) : null}
                     {!isOut && !isOpening ? (
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', margin: '4px 0 8px' }}>
                         <span style={{ fontSize: 12, color: c.text3 }}>expires</span>
@@ -325,7 +333,7 @@ export const QuickSheet = ({
               Cancel
             </button>
             <button onClick={save} disabled={busy || !lines.length || !isFullDate(date) || (kind === 'WASTE' && !reason) || needsShop || staffShort || !!saver.confirm} style={{ ...primary, ...{ height: 40, fontSize: 15 }, flex: 2, opacity: busy || !lines.length || !isFullDate(date) || (kind === 'WASTE' && !reason) || needsShop || staffShort || !!saver.confirm ? 0.5 : 1 }}>
-              {busy ? 'Saving…' : askFirst ? `Yes, save with ${shortDate(date)}` : `Save ${lines.length} item${lines.length === 1 ? '' : 's'}`}
+              {busy ? 'Saving…' : askFirst ? `Yes, save with ${shortDate(date)}` : `${KINDS.find((k) => k.value === kind)?.save ?? 'Save'} · ${lines.length} product${lines.length === 1 ? '' : 's'}`}
             </button>
           </div>
         </div>
