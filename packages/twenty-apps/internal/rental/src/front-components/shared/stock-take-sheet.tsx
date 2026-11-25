@@ -123,9 +123,13 @@ export const StockTakeSheet = ({
     <Sheet width={780} onClose={onClose}>
       <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: c.font, color: c.text, overflowY: 'auto', height: '100%', boxSizing: 'border-box' }}>
         <span style={{ fontSize: 16, fontWeight: 600 }}>Count the shelf</span>
-        <span style={{ fontSize: 13, color: c.text2 }}>
-          Count what is on the shelf. The expected quantity only shows after you count a product, so the count stays honest. Only products you fill in are checked; differences are saved as stock-take adjustments on the date.
-        </span>
+        <div style={{ fontSize: 13, color: c.text2, background: c.bg2, borderRadius: c.radius, padding: '10px 12px', lineHeight: 1.6 }}>
+          <b style={{ color: c.text }}>How to count:</b>
+          <div>1. Stand at the shelf and count what is really there.</div>
+          <div>2. Type that number next to each product. Leave a product empty if you did not count it: it will not be changed.</div>
+          <div>3. Check the red and green numbers, then press Save. The stock is corrected to what you counted, and any missing stock is recorded.</div>
+          <div style={{ color: c.text3 }}>The system hides its own number until you type yours, so the count stays honest.</div>
+        </div>
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <Field label="Counted on">
@@ -154,24 +158,24 @@ export const StockTakeSheet = ({
             </div>
           </div>
           <div style={{ border: `1px solid ${c.border}`, borderRadius: c.radius, padding: 10 }}>
-            <div style={{ fontSize: 12, color: c.text3 }}>Short ({short.length} items)</div>
+            <div style={{ fontSize: 12, color: c.text3 }}>Missing: less than the system ({short.length})</div>
             <div style={{ fontSize: 18, fontWeight: 600, color: shortValue ? 'var(--t-color-red11)' : c.text }}>{shortValue ? `−${rm(shortValue)}` : rm(0)}</div>
           </div>
           <div style={{ border: `1px solid ${c.border}`, borderRadius: c.radius, padding: 10 }}>
-            <div style={{ fontSize: 12, color: c.text3 }}>Over ({over.length} items)</div>
+            <div style={{ fontSize: 12, color: c.text3 }}>Extra: more than the system ({over.length})</div>
             <div style={{ fontSize: 18, fontWeight: 600, color: overValue ? 'var(--t-color-green11)' : c.text }}>{overValue ? `+${rm(overValue)}` : rm(0)}</div>
           </div>
           <div style={{ border: `1px solid ${c.border}`, borderRadius: c.radius, padding: 10 }}>
-            <div style={{ fontSize: 12, color: c.text3 }}>Net difference</div>
+            <div style={{ fontSize: 12, color: c.text3 }}>Total difference</div>
             <div style={{ fontSize: 18, fontWeight: 600, color: overValue - shortValue < 0 ? 'var(--t-color-red11)' : c.text }}>{rm(round2(overValue - shortValue))}</div>
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder="Search code or name" style={{ ...input, width: 200, height: 30 }} />
-          {tab('all', `All ${rows.length}`)}
-          {tab('counted', `Counted ${counted.length}`)}
-          {tab('diff', `Differences ${counted.filter((r) => r.diff !== 0).length}`)}
+          {tab('all', `All products (${rows.length})`)}
+          {tab('counted', `Counted so far (${counted.length})`)}
+          {tab('diff', `With a difference (${counted.filter((r) => r.diff !== 0).length})`)}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -198,15 +202,15 @@ export const StockTakeSheet = ({
                   <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                     {per > 1 ? (
                       <>
-                        <input value={r.entry?.ctn ?? ''} onChange={(e) => setEntry(r.item.id, { ctn: readValue(e) })} inputMode="decimal" placeholder="0" style={{ ...input, width: 54, height: 30 }} />
+                        <input value={r.entry?.ctn ?? ''} onChange={(e) => setEntry(r.item.id, { ctn: readValue(e) })} inputMode="decimal" placeholder="0" style={{ ...input, width: 60, height: 38, fontSize: 15 }} />
                         <span style={{ fontSize: 12, color: c.text3 }}>ctn</span>
                       </>
                     ) : null}
-                    <input value={r.entry?.loose ?? ''} onChange={(e) => setEntry(r.item.id, { loose: readValue(e) })} inputMode="decimal" placeholder="0" style={{ ...input, width: 58, height: 30 }} />
+                    <input value={r.entry?.loose ?? ''} onChange={(e) => setEntry(r.item.id, { loose: readValue(e) })} inputMode="decimal" placeholder="0" style={{ ...input, width: 64, height: 38, fontSize: 15 }} />
                     <span style={{ fontSize: 12, color: c.text3, whiteSpace: 'nowrap' }}>{r.item.unit || 'unit'}</span>
                   </div>
                   <div style={{ width: 120, textAlign: 'right', fontSize: 12, color: r.diff < 0 ? 'var(--t-color-red11)' : 'var(--t-color-green11)' }}>
-                    {r.counted === null ? '' : r.diff === 0 ? '✓ matches' : (
+                    {r.counted === null ? '' : r.diff === 0 ? '✓ right' : (
                       <>
                         <b>
                           {r.diff > 0 ? '+' : ''}
@@ -226,13 +230,22 @@ export const StockTakeSheet = ({
           ])}
         </div>
 
-        <div style={{ position: 'sticky', bottom: 0, background: c.bg, borderTop: `1px solid ${c.border}`, paddingTop: 10, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={control}>
-            Cancel
-          </button>
-          <button onClick={save} disabled={busy || !ready} style={{ ...primary, opacity: busy || !ready ? 0.5 : 1 }}>
-            {busy ? 'Saving…' : `Save count (${counted.length})`}
-          </button>
+        <div style={{ position: 'sticky', bottom: 0, background: c.bg, borderTop: `1px solid ${c.border}`, paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <span style={{ fontSize: 13, color: ready ? c.text2 : 'var(--t-color-amber11)', fontWeight: ready ? 400 : 500 }}>
+            {!isFullDate(date)
+              ? 'Pick the date you counted.'
+              : !counted.length
+                ? 'Type how many you counted for at least one product, then Save.'
+                : `Saving corrects ${counted.length} product${counted.length === 1 ? '' : 's'}: ${short.length} missing, ${over.length} extra, ${counted.length - short.length - over.length} already right.`}
+          </span>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={onClose} style={{ ...control, height: 40 }}>
+              Cancel
+            </button>
+            <button onClick={save} disabled={busy || !ready} style={{ ...primary, height: 40, opacity: busy || !ready ? 0.5 : 1 }}>
+              {busy ? 'Saving…' : `Save count · ${counted.length} product${counted.length === 1 ? '' : 's'}`}
+            </button>
+          </div>
         </div>
       </div>
     </Sheet>
