@@ -1,5 +1,6 @@
 import { c, control, primary } from 'src/front-components/shared/stock-ui';
 import type { StockMovement } from 'src/shared/stock';
+import { L } from 'src/front-components/shared/stock-i18n';
 
 // Getting started with Stock: the three jobs everything else builds on, in order.
 // Each step ticks itself off from the real data (a product exists, a delivery was
@@ -29,27 +30,36 @@ export const StockGuide = ({
   const hasItems = itemCount > 0;
   const steps: Step[] = [
     {
-      title: 'Add your products',
+      title: L('Add your products', 'Tambah produk anda'),
       how: canAddItems
-        ? 'Once per product: its name, how it is packed (e.g. 8 bags in a carton) and the price of a carton. Have your monthly stock Excel? Import it to add everything at once. Already have stock on the shelf? Use Manage products, then “Enter what is on the shelf now”, to type how many you have, for many items at once.'
-        : 'Your manager adds the products first (name, how it is packed, price). Ask them, then come back here.',
+        ? L(
+            'Once per product: its name, how it is packed (e.g. 8 bags in a carton) and the price of a carton. Have your monthly stock Excel? Import it to add everything at once. Already have stock on the shelf? Use Manage products, then “Enter what is on the shelf now”, to type how many you have, for many items at once.',
+            'Sekali sahaja bagi setiap produk: namanya, cara ia dibungkus (cth. 8 beg dalam sekarton) dan harga sekarton. Ada Excel stok bulanan? Import untuk tambah semua sekali gus. Sudah ada stok di rak? Guna Urus produk, kemudian “Masukkan stok di rak sekarang”, untuk taip berapa banyak, bagi banyak produk sekali gus.',
+          )
+        : L('Your manager adds the products first (name, how it is packed, price). Ask them, then come back here.', 'Pengurus anda menambah produk dahulu (nama, cara bungkus, harga). Minta mereka, kemudian kembali ke sini.'),
       done: hasItems,
-      action: canAddItems ? { label: '+ Add a product', onClick: onAddItem } : null,
-      extra: canAddItems ? { label: '⬆ Add many from Excel', onClick: onImport } : null,
+      action: canAddItems ? { label: L('+ Add a product', '+ Tambah produk'), onClick: onAddItem } : null,
+      extra: canAddItems ? { label: L('⬆ Add many from Excel', '⬆ Tambah banyak dari Excel'), onClick: onImport } : null,
     },
     {
-      title: 'A delivery came: Stock in',
-      how: 'Tap Stock in, type the supplier (and invoice no.), tap +1 carton for each carton or type the number, then Save. The cost is added to Expenses by itself.',
+      title: L('A delivery came: Stock in', 'Barang sampai: Stok masuk'),
+      how: L(
+        'Tap Stock in, type the supplier (and invoice no.), tap +1 carton for each carton or type the number, then Save. The cost is added to Expenses by itself.',
+        'Tekan Stok masuk, taip pembekal (dan no. invois), tekan +1 karton bagi setiap karton atau taip nombornya, kemudian Simpan. Kos masuk ke Perbelanjaan secara automatik.',
+      ),
       done: movements.some((m) => m.type === 'PURCHASE' || m.type === 'BORROW_IN'),
-      action: { label: '↓ Stock in', onClick: onStockIn },
-      blocked: hasItems ? undefined : 'Add a product first.',
+      action: { label: L('↓ Stock in', '↓ Stok masuk'), onClick: onStockIn },
+      blocked: hasItems ? undefined : L('Add a product first.', 'Tambah produk dahulu.'),
     },
     {
-      title: 'Stock goes to the shop: Take out',
-      how: 'Tap Take out, type which shop it goes to, add the cartons, then Save. Take-outs are how the app learns your monthly usage and tells you what to order.',
+      title: L('Stock goes to the shop: Take out', 'Stok ke kedai: Keluarkan'),
+      how: L(
+        'Tap Take out, type which shop it goes to, add the cartons, then Save. Take-outs are how the app learns your monthly usage and tells you what to order.',
+        'Tekan Keluarkan, taip kedai mana ia dihantar, tambah karton, kemudian Simpan. Rekod keluaran membolehkan sistem belajar penggunaan bulanan anda dan memberitahu apa yang perlu dipesan.',
+      ),
       done: movements.some((m) => m.type === 'TAKE'),
-      action: { label: '↑ Take out', onClick: onTakeOut },
-      blocked: hasItems ? undefined : 'Add a product first.',
+      action: { label: L('↑ Take out', '↑ Keluarkan'), onClick: onTakeOut },
+      blocked: hasItems ? undefined : L('Add a product first.', 'Tambah produk dahulu.'),
     },
   ];
   const doneCount = steps.filter((s) => s.done).length;
@@ -59,14 +69,16 @@ export const StockGuide = ({
     <div style={{ border: `1px solid var(--t-color-blue6)`, background: 'var(--t-color-blue2)', borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 200, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ fontSize: 16, fontWeight: 700 }}>{doneCount === steps.length ? 'You are set up' : 'Getting started with Stock'}</span>
+          <span style={{ fontSize: 16, fontWeight: 700 }}>{doneCount === steps.length ? L('You are set up', 'Anda sudah bersedia') : L('Getting started with Stock', 'Mula menggunakan Stok')}</span>
           <span style={{ fontSize: 13, color: c.text2 }}>
-            {doneCount === steps.length ? 'All three basics done. Waste, Count and Borrow / lend work the same way.' : `${doneCount} of ${steps.length} done. Do these once and you know the whole system.`}
+            {doneCount === steps.length
+              ? L('All three basics done. Waste, Count and Borrow / lend work the same way.', 'Ketiga-tiga asas selesai. Rosak, Kira stok dan Pinjam / beri pinjam berfungsi dengan cara yang sama.')
+              : L(`${doneCount} of ${steps.length} done. Do these once and you know the whole system.`, `${doneCount} daripada ${steps.length} selesai. Buat ini sekali dan anda tahu keseluruhan sistem.`)}
           </span>
         </div>
         {onHide ? (
           <button onClick={onHide} style={{ ...control, height: 30, fontSize: 13, color: c.text2 }}>
-            Hide guide
+            {L('Hide guide', 'Sembunyi panduan')}
           </button>
         ) : null}
       </div>
@@ -110,7 +122,7 @@ export const StockGuide = ({
                   <>
                     {s.action ? (
                       <button onClick={s.action.onClick} style={current ? primary : control}>
-                        {s.done ? `${s.action.label} again` : s.action.label}
+                        {s.done ? L(`${s.action.label} again`, `${s.action.label} lagi`) : s.action.label}
                       </button>
                     ) : null}
                     {s.extra ? (
@@ -118,7 +130,7 @@ export const StockGuide = ({
                         {s.extra.label}
                       </button>
                     ) : null}
-                    {s.done ? <span style={{ fontSize: 12, color: 'var(--t-color-green11)', fontWeight: 600 }}>Done</span> : null}
+                    {s.done ? <span style={{ fontSize: 12, color: 'var(--t-color-green11)', fontWeight: 600 }}>{L('Done', 'Siap')}</span> : null}
                   </>
                 )}
               </div>

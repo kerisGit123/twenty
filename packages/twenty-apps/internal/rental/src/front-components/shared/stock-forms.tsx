@@ -9,6 +9,7 @@ import { c, control, Field, input, knownShop, parseNumber, PriceNote, primary, q
 import type { StockOwner } from 'src/logic-functions/utils/stock-data';
 import { cartonsAndUnits, defaultExpiry, loanRemaining, type StockItem, type StockMovement, type StockRule, unitPrice } from 'src/shared/stock';
 import { STOCK_GROUPS, STOCK_MOVEMENT_TYPES } from 'src/shared/stock-types';
+import { L, tr } from 'src/front-components/shared/stock-i18n';
 
 // The Stock page's forms: add/edit an item, record IN/OUT, settle a lending,
 // stock take and the re-order rule.
@@ -139,10 +140,10 @@ const Buttons = ({ onClose, onSave, busy, ready, label, why }: { onClose: () => 
   {why && !ready ? <div style={{ fontSize: 13, color: 'var(--t-color-amber11)', fontWeight: 500, textAlign: 'right' }}>{why}</div> : null}
   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', paddingTop: 4 }}>
     <button onClick={onClose} style={control}>
-      Cancel
+      {tr('Cancel')}
     </button>
     <button onClick={onSave} disabled={busy || !ready} style={{ ...primary, opacity: busy || !ready ? 0.5 : 1 }}>
-      {busy ? 'Saving…' : label}
+      {busy ? tr('Saving…') : label}
     </button>
   </div>
   </>
@@ -207,7 +208,7 @@ export const ItemSheet = ({ item, owners, defaultOwnerId, today, onClose, onDone
   };
 
   return (
-    <Shell title={item ? `Edit ${item.name}` : 'Add stock item'} onClose={onClose}>
+    <Shell title={item ? `${tr('Edit')} ${item.name}` : tr('Add stock item')} onClose={onClose}>
       {!item && owners.length > 1 ? (
         <Field label="Workspace">
           <select value={form.ownerId} onChange={set('ownerId')} style={select}>
@@ -220,36 +221,41 @@ export const ItemSheet = ({ item, owners, defaultOwnerId, today, onClose, onDone
         </Field>
       ) : null}
       {/* The few things everyone needs: name, how it is packed, the price. The rest is under "More details". */}
-      <Field label="Product name">
-        <input value={form.name} onChange={set('name')} placeholder="e.g. Milk powder" style={input} />
+      <Field label={tr('Product name')}>
+        <input value={form.name} onChange={set('name')} placeholder={L('e.g. Milk powder', 'cth. Serbuk susu')} style={input} />
       </Field>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-        <Field label="Sold in" hint="e.g. bag, bottle, pcs">
-          <input value={form.unit} onChange={set('unit')} placeholder="e.g. bag" style={input} />
+        <Field label={tr('Sold in')} hint={tr('e.g. bag, bottle, pcs')}>
+          <input value={form.unit} onChange={set('unit')} placeholder={L('e.g. bag', 'cth. beg')} style={input} />
         </Field>
-        <Field label="How many in one carton" hint="1 if it has no carton">
+        <Field label={tr('How many in one carton')} hint={tr('1 if it has no carton')}>
           <input value={form.unitsPerCarton} onChange={set('unitsPerCarton')} inputMode="numeric" style={input} />
         </Field>
-        <Field label="Price of one carton (RM)">
+        <Field label={tr('Price of one carton (RM)')}>
           <input value={form.cartonPrice} onChange={set('cartonPrice')} inputMode="decimal" placeholder="0.00" style={input} />
         </Field>
       </div>
       {toNumber(form.unitsPerCarton) > 0 ? (
         <div style={{ fontSize: 13, color: c.text2, background: c.bg2, borderRadius: c.radius, padding: '8px 10px' }}>
-          1 carton = {toNumber(form.unitsPerCarton)} {form.unit || 'unit'}
-          {toNumber(form.cartonPrice) > 0 ? ` · RM ${toNumber(form.cartonPrice).toFixed(2)} per carton · RM ${(toNumber(form.cartonPrice) / toNumber(form.unitsPerCarton)).toFixed(2)} each` : ''}
+          {L('1 carton', '1 karton')} = {toNumber(form.unitsPerCarton)} {form.unit || L('unit', 'unit')}
+          {toNumber(form.cartonPrice) > 0
+            ? L(
+                ` · RM ${toNumber(form.cartonPrice).toFixed(2)} per carton · RM ${(toNumber(form.cartonPrice) / toNumber(form.unitsPerCarton)).toFixed(2)} each`,
+                ` · RM ${toNumber(form.cartonPrice).toFixed(2)} sekarton · RM ${(toNumber(form.cartonPrice) / toNumber(form.unitsPerCarton)).toFixed(2)} sebiji`,
+              )
+            : ''}
         </div>
       ) : null}
-      <Field label="Supplier" hint="Orders are grouped by supplier">
-        <input value={form.supplier} onChange={set('supplier')} placeholder="e.g. your supplier's name" style={input} />
+      <Field label={tr('Supplier')} hint={tr('Orders are grouped by supplier')}>
+        <input value={form.supplier} onChange={set('supplier')} placeholder={L("e.g. your supplier's name", 'cth. nama pembekal anda')} style={input} />
       </Field>
       {!item ? (
-        <Field label="How many do you have on the shelf now?" hint="Leave at 0 if you have none yet. You can count the shelf later.">
+        <Field label={tr('How many do you have on the shelf now?')} hint={tr('Leave at 0 if you have none yet. You can count the shelf later.')}>
           <QtyInput item={preview} units={0} onChange={(units) => setForm({ ...form, openingUnits: units })} />
         </Field>
       ) : null}
       <button onClick={() => setMore(!more)} style={{ ...control, alignSelf: 'flex-start', color: c.text2 }}>
-        {more ? '▾ Fewer details' : '▸ More details (code, group, re-order, shelf life, notes)'}
+        {more ? tr('▾ Fewer details') : tr('▸ More details (code, group, re-order, shelf life, notes)')}
       </button>
       {more ? (
         <>
@@ -291,8 +297,8 @@ export const ItemSheet = ({ item, owners, defaultOwnerId, today, onClose, onDone
         onSave={save}
         busy={busy}
         ready={Boolean(form.name.trim() && toNumber(form.unitsPerCarton) > 0)}
-        label={item ? 'Save item' : 'Add item'}
-        why={!form.name.trim() ? 'Type the product name first.' : toNumber(form.unitsPerCarton) > 0 ? undefined : 'Type how many are in one carton (1 if none).'}
+        label={tr(item ? 'Save item' : 'Add item')}
+        why={!form.name.trim() ? tr('Type the product name first.') : toNumber(form.unitsPerCarton) > 0 ? undefined : tr('Type how many are in one carton (1 if none).')}
       />
     </Shell>
   );

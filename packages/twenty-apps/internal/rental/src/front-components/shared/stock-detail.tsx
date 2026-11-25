@@ -3,6 +3,7 @@ import { c, Chip, control, FLAG, primary, qty, rm, shortDate, small } from 'src/
 import { MONTHS } from 'src/shared/months';
 import { cartonsAndUnits, expiryState, monthlyTakes, type StockItem, type StockMovement, type StockStatus, unitValue } from 'src/shared/stock';
 import { movementType } from 'src/shared/stock-types';
+import { tr } from 'src/front-components/shared/stock-i18n';
 
 // One item: key numbers, usage by month (bars) and its latest IN/OUT.
 
@@ -74,10 +75,10 @@ export const ItemDetailSheet = ({
           {item.status !== 'DISCONTINUED' ? (
             <>
               <button onClick={() => onRecord('PURCHASE')} style={primary}>
-                + Stock in
+                {tr('+ Stock in')}
               </button>
               <button onClick={() => onRecord('TAKE')} style={control}>
-                − Take out
+                {tr('− Take out')}
               </button>
               <button onClick={() => onRecord('BORROW')} style={control}>
                 Lent out
@@ -90,12 +91,12 @@ export const ItemDetailSheet = ({
           <span style={{ flex: 1 }} />
           {onEdit ? (
             <button onClick={onEdit} style={small}>
-              Edit
+              {tr('Edit')}
             </button>
           ) : null}
           {onToggleStatus ? (
             <button onClick={onToggleStatus} style={small}>
-              {item.status === 'DISCONTINUED' ? 'Use this product again' : 'Stop using this product'}
+              {tr(item.status === 'DISCONTINUED' ? 'Use this product again' : 'Stop using this product')}
             </button>
           ) : null}
         </div>

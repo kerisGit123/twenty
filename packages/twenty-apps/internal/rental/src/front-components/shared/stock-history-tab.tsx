@@ -6,6 +6,7 @@ import { MovementsTab } from 'src/front-components/shared/stock-tabs';
 import { c, control, dayMonth, ExcelButton, input, qty, withOwner } from 'src/front-components/shared/stock-ui';
 import { cartonsAndUnits, historySheet, type StockItem, type StockMovement } from 'src/shared/stock';
 import { STOCK_GROUPS } from 'src/shared/stock-types';
+import { getLang, tr } from 'src/front-components/shared/stock-i18n';
 
 // In / out history: by default a grid like the paper sheet (items down,
 // dates across, IN in green and OUT in blue); "List" shows each movement
@@ -93,7 +94,7 @@ export const HistoryTab = ({
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         {toggle}
         <DateRangePicker value={range} today={today} onChange={setRange} />
-        <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder="Search code or name" style={{ ...input, width: 200 }} />
+        <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder={tr('Search code or name')} style={{ ...input, width: 200 }} />
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: c.text3 }}>
           <span style={{ color: GREEN, fontWeight: 600 }}>{ins.length} deliver{ins.length === 1 ? 'y' : 'ies'} in</span> · <span style={{ color: BLUE, fontWeight: 600 }}>{outDates.length} OUT day{outDates.length === 1 ? '' : 's'}</span>
@@ -102,7 +103,15 @@ export const HistoryTab = ({
       </div>
 
       <div style={{ fontSize: 13, color: c.text2, background: c.bg2, borderRadius: c.radius, padding: '8px 12px' }}>
-        <b>How to read it:</b> Opening (what you had before the first day) + <span style={{ color: GREEN, fontWeight: 600 }}>in</span> − <span style={{ color: BLUE, fontWeight: 600 }}>out</span> = Balance (what is left after the last day). Switch to “List” to see who recorded each line.
+        {getLang() === 'ms' ? (
+          <>
+            <b>Cara membaca:</b> Opening (stok sebelum hari pertama) + <span style={{ color: GREEN, fontWeight: 600 }}>masuk</span> − <span style={{ color: BLUE, fontWeight: 600 }}>keluar</span> = Balance (baki selepas hari terakhir). Tekan “List” untuk lihat siapa merekod setiap baris.
+          </>
+        ) : (
+          <>
+            <b>How to read it:</b> Opening (what you had before the first day) + <span style={{ color: GREEN, fontWeight: 600 }}>in</span> − <span style={{ color: BLUE, fontWeight: 600 }}>out</span> = Balance (what is left after the last day). Switch to “List” to see who recorded each line.
+          </>
+        )}
       </div>
 
       <div style={{ overflow: 'auto', border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg, maxHeight: 'calc(100cqh - 280px)', minHeight: 240 }}>
@@ -148,13 +157,13 @@ export const HistoryTab = ({
             {groups.length ? null : (
               <tr>
                 <td colSpan={columns} style={{ ...cell, textAlign: 'center', color: c.text3, padding: 32 }}>
-                  Nothing came in or went out in this period.
+                  {tr('Nothing came in or went out in this period.')}
                   <div style={{ marginTop: 10, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
                     <button onClick={() => setRange(presetRange('thisYear', today))} style={control}>
-                      Show this year
+                      {tr('Show this year')}
                     </button>
                     <button onClick={() => setRange(presetRange('all', today))} style={control}>
-                      Show all time
+                      {tr('Show all time')}
                     </button>
                   </div>
                 </td>

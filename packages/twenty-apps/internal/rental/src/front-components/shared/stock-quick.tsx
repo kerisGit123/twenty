@@ -6,6 +6,7 @@ import { BelowZeroBar, QtyInput, stockAction, useStockSave } from 'src/front-com
 import { c, control, input, knownShop, lastPartyFor, parseNumber, PriceNote, primary, qty, ReasonPicker, ShopChips, shortDate } from 'src/front-components/shared/stock-ui';
 import { cartonsAndUnits, defaultExpiry, expiredStock, type StockItem, type StockMovement } from 'src/shared/stock';
 import { STOCK_GROUPS } from 'src/shared/stock-types';
+import { L, tr } from 'src/front-components/shared/stock-i18n';
 
 // Fast entry for the store room (works on a phone): search, tap +1 ctn /
 // +1 unit, collect several items, save once. And writing off expired stock.
@@ -111,7 +112,8 @@ export const QuickSheet = ({
       : view === 'all'
         ? byCode
         : byCode.filter((i) => i.group === view);
-  const usualLabel = `Usual items: the ones most often ${verb} in the last 60 days`;
+  const verbMs = kind === 'TAKE' ? 'dikeluarkan' : kind === 'WASTE' ? 'dibuang' : kind === 'PURCHASE' ? 'diterima' : kind === 'BORROW_IN' ? 'dipinjam' : kind === 'OPENING' ? 'dikira masuk' : 'dipinjamkan';
+  const usualLabel = L(`Usual items: the ones most often ${verb} in the last 60 days`, `Produk biasa: yang paling kerap ${verbMs} dalam 60 hari lepas`);
   const add = (item: StockItem, units: number) => {
     setTaps((t) => ({ ...t, [item.id]: (t[item.id] ?? 0) + 1 }));
     setBasket((b) => ({ ...b, [item.id]: Math.max(0, Math.round(((b[item.id] ?? 0) + units) * 100) / 100) }));
@@ -131,15 +133,18 @@ export const QuickSheet = ({
   const askFirst = (oldDate || future) && !oldOk;
   // Why Save is greyed out, said in words, so nobody has to guess.
   const whyNot = !lines.length
-    ? 'Step 1: tap a product below (+1 carton or +1 each). Step 2: check or type the number on the product. Step 3: press Save.'
+    ? tr('Step 1: tap a product below (+1 carton or +1 each). Step 2: check or type the number on the product. Step 3: press Save.')
     : !isFullDate(date)
-      ? 'Pick a full date.'
+      ? tr('Pick a full date.')
       : kind === 'WASTE' && !reason
-        ? 'Pick why it was wasted (the buttons near the top), then Save.'
+        ? tr('Pick why it was wasted (the buttons near the top), then Save.')
         : needsShop
-          ? 'Say which shop: tap one near the top or type its name.'
+          ? tr('Say which shop: tap one near the top or type its name.')
           : staffShort
-            ? `Not enough stock for ${shortLines.map(([id]) => byId.get(id)?.name ?? 'an item').join(', ')}. Count the shelf first (Count button), or ask a manager.`
+            ? L(
+                `Not enough stock for ${shortLines.map(([id]) => byId.get(id)?.name ?? 'an item').join(', ')}. Count the shelf first (Count button), or ask a manager.`,
+                `Stok tidak cukup untuk ${shortLines.map(([id]) => byId.get(id)?.name ?? 'satu produk').join(', ')}. Kira rak dahulu (butang Kira stok), atau minta pengurus.`,
+              )
             : '';
 
   const save = async () => {
@@ -184,7 +189,7 @@ export const QuickSheet = ({
   return (
     <Sheet width={560} onClose={onClose}>
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: c.font, color: c.text, overflowY: 'auto', height: '100%', boxSizing: 'border-box' }}>
-        <span style={{ fontSize: 17, fontWeight: 600 }}>Quick entry</span>
+        <span style={{ fontSize: 17, fontWeight: 600 }}>{tr('Quick entry')}</span>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {kinds.map((k) => (
             <button
@@ -199,13 +204,13 @@ export const QuickSheet = ({
               }}
               style={{ ...big, flex: '1 1 90px', background: kind === k.value ? c.accent : c.bg, color: kind === k.value ? 'white' : c.text, borderColor: kind === k.value ? c.accent : c.border2 }}
             >
-              {k.label}
+              {tr(k.label)}
             </button>
           ))}
         </div>
-        {KINDS.find((k) => k.value === kind)?.explain ? <span style={{ fontSize: 13, color: c.text2 }}>{KINDS.find((k) => k.value === kind)?.explain}</span> : null}
+        {KINDS.find((k) => k.value === kind)?.explain ? <span style={{ fontSize: 13, color: c.text2 }}>{tr(KINDS.find((k) => k.value === kind)?.explain ?? '')}</span> : null}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px', gap: 8 }}>
-          {kind === 'WASTE' || isOpening ? <span /> : <input value={party} onChange={(e) => setParty(readValue(e))} placeholder={KINDS.find((k) => k.value === kind)?.hint} style={{ ...input, height: 40 }} />}
+          {kind === 'WASTE' || isOpening ? <span /> : <input value={party} onChange={(e) => setParty(readValue(e))} placeholder={tr(KINDS.find((k) => k.value === kind)?.hint ?? '')} style={{ ...input, height: 40 }} />}
           <input type="date" value={date} onChange={(e) => {
             setDate(readValue(e));
             setOldOk(false);
@@ -224,7 +229,7 @@ export const QuickSheet = ({
             Pick the date the stock was counted, search an item by code or name, then type or tap how many were on the shelf. Nothing is added to Expenses. This adds to what is already in the system: to correct a quantity, use Count.
           </span>
         ) : null}
-        {kind === 'PURCHASE' ? <input value={reference} onChange={(e) => setReference(readValue(e))} placeholder="Invoice / DO no. (optional)" style={{ ...input, height: 40 }} /> : null}
+        {kind === 'PURCHASE' ? <input value={reference} onChange={(e) => setReference(readValue(e))} placeholder={tr('Invoice / DO no. (optional)')} style={{ ...input, height: 40 }} /> : null}
         {kind === 'PURCHASE' ? (
           <span style={{ fontSize: 12, color: c.text3 }}>
             Did you order this earlier? Close this and use Ordering, Orders, <b>Receive goods</b> instead, so the order is ticked off and is not counted as still on order.
@@ -236,10 +241,10 @@ export const QuickSheet = ({
             {future ? `This date is ${-daysAgo} day${daysAgo === -1 ? '' : 's'} in the future` : `This is dated ${shortDate(date)}, ${daysAgo} days ago, not today`}. It is saved as a new entry with that date.
           </span>
         ) : null}
-        <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder="🔍 Type a code or name…" style={{ ...input, height: 44, fontSize: 15 }} />
+        <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder={tr('🔍 Type a code or name…')} style={{ ...input, height: 44, fontSize: 15 }} />
         {q ? null : (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {[{ value: 'usual', label: '★ Usual' }, { value: 'all', label: `All ${items.length}` }, ...groupsHere.map((g) => ({ value: g.value, label: g.label.split(' ')[0] }))].map((v) => (
+            {[{ value: 'usual', label: tr('★ Usual') }, { value: 'all', label: L(`All ${items.length}`, `Semua ${items.length}`) }, ...groupsHere.map((g) => ({ value: g.value, label: g.label.split(' ')[0] }))].map((v) => (
               <button key={v.value} onClick={() => setView(v.value)} style={{ ...control, height: 32, fontSize: 13, background: view === v.value ? c.accent : c.bg, color: view === v.value ? 'white' : c.text, borderColor: view === v.value ? c.accent : c.border2 }}>
                 {v.label}
               </button>
@@ -247,7 +252,11 @@ export const QuickSheet = ({
           </div>
         )}
         <span style={{ fontSize: 12, color: c.text3 }}>
-          {q ? `${shown.length} match${shown.length === 1 ? '' : 'es'} (searching all items by code, name or group)` : view === 'usual' ? `${usualLabel}. Tap All or a group to see everything.` : `${shown.length} items, by code`}
+          {q
+            ? L(`${shown.length} match${shown.length === 1 ? '' : 'es'} (searching all items by code, name or group)`, `${shown.length} padanan (mencari semua produk mengikut kod, nama atau kumpulan)`)
+            : view === 'usual'
+              ? L(`${usualLabel}. Tap All or a group to see everything.`, `${usualLabel}. Tekan Semua atau satu kumpulan untuk lihat semua.`)
+              : L(`${shown.length} items, by code`, `${shown.length} produk, mengikut kod`)}
         </span>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {shown.map((item) => {
@@ -259,14 +268,14 @@ export const QuickSheet = ({
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 500, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</div>
                   <div style={{ fontSize: 12, color: c.text3 }}>
-                    {item.code} · in stock {cartonsAndUnits(inStock, item)}
-                    {lastDone.get(item.id) ? ` · last ${verb} ${shortDate(lastDone.get(item.id) ?? null)}` : ` · never ${verb}`}
+                    {item.code} · {L('in stock', 'dalam stok')} {cartonsAndUnits(inStock, item)}
+                    {lastDone.get(item.id) ? L(` · last ${verb} ${shortDate(lastDone.get(item.id) ?? null)}`, ` · kali terakhir ${shortDate(lastDone.get(item.id) ?? null)}`) : L(` · never ${verb}`, ' · belum pernah')}
                     {picked ? <b style={{ color: c.accent }}> · {isOut ? '−' : '+'}{cartonsAndUnits(picked, item)}</b> : null}
                   </div>
                 </div>
                 {item.unitsPerCarton > 1 ? (
                   <button onClick={() => add(item, item.unitsPerCarton)} style={big} title={`One carton = ${item.unitsPerCarton} ${item.unit || 'units'}`}>
-                    +1 carton
+                    {tr('+1 carton')}
                   </button>
                 ) : null}
                 <button onClick={() => add(item, 1)} style={big} title="One unit">
@@ -285,15 +294,15 @@ export const QuickSheet = ({
                 {/* The number is typed right here on the product, not in a list further down. */}
                 {picked ? (
                   <div style={{ flexBasis: '100%', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 13, color: c.text2, fontWeight: 600 }}>{{ TAKE: 'How many to take out:', WASTE: 'How many wasted:', BORROW: 'How many to lend:', BORROW_IN: 'How many borrowed:', PURCHASE: 'How many arrived:', OPENING: 'How many on the shelf:' }[kind]}</span>
+                    <span style={{ fontSize: 13, color: c.text2, fontWeight: 600 }}>{tr({ TAKE: 'How many to take out:', WASTE: 'How many wasted:', BORROW: 'How many to lend:', BORROW_IN: 'How many borrowed:', PURCHASE: 'How many arrived:', OPENING: 'How many on the shelf:' }[kind])}</span>
                     <QtyInput key={`${item.id}:${taps[item.id] ?? 0}`} item={item} units={picked} onChange={(next) => setBasket((b) => ({ ...b, [item.id]: next }))} />
-                    {isOut && picked > inStock ? <b style={{ fontSize: 12, color: 'var(--t-color-red11)' }}>more than the {cartonsAndUnits(inStock, item)} in stock</b> : null}
+                    {isOut && picked > inStock ? <b style={{ fontSize: 12, color: 'var(--t-color-red11)' }}>{L(`more than the ${cartonsAndUnits(inStock, item)} in stock`, `lebih daripada ${cartonsAndUnits(inStock, item)} dalam stok`)}</b> : null}
                   </div>
                 ) : null}
               </div>
             );
           })}
-          {!shown.length ? <span style={{ fontSize: 13, color: c.text3 }}>{q ? 'No item matches.' : 'Type to find an item.'}</span> : null}
+          {!shown.length ? <span style={{ fontSize: 13, color: c.text3 }}>{q ? L('No item matches.', 'Tiada produk sepadan.') : L('Type to find an item.', 'Taip untuk cari produk.')}</span> : null}
         </div>
         <div style={{ position: 'sticky', bottom: 0, background: c.bg, borderTop: `1px solid ${c.border}`, paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
           {lines.length ? (
@@ -306,7 +315,7 @@ export const QuickSheet = ({
                   <div key={id} style={{ color: short ? 'var(--t-color-red11)' : c.text2 }}>
                     {isOut ? '−' : '+'}
                     {cartonsAndUnits(units, item)} {item.name}
-                    {short ? ' (more than in stock)' : ''}
+                    {short ? L(' (more than in stock)', ' (lebih daripada stok)') : ''}
                     {isOpening ? (
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '4px 0 8px' }}>
                         <span style={{ fontSize: 12, color: c.text3 }}>expires</span>
@@ -330,10 +339,10 @@ export const QuickSheet = ({
           {whyNot ? <div style={{ fontSize: 13, color: 'var(--t-color-amber11)', fontWeight: 500 }}>{whyNot}</div> : null}
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={onClose} style={{ ...big, flex: 1 }}>
-              Cancel
+              {tr('Cancel')}
             </button>
             <button onClick={save} disabled={busy || !lines.length || !isFullDate(date) || (kind === 'WASTE' && !reason) || needsShop || staffShort || !!saver.confirm} style={{ ...primary, ...{ height: 40, fontSize: 15 }, flex: 2, opacity: busy || !lines.length || !isFullDate(date) || (kind === 'WASTE' && !reason) || needsShop || staffShort || !!saver.confirm ? 0.5 : 1 }}>
-              {busy ? 'Saving…' : askFirst ? `Yes, save with ${shortDate(date)}` : `${KINDS.find((k) => k.value === kind)?.save ?? 'Save'} · ${lines.length} product${lines.length === 1 ? '' : 's'}`}
+              {busy ? tr('Saving…') : askFirst ? `Yes, save with ${shortDate(date)}` : `${tr(KINDS.find((k) => k.value === kind)?.save ?? 'Save')} · ${L(`${lines.length} product${lines.length === 1 ? '' : 's'}`, `${lines.length} produk`)}`}
             </button>
           </div>
         </div>

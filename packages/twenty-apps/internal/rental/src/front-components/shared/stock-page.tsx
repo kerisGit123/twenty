@@ -18,6 +18,7 @@ import { HistoryTab } from 'src/front-components/shared/stock-history-tab';
 import { ImportSheet } from 'src/front-components/shared/stock-import-sheet';
 import { IssueSheet, ReceiveRequestSheet, RequestSheet, RequestsTab, SettleRequestSheet } from 'src/front-components/shared/stock-requests-tab';
 import { c, control, lastPartyFor, primary } from 'src/front-components/shared/stock-ui';
+import { getLang, setLang, tr } from 'src/front-components/shared/stock-i18n';
 import { UsageTab } from 'src/front-components/shared/stock-usage-tab';
 import { StockGuide } from 'src/front-components/shared/stock-guide';
 import type { StockData } from 'src/logic-functions/utils/stock-data';
@@ -132,6 +133,14 @@ export const StockPage = () => {
   const [moreOpen, setMoreOpen] = useState(false);
   const [guideHidden, setGuideHidden] = useState<boolean>(readGuideHidden);
   const [refreshing, setRefreshing] = useState(false);
+  // English or Bahasa Malaysia; remembered in this browser. Every screen reads it through tr() / L().
+  const [lang, setLangState] = useState(getLang());
+  const switchLang = () => {
+    const next = lang === 'ms' ? 'en' : 'ms';
+
+    setLang(next);
+    setLangState(next);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -336,12 +345,15 @@ export const StockPage = () => {
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 200, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 18, fontWeight: 600 }}>Stock{scope.owner ? ` · ${scope.owner.name}` : ''}</span>
+            <span style={{ fontSize: 18, fontWeight: 600 }}>{tr('Stock')}{scope.owner ? ` · ${scope.owner.name}` : ''}</span>
             <span style={{ fontSize: 13, color: c.text3 }}>
-              What's in hand, every IN and OUT, and what to order next.
-              {refreshing && data ? <b style={{ color: c.accent, marginLeft: 8 }}>Updating…</b> : null}
+              {tr("What's in hand, every IN and OUT, and what to order next.")}
+              {refreshing && data ? <b style={{ color: c.accent, marginLeft: 8 }}>{tr('Updating…')}</b> : null}
             </span>
           </div>
+          <button onClick={switchLang} style={{ ...control, color: c.text2 }} title="English / Bahasa Malaysia">
+            🌐 {lang === 'ms' ? 'English' : 'Bahasa Malaysia'}
+          </button>
           <button
             onClick={() => {
               writeGuideHidden(!guideHidden);
@@ -350,11 +362,11 @@ export const StockPage = () => {
             style={{ ...control, color: c.text2 }}
             title="Show or hide the step-by-step guide"
           >
-            ? How to use
+            {tr('? How to use')}
           </button>
           {mayAddItems ? (
             <button onClick={() => chooseSimple(!simple)} style={{ ...control, color: c.text2 }} title={simple ? 'Manager tools: history, ordering plan, month end, items' : 'Back to the everyday buttons'}>
-              {simple ? 'Manager view' : 'Everyday view'}
+              {tr(simple ? 'Manager view' : 'Everyday view')}
             </button>
           ) : null}
           {/* One "Manage" menu instead of a row of buttons: products, starting stock, import, and
@@ -362,7 +374,7 @@ export const StockPage = () => {
           {mayAddItems ? (
             <div style={{ position: 'relative' }}>
               <button onClick={() => setMoreOpen(!moreOpen)} style={{ ...primary, background: c.bg, color: c.text, border: `1px solid ${c.border2}` }} disabled={!data} aria-expanded={moreOpen}>
-                Manage products ▾
+                {tr('Manage products ▾')}
               </button>
               {moreOpen ? (
                 <>
@@ -383,11 +395,11 @@ export const StockPage = () => {
                         }}
                         style={{ all: 'unset', cursor: 'pointer', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 1 }}
                       >
-                        <span style={{ fontSize: 14, fontWeight: 600 }}>{entry.label}</span>
-                        <span style={{ fontSize: 12, color: c.text3 }}>{entry.hint}</span>
+                        <span style={{ fontSize: 14, fontWeight: 600 }}>{tr(entry.label)}</span>
+                        <span style={{ fontSize: 12, color: c.text3 }}>{tr(entry.hint)}</span>
                       </button>
                     ))}
-                    <span style={{ fontSize: 12, color: c.text3, padding: '6px 12px 2px' }}>To remove a product you no longer use: click it in the list, then “Stop using this product”.</span>
+                    <span style={{ fontSize: 12, color: c.text3, padding: '6px 12px 2px' }}>{tr('To remove a product you no longer use: click it in the list, then “Stop using this product”.')}</span>
                     {owner?.canManage ? (
                       <>
                         <div style={{ height: 1, background: c.border, margin: '4px 6px' }} />
@@ -398,8 +410,8 @@ export const StockPage = () => {
                           }}
                           style={{ all: 'unset', cursor: 'pointer', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 1 }}
                         >
-                          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--t-color-red11)' }}>⚠ Start stock again…</span>
-                          <span style={{ fontSize: 12, color: c.text3 }}>Deletes all stock records of this business. Asks you to confirm.</span>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--t-color-red11)' }}>{tr('⚠ Start stock again…')}</span>
+                          <span style={{ fontSize: 12, color: c.text3 }}>{tr('Deletes all stock records of this business. Asks you to confirm.')}</span>
                         </button>
                       </>
                     ) : null}
@@ -450,8 +462,8 @@ export const StockPage = () => {
                 }}
               >
                 <span style={{ fontSize: 26, lineHeight: 1 }}>{b.icon}</span>
-                <span style={{ fontSize: 17, fontWeight: 700 }}>{b.label}</span>
-                <span style={{ fontSize: 12, opacity: 0.8 }}>{b.hint}</span>
+                <span style={{ fontSize: 17, fontWeight: 700 }}>{tr(b.label)}</span>
+                <span style={{ fontSize: 12, opacity: 0.8 }}>{tr(b.hint)}</span>
               </button>
             ))}
           </div>
@@ -474,7 +486,7 @@ export const StockPage = () => {
                 marginBottom: -1,
               }}
             >
-              {t.label}
+              {tr(t.label)}
               {t.key === 'ordering' && requestCount + orderAlerts ? ` (${requestCount + orderAlerts})` : ''}
               {t.key === 'borrowed' && movements.some((m) => (m.type === 'BORROW' || m.type === 'BORROW_IN') && (m.borrowStatus ?? 'OUTSTANDING') === 'OUTSTANDING') ? ' •' : ''}
             </button>
@@ -485,7 +497,7 @@ export const StockPage = () => {
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {views.map((v) => (
               <button key={v.key} onClick={() => setTab(v.key)} style={{ ...control, height: 32, fontSize: 13, background: tab === v.key ? c.accent : c.bg, color: tab === v.key ? 'white' : c.text, borderColor: tab === v.key ? c.accent : c.border2 }}>
-                {v.label}
+                {tr(v.label)}
                 {v.key === 'requests' && requestCount ? ` (${requestCount})` : ''}
                 {v.key === 'orders' && orderAlerts ? ` (${orderAlerts})` : ''}
               </button>
@@ -495,7 +507,7 @@ export const StockPage = () => {
         {error ? <span style={{ color: 'var(--t-color-red11)', fontSize: 13 }}>{error}</span> : null}
         {!data && !error ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }} aria-busy="true">
-            <span style={{ color: c.text3, fontSize: 13 }}>Loading your stock… the first load can take a few seconds.</span>
+            <span style={{ color: c.text3, fontSize: 13 }}>{tr('Loading your stock… the first load can take a few seconds.')}</span>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
               {[0, 1, 2, 3].map((n) => (
                 <div key={n} style={{ height: 64, borderRadius: 12, background: c.bg2, border: `1px solid ${c.border}` }} />

@@ -8,6 +8,7 @@ import { stockAction } from 'src/front-components/shared/stock-forms';
 import { c, control, Field, input, parseNumber, primary, qty, rm, withOwner } from 'src/front-components/shared/stock-ui';
 import { cartonsAndUnits, type StockItem, unitValue } from 'src/shared/stock';
 import { STOCK_GROUPS } from 'src/shared/stock-types';
+import { L, tr } from 'src/front-components/shared/stock-i18n';
 
 // Stock take: count what is on the shelf, see what differs from the system
 // (in units and RM) and save the differences as stock-take adjustments.
@@ -122,17 +123,17 @@ export const StockTakeSheet = ({
   return (
     <Sheet width={780} onClose={onClose}>
       <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: c.font, color: c.text, overflowY: 'auto', height: '100%', boxSizing: 'border-box' }}>
-        <span style={{ fontSize: 16, fontWeight: 600 }}>Count the shelf</span>
+        <span style={{ fontSize: 16, fontWeight: 600 }}>{tr('Count the shelf')}</span>
         <div style={{ fontSize: 13, color: c.text2, background: c.bg2, borderRadius: c.radius, padding: '10px 12px', lineHeight: 1.6 }}>
-          <b style={{ color: c.text }}>How to count:</b>
-          <div>1. Stand at the shelf and count what is really there.</div>
-          <div>2. Type that number next to each product. Leave a product empty if you did not count it: it will not be changed.</div>
-          <div>3. Check the red and green numbers, then press Save. The stock is corrected to what you counted, and any missing stock is recorded.</div>
-          <div style={{ color: c.text3 }}>The system hides its own number until you type yours, so the count stays honest.</div>
+          <b style={{ color: c.text }}>{tr('How to count:')}</b>
+          <div>{tr('1. Stand at the shelf and count what is really there.')}</div>
+          <div>{tr('2. Type that number next to each product. Leave a product empty if you did not count it: it will not be changed.')}</div>
+          <div>{tr('3. Check the red and green numbers, then press Save. The stock is corrected to what you counted, and any missing stock is recorded.')}</div>
+          <div style={{ color: c.text3 }}>{tr('The system hides its own number until you type yours, so the count stays honest.')}</div>
         </div>
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <Field label="Counted on">
+          <Field label={tr('Counted on')}>
             <input type="date" value={date} onChange={(e) => setDate(readValue(e))} style={{ ...input, width: 160, borderColor: isFullDate(date) ? undefined : 'var(--t-color-red9)' }} />
           </Field>
           <a
@@ -142,9 +143,9 @@ export const StockTakeSheet = ({
             title="A blank sheet to print or fill in at the shelf: no expected quantities"
             style={{ ...control, display: 'inline-flex', alignItems: 'center', textDecoration: 'none', fontWeight: 600, color: 'var(--t-color-green11)', whiteSpace: 'nowrap' }}
           >
-            ⬇ Count sheet (Excel)
+            {tr('⬇ Count sheet (Excel)')}
           </a>
-          <Field label="Filled in already? Load it here">
+          <Field label={tr('Filled in already? Load it here')}>
             <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={loadSheet} style={{ ...input, width: 250, paddingTop: 6 }} />
           </Field>
         </div>
@@ -152,30 +153,30 @@ export const StockTakeSheet = ({
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
           <div style={{ border: `1px solid ${c.border}`, borderRadius: c.radius, padding: 10 }}>
-            <div style={{ fontSize: 12, color: c.text3 }}>Counted</div>
+            <div style={{ fontSize: 12, color: c.text3 }}>{tr('Counted')}</div>
             <div style={{ fontSize: 18, fontWeight: 600 }}>
-              {counted.length} <span style={{ fontSize: 13, fontWeight: 400, color: c.text3 }}>of {rows.length}</span>
+              {counted.length} <span style={{ fontSize: 13, fontWeight: 400, color: c.text3 }}>{L('of', 'daripada')} {rows.length}</span>
             </div>
           </div>
           <div style={{ border: `1px solid ${c.border}`, borderRadius: c.radius, padding: 10 }}>
-            <div style={{ fontSize: 12, color: c.text3 }}>Missing: less than the system ({short.length})</div>
+            <div style={{ fontSize: 12, color: c.text3 }}>{L(`Missing: less than the system (${short.length})`, `Hilang: kurang daripada sistem (${short.length})`)}</div>
             <div style={{ fontSize: 18, fontWeight: 600, color: shortValue ? 'var(--t-color-red11)' : c.text }}>{shortValue ? `−${rm(shortValue)}` : rm(0)}</div>
           </div>
           <div style={{ border: `1px solid ${c.border}`, borderRadius: c.radius, padding: 10 }}>
-            <div style={{ fontSize: 12, color: c.text3 }}>Extra: more than the system ({over.length})</div>
+            <div style={{ fontSize: 12, color: c.text3 }}>{L(`Extra: more than the system (${over.length})`, `Lebih: melebihi sistem (${over.length})`)}</div>
             <div style={{ fontSize: 18, fontWeight: 600, color: overValue ? 'var(--t-color-green11)' : c.text }}>{overValue ? `+${rm(overValue)}` : rm(0)}</div>
           </div>
           <div style={{ border: `1px solid ${c.border}`, borderRadius: c.radius, padding: 10 }}>
-            <div style={{ fontSize: 12, color: c.text3 }}>Total difference</div>
+            <div style={{ fontSize: 12, color: c.text3 }}>{tr('Total difference')}</div>
             <div style={{ fontSize: 18, fontWeight: 600, color: overValue - shortValue < 0 ? 'var(--t-color-red11)' : c.text }}>{rm(round2(overValue - shortValue))}</div>
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder="Search code or name" style={{ ...input, width: 200, height: 30 }} />
-          {tab('all', `All products (${rows.length})`)}
-          {tab('counted', `Counted so far (${counted.length})`)}
-          {tab('diff', `With a difference (${counted.filter((r) => r.diff !== 0).length})`)}
+          <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder={tr('Search code or name')} style={{ ...input, width: 200, height: 30 }} />
+          {tab('all', L(`All products (${rows.length})`, `Semua produk (${rows.length})`))}
+          {tab('counted', L(`Counted so far (${counted.length})`, `Telah dikira (${counted.length})`))}
+          {tab('diff', L(`With a difference (${counted.filter((r) => r.diff !== 0).length})`, `Ada beza (${counted.filter((r) => r.diff !== 0).length})`))}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -210,7 +211,7 @@ export const StockTakeSheet = ({
                     <span style={{ fontSize: 12, color: c.text3, whiteSpace: 'nowrap' }}>{r.item.unit || 'unit'}</span>
                   </div>
                   <div style={{ width: 120, textAlign: 'right', fontSize: 12, color: r.diff < 0 ? 'var(--t-color-red11)' : 'var(--t-color-green11)' }}>
-                    {r.counted === null ? '' : r.diff === 0 ? '✓ right' : (
+                    {r.counted === null ? '' : r.diff === 0 ? tr('✓ right') : (
                       <>
                         <b>
                           {r.diff > 0 ? '+' : ''}
@@ -233,17 +234,20 @@ export const StockTakeSheet = ({
         <div style={{ position: 'sticky', bottom: 0, background: c.bg, borderTop: `1px solid ${c.border}`, paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <span style={{ fontSize: 13, color: ready ? c.text2 : 'var(--t-color-amber11)', fontWeight: ready ? 400 : 500 }}>
             {!isFullDate(date)
-              ? 'Pick the date you counted.'
+              ? tr('Pick the date you counted.')
               : !counted.length
-                ? 'Type how many you counted for at least one product, then Save.'
-                : `Saving corrects ${counted.length} product${counted.length === 1 ? '' : 's'}: ${short.length} missing, ${over.length} extra, ${counted.length - short.length - over.length} already right.`}
+                ? tr('Type how many you counted for at least one product, then Save.')
+                : L(
+                    `Saving corrects ${counted.length} product${counted.length === 1 ? '' : 's'}: ${short.length} missing, ${over.length} extra, ${counted.length - short.length - over.length} already right.`,
+                    `Simpan akan membetulkan ${counted.length} produk: ${short.length} hilang, ${over.length} lebih, ${counted.length - short.length - over.length} sudah betul.`,
+                  )}
           </span>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button onClick={onClose} style={{ ...control, height: 40 }}>
-              Cancel
+              {tr('Cancel')}
             </button>
             <button onClick={save} disabled={busy || !ready} style={{ ...primary, height: 40, opacity: busy || !ready ? 0.5 : 1 }}>
-              {busy ? 'Saving…' : `Save count · ${counted.length} product${counted.length === 1 ? '' : 's'}`}
+              {busy ? tr('Saving…') : L(`Save count · ${counted.length} product${counted.length === 1 ? '' : 's'}`, `Simpan kiraan · ${counted.length} produk`)}
             </button>
           </div>
         </div>

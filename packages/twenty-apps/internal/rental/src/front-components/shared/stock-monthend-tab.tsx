@@ -7,6 +7,7 @@ import { c, Chip, control, ExcelButton, monthLabel, primary, rm, small, withOwne
 import type { StockOwner } from 'src/logic-functions/utils/stock-data';
 import { type MonthEndRow, monthEndRows, type StockItem, type StockMovement } from 'src/shared/stock';
 import { WASTE_REASONS } from 'src/shared/stock-types';
+import { getLang, L, tr } from 'src/front-components/shared/stock-i18n';
 
 // Month end: each month's opening and closing stock (value), what came in
 // and went out, and closing a month so nothing dated in it can change.
@@ -113,7 +114,7 @@ export const MonthEndTab = ({
               onClick={() => setView(value)}
               style={{ ...control, border: 'none', borderRadius: 0, fontWeight: view === value ? 600 : 400, background: view === value ? 'var(--t-color-blue2)' : c.bg, color: view === value ? 'var(--t-color-blue11)' : c.text }}
             >
-              {label}
+              {tr(label)}
             </button>
           ))}
         </div>
@@ -139,33 +140,33 @@ export const MonthEndTab = ({
               if (!next) {
                 return (
                   <div style={{ border: `1px solid ${c.border}`, borderRadius: 12, padding: 14, fontSize: 13, color: c.text2 }}>
-                    <b style={{ color: c.text }}>Nothing to close right now.</b> Every finished month is already closed. When this month is over, count the shelf and close it here.
+                    <b style={{ color: c.text }}>{L('Nothing to close right now.', 'Tiada yang perlu ditutup sekarang.')}</b> {L('Every finished month is already closed. When this month is over, count the shelf and close it here.', 'Semua bulan yang sudah tamat telah ditutup. Apabila bulan ini tamat, kira rak dan tutup di sini.')}
                   </div>
                 );
               }
 
               return (
                 <div style={{ border: '1px solid var(--t-color-blue6)', background: 'var(--t-color-blue2)', borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <span style={{ fontSize: 15, fontWeight: 700 }}>Ready to close {monthLabel(next.month)}</span>
+                  <span style={{ fontSize: 15, fontWeight: 700 }}>{L(`Ready to close ${monthLabel(next.month)}`, `Sedia untuk tutup ${monthLabel(next.month)}`)}</span>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>1. Count the shelf</span>
-                      <span style={{ fontSize: 13, color: next.counted ? 'var(--t-color-green11)' : 'var(--t-color-amber11)' }}>{next.counted ? '✓ Counted this month' : 'Not counted yet. Counting makes the closing match the shelf.'}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{tr('1. Count the shelf')}</span>
+                      <span style={{ fontSize: 13, color: next.counted ? 'var(--t-color-green11)' : 'var(--t-color-amber11)' }}>{next.counted ? tr('✓ Counted this month') : tr('Not counted yet. Counting makes the closing match the shelf.')}</span>
                       {!next.counted ? (
                         <button onClick={() => onStockTake(monthEndDay(next.month))} style={{ ...control, alignSelf: 'flex-start' }}>
-                          Count now
+                          {tr('Count now')}
                         </button>
                       ) : null}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>2. Look at what was lost</span>
-                      <span style={{ fontSize: 13, color: c.text2 }}>{next.wasteValue ? `${rm(next.wasteValue)} was wasted or went missing. See the table below.` : 'Nothing wasted or missing was recorded.'}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{tr('2. Look at what was lost')}</span>
+                      <span style={{ fontSize: 13, color: c.text2 }}>{next.wasteValue ? L(`${rm(next.wasteValue)} was wasted or went missing. See the table below.`, `${rm(next.wasteValue)} rosak atau hilang. Lihat jadual di bawah.`) : tr('Nothing wasted or missing was recorded.')}</span>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>3. Close the month</span>
-                      <span style={{ fontSize: 13, color: c.text2 }}>Closing stock {rm(next.closingValue)}. Nobody can change this month after.</span>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{tr('3. Close the month')}</span>
+                      <span style={{ fontSize: 13, color: c.text2 }}>{L(`Closing stock ${rm(next.closingValue)}. Nobody can change this month after.`, `Stok penutup ${rm(next.closingValue)}. Selepas ini tiada siapa boleh ubah bulan ini.`)}</span>
                       <button onClick={() => setClosing(next)} style={{ ...primary, alignSelf: 'flex-start' }}>
-                        🔒 Close {monthLabel(next.month)}
+                        {L(`🔒 Close ${monthLabel(next.month)}`, `🔒 Tutup ${monthLabel(next.month)}`)}
                       </button>
                     </div>
                   </div>
@@ -174,7 +175,15 @@ export const MonthEndTab = ({
             })()
           ) : null}
           <span style={{ fontSize: 13, color: c.text2 }}>
-            <b>Open</b> = can still be changed. <b>🔒 Closed</b> = locked, so old records cannot be changed by mistake. Close months in order, after each month is over.
+            {getLang() === 'ms' ? (
+              <>
+                <b>Open</b> = masih boleh diubah. <b>🔒 Closed</b> = dikunci, supaya rekod lama tidak terubah secara tidak sengaja. Tutup bulan mengikut turutan, selepas setiap bulan tamat.
+              </>
+            ) : (
+              <>
+                <b>Open</b> = can still be changed. <b>🔒 Closed</b> = locked, so old records cannot be changed by mistake. Close months in order, after each month is over.
+              </>
+            )}
           </span>
 
       <div style={{ overflow: 'auto', border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg }}>
@@ -183,11 +192,11 @@ export const MonthEndTab = ({
             <tr>
               <th style={{ ...head, textAlign: 'left' }}>Month</th>
               <th style={head}>Opening</th>
-              <th style={{ ...head, color: 'var(--t-color-green11)' }}>+ Bought</th>
-              <th style={{ ...head, color: 'var(--t-color-green11)' }} title="Returns, borrowed in, count differences upward">+ Other in</th>
-              <th style={{ ...head, color: 'var(--t-color-blue11)' }} title="Taken out to the shop">− Used</th>
-              <th style={{ ...head, color: 'var(--t-color-red11)' }}>− Wasted / missing</th>
-              <th style={{ ...head, color: 'var(--t-color-blue11)' }} title="Lent out, given back, count differences downward">− Lent / returned / count</th>
+              <th style={{ ...head, color: 'var(--t-color-green11)' }}>{tr('+ Bought')}</th>
+              <th style={{ ...head, color: 'var(--t-color-green11)' }} title="Returns, borrowed in, count differences upward">{tr('+ Other in')}</th>
+              <th style={{ ...head, color: 'var(--t-color-blue11)' }} title="Taken out to the shop">{tr('− Used')}</th>
+              <th style={{ ...head, color: 'var(--t-color-red11)' }}>{tr('− Wasted / missing')}</th>
+              <th style={{ ...head, color: 'var(--t-color-blue11)' }} title="Lent out, given back, count differences downward">{tr('− Lent / returned / count')}</th>
               <th style={head}>Closing</th>
               <th style={{ ...head, textAlign: 'left' }}>Count</th>
               <th style={{ ...head, textAlign: 'left' }}>Status</th>

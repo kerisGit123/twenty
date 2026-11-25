@@ -4,6 +4,7 @@ import { readValue } from 'src/front-components/shared/read-value';
 import { useNarrow } from 'src/front-components/shared/use-narrow';
 import { c, control, ExcelButton, input, monthLabel, qty, rm, small, withOwner } from 'src/front-components/shared/stock-ui';
 import { cartonsAndUnits, expiryState, type StockItem, type StockStatus } from 'src/shared/stock';
+import { L, tr } from 'src/front-components/shared/stock-i18n';
 import { STOCK_GROUPS } from 'src/shared/stock-types';
 import { MONTHS } from 'src/shared/months';
 
@@ -152,13 +153,13 @@ const Tile = ({ label, value, note, color, active, onClick }: { label: string; v
 const StaffBadge = ({ s, today }: { s: StockStatus; today: string }) => {
   const expired = s.balance > 0 && expiryState(s.nearestExpiry, today) === 'EXPIRED';
   const badge = s.balance < 0
-    ? { text: 'Below zero: count it', color: 'red' }
+    ? { text: tr('Below zero: count it'), color: 'red' }
     : expired
-      ? { text: 'Expired: check shelf', color: 'red' }
+      ? { text: tr('Expired: check shelf'), color: 'red' }
       : s.flag === 'ORDER'
-        ? { text: s.onOrder ? 'On order' : 'Order now', color: s.onOrder ? 'blue' : 'red' }
+        ? { text: tr(s.onOrder ? 'On order' : 'Order now'), color: s.onOrder ? 'blue' : 'red' }
         : s.flag === 'LOW'
-          ? { text: 'Running low', color: 'amber' }
+          ? { text: tr('Running low'), color: 'amber' }
           : null;
 
   return badge ? (
@@ -212,23 +213,23 @@ export const StockHandTab = ({
     <>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <Tile
-          label="Order now"
+          label={tr('Order now')}
           value={String(order.length)}
-          note={order.length ? `${order.reduce((sum, s) => sum + s.suggestedCartons, 0)} ctn · ${rm(order.reduce((sum, s) => sum + s.suggestedCost, 0))}` : 'Nothing below the re-order level'}
+          note={order.length ? `${order.reduce((sum, s) => sum + s.suggestedCartons, 0)} ctn · ${rm(order.reduce((sum, s) => sum + s.suggestedCost, 0))}` : tr('Nothing below the re-order level')}
           color={order.length ? 'var(--t-color-red11)' : undefined}
           active={filter === 'order'}
           onClick={() => toggle('order')}
         />
-        <Tile label="Running low" value={String(low.length)} note="Within half a month of the re-order level" color={low.length ? 'var(--t-color-amber11)' : undefined} active={filter === 'low'} onClick={() => toggle('low')} />
+        <Tile label={tr('Running low')} value={String(low.length)} note={tr('Within half a month of the re-order level')} color={low.length ? 'var(--t-color-amber11)' : undefined} active={filter === 'low'} onClick={() => toggle('low')} />
         <Tile
-          label="Expired / expiring"
+          label={tr('Expired / expiring')}
           value={`${expired.length} / ${soon.length}`}
-          note={expired.length ? `${expired.length} expired, ${soon.length} within 60 days` : `${soon.length} within 60 days`}
+          note={expired.length ? L(`${expired.length} expired, ${soon.length} within 60 days`, `${expired.length} tamat tempoh, ${soon.length} dalam 60 hari`) : L(`${soon.length} within 60 days`, `${soon.length} dalam 60 hari`)}
           color={expired.length ? 'var(--t-color-red11)' : soon.length ? 'var(--t-color-amber11)' : undefined}
           active={filter === 'expiry'}
           onClick={() => toggle('expiry')}
         />
-        <Tile label="Stock value" value={rm(active.reduce((sum, s) => sum + s.value, 0))} note={`${active.length} items in use`} active={filter === 'all'} onClick={() => setFilter('all')} />
+        <Tile label={tr('Stock value')} value={rm(active.reduce((sum, s) => sum + s.value, 0))} note={L(`${active.length} items in use`, `${active.length} produk digunakan`)} active={filter === 'all'} onClick={() => setFilter('all')} />
       </div>
 
       {expired.length ? (
@@ -244,9 +245,9 @@ export const StockHandTab = ({
       ) : null}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder="Search code or name" style={{ ...input, width: narrow ? '100%' : 220 }} />
+        <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder={tr('Search code or name')} style={{ ...input, width: narrow ? '100%' : 220 }} />
         <select value={group} onChange={(e) => setGroup(readValue(e))} style={control}>
-          <option value="">All groups</option>
+          <option value="">{tr('All groups')}</option>
           {STOCK_GROUPS.map((g) => (
             <option key={g.value} value={g.value}>
               {g.label}
@@ -254,7 +255,7 @@ export const StockHandTab = ({
           ))}
         </select>
         <button onClick={() => toggle('discontinued')} style={{ ...control, fontWeight: filter === 'discontinued' ? 600 : 400, borderColor: filter === 'discontinued' ? c.accent : c.border2 }}>
-          Products no longer used
+          {tr('Products no longer used')}
         </button>
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: c.text3 }}>
@@ -276,17 +277,17 @@ export const StockHandTab = ({
         <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: simple ? 560 : 980 }}>
           <thead>
             <tr>
-              <th style={{ ...head, width: 56 }}>Code</th>
+              <th style={{ ...head, width: 56 }}>{tr('Code')}</th>
               <th style={head}>Item</th>
-              <th style={{ ...head, textAlign: 'right' }}>In stock</th>
+              <th style={{ ...head, textAlign: 'right' }}>{tr('In stock')}</th>
               {simple ? (
                 <th style={head}>Check</th>
               ) : (
                 <>
-                  <th style={head}>Months left</th>
-                  <th style={{ ...head, textAlign: 'right' }}>Used / month</th>
-                  <th style={{ ...head, textAlign: 'right' }}>To order</th>
-                  <th style={head}>Expiry</th>
+                  <th style={head}>{tr('Months left')}</th>
+                  <th style={{ ...head, textAlign: 'right' }}>{tr('Used / month')}</th>
+                  <th style={{ ...head, textAlign: 'right' }}>{tr('To order')}</th>
+                  <th style={head}>{tr('Expiry')}</th>
                 </>
               )}
               <th style={{ ...head, textAlign: 'right' }} />
@@ -387,7 +388,7 @@ export const StockHandTab = ({
       </div>
       )}
       <span style={{ fontSize: 12, color: c.text3 }}>
-        Click an item for its usage by month and IN/OUT history. The bar shows how long the stock lasts at next month&apos;s rate; the tick is the re-order level.
+        {L("Click an item for its usage by month and IN/OUT history. The bar shows how long the stock lasts at next month's rate; the tick is the re-order level.", 'Klik produk untuk lihat penggunaan mengikut bulan dan sejarah masuk/keluar. Bar menunjukkan berapa lama stok bertahan pada kadar bulan depan; tanda ialah paras tempah semula.')}
       </span>
     </>
   );
