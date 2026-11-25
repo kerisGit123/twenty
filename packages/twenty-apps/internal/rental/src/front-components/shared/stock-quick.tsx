@@ -285,7 +285,7 @@ export const QuickSheet = ({
                 {/* The number is typed right here on the product, not in a list further down. */}
                 {picked ? (
                   <div style={{ flexBasis: '100%', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 13, color: c.text2, fontWeight: 600 }}>{isOut ? 'How many to take out:' : 'How many:'}</span>
+                    <span style={{ fontSize: 13, color: c.text2, fontWeight: 600 }}>{{ TAKE: 'How many to take out:', WASTE: 'How many wasted:', BORROW: 'How many to lend:', BORROW_IN: 'How many borrowed:', PURCHASE: 'How many arrived:', OPENING: 'How many on the shelf:' }[kind]}</span>
                     <QtyInput key={`${item.id}:${taps[item.id] ?? 0}`} item={item} units={picked} onChange={(next) => setBasket((b) => ({ ...b, [item.id]: next }))} />
                     {isOut && picked > inStock ? <b style={{ fontSize: 12, color: 'var(--t-color-red11)' }}>more than the {cartonsAndUnits(inStock, item)} in stock</b> : null}
                   </div>
