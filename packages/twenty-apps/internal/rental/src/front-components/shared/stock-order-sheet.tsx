@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { readValue } from 'src/front-components/shared/read-value';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { stockAction } from 'src/front-components/shared/stock-forms';
+import { L, tr } from 'src/front-components/shared/stock-i18n';
 import { c, control, Field, input, primary, rm, select, small } from 'src/front-components/shared/stock-ui';
 import type { StockOwner } from 'src/logic-functions/utils/stock-data';
 import { cartonsToCover, type StockItem, type StockStatus, toCartons } from 'src/shared/stock';
@@ -102,7 +103,11 @@ export const OrderSheet = ({
       else next.push({ itemId: s.item.id, cartons: String(cartons) });
     }
     setLines(next);
-    setLoaded(count ? `Added ${count} product${count === 1 ? '' : 's'} for ${want} month${want === 1 ? '' : 's'} of use. Change any quantity.` : `Nothing to add: stock in hand and on order already cover ${want} month${want === 1 ? '' : 's'}.`);
+    setLoaded(
+      count
+        ? L(`Added ${count} product${count === 1 ? '' : 's'} for ${want} month${want === 1 ? '' : 's'} of use. Change any quantity.`, `${count} produk ditambah untuk guna ${want} bulan. Ubah mana-mana kuantiti.`)
+        : L(`Nothing to add: stock in hand and on order already cover ${want} month${want === 1 ? '' : 's'}.`, `Tiada untuk ditambah: stok di tangan dan dalam pesanan sudah cukup untuk ${want} bulan.`),
+    );
   };
 
   const save = async () => {
@@ -116,15 +121,21 @@ export const OrderSheet = ({
   return (
     <Sheet width={620} onClose={onClose}>
       <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: c.font, color: c.text, overflowY: 'auto', height: '100%', boxSizing: 'border-box' }}>
-        <span style={{ fontSize: 16, fontWeight: 600 }}>{order ? `Change ${order.number}` : 'New order'}</span>
+        <span style={{ fontSize: 16, fontWeight: 600 }}>{order ? L(`Change ${order.number}`, `Ubah ${order.number}`) : tr('New order')}</span>
         <span style={{ fontSize: 13, color: c.text2 }}>
           {order
-            ? `A draft order to ${order.supplier}: change what you want to order. Once it is marked as sent it can no longer be changed here.`
-            : 'Type a code or name, tap the product, then type how many cartons. This is your draft: the supplier raises the real PO / invoice, and what actually arrives is recorded with “Receive goods”.'}
+            ? L(
+                `A draft order to ${order.supplier}: change what you want to order. Once it is marked as sent it can no longer be changed here.`,
+                `Draf pesanan kepada ${order.supplier}: ubah apa yang anda mahu pesan. Setelah ditanda sebagai dihantar, ia tidak boleh diubah di sini.`,
+              )
+            : L(
+                'Type a code or name, tap the product, then type how many cartons. This is your draft: the supplier raises the real PO / invoice, and what actually arrives is recorded with “Receive goods”.',
+                'Taip kod atau nama, tekan produk, kemudian taip berapa karton. Ini draf anda: pembekal mengeluarkan PO / invois sebenar, dan apa yang benar-benar sampai direkodkan dengan “Terima barang”.',
+              )}
         </span>
         <div style={{ display: 'grid', gridTemplateColumns: !order && owners.length > 1 ? '1fr 1fr' : '1fr', gap: 8 }}>
           {!order && owners.length > 1 ? (
-            <Field label="Workspace">
+            <Field label={tr('Workspace')}>
               <select
                 value={ownerId}
                 onChange={(e) => {
@@ -142,13 +153,13 @@ export const OrderSheet = ({
               </select>
             </Field>
           ) : null}
-          <Field label={arrived && !order ? 'Date received' : 'Order date'}>
+          <Field label={arrived && !order ? tr('Date received') : tr('Order date')}>
             <input type="date" value={date} onChange={(e) => setDate(readValue(e))} style={{ ...input, width: 170, borderColor: isFullDate(date) ? undefined : 'var(--t-color-red9)' }} />
           </Field>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder="🔍 Type a code or name to add a product…" style={{ ...input, height: 44, fontSize: 15 }} />
+          <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder={tr('🔍 Type a code or name to add a product…')} style={{ ...input, height: 44, fontSize: 15 }} />
           <div style={{ border: `1px solid ${c.border}`, borderRadius: c.radius, overflow: 'hidden' }}>
             {matches.slice(0, SHOWN).map((item) => {
               const on = onList.has(item.id);
@@ -163,24 +174,32 @@ export const OrderSheet = ({
                   <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                     <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label(item)}</span>
                     <span style={{ fontSize: 11.5, color: c.text3 }}>
-                      {[item.specification, supplierOf(item), status ? `in stock ${status.cartons} ctn` : ''].filter(Boolean).join(' · ')}
-                      {status?.flag === 'ORDER' ? <b style={{ color: 'var(--t-color-red11)' }}> · needs ordering</b> : null}
+                      {[item.specification, supplierOf(item), status ? L(`in stock ${status.cartons} ctn`, `dalam stok ${status.cartons} ctn`) : ''].filter(Boolean).join(' · ')}
+                      {status?.flag === 'ORDER' ? <b style={{ color: 'var(--t-color-red11)' }}> · {tr('needs ordering')}</b> : null}
                     </span>
                   </span>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: on ? c.accent : c.text2 }}>{on ? '✓ on the list · +1' : '+ Add'}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: on ? c.accent : c.text2 }}>{on ? tr('✓ on the list · +1') : tr('+ Add')}</span>
                 </button>
               );
             })}
-            {!matches.length ? <div style={{ padding: 12, fontSize: 13, color: c.text3 }}>{q ? `No product matches “${query}”.` : 'No products yet.'}</div> : null}
+            {!matches.length ? <div style={{ padding: 12, fontSize: 13, color: c.text3 }}>{q ? L(`No product matches “${query}”.`, `Tiada produk sepadan dengan “${query}”.`) : tr('No products yet.')}</div> : null}
           </div>
           <span style={{ fontSize: 12, color: c.text3 }}>
-            {q ? `${matches.length} match${matches.length === 1 ? '' : 'es'}${matches.length > SHOWN ? `: showing ${SHOWN}, keep typing to narrow down` : ''}.` : `Products that need ordering first. ${matches.length > SHOWN ? `Type to search all ${matches.length}.` : ''}`}
+            {q
+              ? L(
+                  `${matches.length} match${matches.length === 1 ? '' : 'es'}${matches.length > SHOWN ? `: showing ${SHOWN}, keep typing to narrow down` : ''}.`,
+                  `${matches.length} sepadan${matches.length > SHOWN ? `: menunjukkan ${SHOWN}, teruskan menaip untuk mengecilkan` : ''}.`,
+                )
+              : L(
+                  `Products that need ordering first. ${matches.length > SHOWN ? `Type to search all ${matches.length}.` : ''}`,
+                  `Produk yang perlu dipesan dahulu. ${matches.length > SHOWN ? `Taip untuk cari semua ${matches.length}.` : ''}`,
+                )}
           </span>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, borderTop: `1px solid ${c.border}`, paddingTop: 10 }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>On this order ({lines.length})</span>
-          {lines.length === 0 ? <span style={{ fontSize: 13, color: c.text3 }}>Nothing yet. Tap a product above.</span> : null}
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{L(`On this order (${lines.length})`, `Dalam pesanan ini (${lines.length})`)}</span>
+          {lines.length === 0 ? <span style={{ fontSize: 13, color: c.text3 }}>{tr('Nothing yet. Tap a product above.')}</span> : null}
           {lines.map((l) => {
             const item = byId.get(l.itemId);
 
@@ -194,44 +213,45 @@ export const OrderSheet = ({
                 </div>
                 <input value={l.cartons} onChange={(e) => setCartons(l.itemId, readValue(e))} inputMode="decimal" placeholder="0" style={{ ...input, width: 64, textAlign: 'right', borderColor: toNumber(l.cartons) > 0 ? undefined : 'var(--t-color-red9)' }} />
                 <span style={{ fontSize: 12, color: c.text3, width: 90 }}>ctn × {rm(item.cartonPrice)}</span>
-                <button onClick={() => remove(l.itemId)} style={{ ...small, height: 34 }} title="Remove from the order">
+                <button onClick={() => remove(l.itemId)} style={{ ...small, height: 34 }} title={tr('Remove from the order')}>
                   ✕
                 </button>
               </div>
             );
           })}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12.5, color: c.text2, marginTop: 4 }}>
-            <span>Or add everything that needs ordering, to cover</span>
+            <span>{tr('Or add everything that needs ordering, to cover')}</span>
             <input value={months} onChange={(e) => setMonths(readValue(e))} inputMode="decimal" style={{ ...input, width: 52, height: 28, textAlign: 'right' }} />
-            <span>month(s)</span>
+            <span>{tr('month(s)')}</span>
             <button onClick={loadNeeded} style={{ ...small, height: 28, fontWeight: 600 }}>
-              Add them
+              {tr('Add them')}
             </button>
           </div>
-          {loaded ? <span style={{ fontSize: 12, color: loaded.startsWith('Nothing') ? 'var(--t-color-amber11)' : c.text3 }}>{loaded}</span> : null}
+          {loaded ? <span style={{ fontSize: 12, color: loaded.startsWith('Nothing') || loaded.startsWith('Tiada') ? 'var(--t-color-amber11)' : c.text3 }}>{loaded}</span> : null}
         </div>
 
-        <Field label="Note (optional)">
+        <Field label={tr('Note (optional)')}>
           <input value={notes} onChange={(e) => setNotes(readValue(e))} style={input} />
         </Field>
         {!order ? (
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, cursor: 'pointer', padding: '8px 10px', border: `1px solid ${c.border}`, borderRadius: c.radius, background: arrived ? 'var(--t-color-green2)' : c.bg }}>
             <input type="checkbox" checked={arrived} onChange={() => setArrived(!arrived)} />
             <span>
-              <b>The goods have already arrived</b>: add these quantities to stock now, on the date above.
+              <b>{tr('The goods have already arrived')}</b>
+              {L(': add these quantities to stock now, on the date above.', ': tambah kuantiti ini ke stok sekarang, pada tarikh di atas.')}
             </span>
           </label>
         ) : null}
         <span style={{ fontSize: 13, color: c.text2 }}>
-          {filled.length} product{filled.length === 1 ? '' : 's'} · about <b>{rm(estimate)}</b> at list prices
-          {!order && suppliers.length > 1 ? <b style={{ color: c.text }}>{` · makes ${suppliers.length} orders, one per supplier (${suppliers.join(', ')})`}</b> : null}
+          {L(`${filled.length} product${filled.length === 1 ? '' : 's'}`, `${filled.length} produk`)} · {L('about', 'kira-kira')} <b>{rm(estimate)}</b> {L('at list prices', 'pada harga senarai')}
+          {!order && suppliers.length > 1 ? <b style={{ color: c.text }}>{L(` · makes ${suppliers.length} orders, one per supplier (${suppliers.join(', ')})`, ` · menghasilkan ${suppliers.length} pesanan, satu setiap pembekal (${suppliers.join(', ')})`)}</b> : null}
         </span>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={control}>
-            Cancel
+            {tr('Cancel')}
           </button>
           <button onClick={save} disabled={busy || !ready} style={{ ...primary, opacity: busy || !ready ? 0.5 : 1 }}>
-            {busy ? 'Saving…' : order ? 'Save changes' : arrived ? 'Save and add to stock' : suppliers.length > 1 ? `Save ${suppliers.length} draft orders` : 'Save as draft order'}
+            {busy ? tr('Saving…') : order ? tr('Save changes') : arrived ? tr('Save and add to stock') : suppliers.length > 1 ? L(`Save ${suppliers.length} draft orders`, `Simpan ${suppliers.length} draf pesanan`) : tr('Save as draft order')}
           </button>
         </div>
       </div>

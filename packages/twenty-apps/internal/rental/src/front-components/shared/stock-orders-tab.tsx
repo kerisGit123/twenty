@@ -4,6 +4,7 @@ import { readValue } from 'src/front-components/shared/read-value';
 import { useNarrow } from 'src/front-components/shared/use-narrow';
 import { Sheet } from 'src/front-components/shared/sheet';
 import { stockAction } from 'src/front-components/shared/stock-forms';
+import { L, tr } from 'src/front-components/shared/stock-i18n';
 import { c, Chip, control, ExcelButton, input, PriceNote, primary, rm, shortDate, small, withOwner } from 'src/front-components/shared/stock-ui';
 import { cartonsAndUnits, defaultExpiry, type StockItem, type StockMovement, type StockStatus, toCartons } from 'src/shared/stock';
 import { normalizePhone, orderAttention, orderWhatsappText } from 'src/shared/stock-orders';
@@ -75,30 +76,33 @@ const ReceiveSheet = ({
     <Sheet width={640} onClose={onClose}>
       <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: c.font, color: c.text, overflowY: 'auto', height: '100%', boxSizing: 'border-box' }}>
         <span style={{ fontSize: 16, fontWeight: 600 }}>
-          Receive goods · {order.number} · {order.supplier}
+          {tr('Receive goods')} · {order.number} · {order.supplier}
         </span>
         <span style={{ fontSize: 13, color: c.text2 }}>
-          Check the delivery and type what actually arrived (in cartons). Anything short stays on order; tick “not coming” if the supplier won&apos;t send it.
+          {L(
+            "Check the delivery and type what actually arrived (in cartons). Anything short stays on order; tick “not coming” if the supplier won't send it.",
+            'Semak penghantaran dan taip apa yang benar-benar sampai (dalam karton). Yang kurang kekal dalam pesanan; tanda “tak akan sampai” jika pembekal tidak akan menghantarnya.',
+          )}
         </span>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: c.text3 }}>
-            Arrived on
+            {tr('Arrived on')}
             <input type="date" value={date} onChange={(e) => setDate(readValue(e))} style={{ ...input, borderColor: isFullDate(date) ? undefined : 'var(--t-color-red9)' }} />
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: c.text3 }}>
-            Supplier&apos;s PO / invoice / DO no.
-            <input value={reference} onChange={(e) => setReference(readValue(e))} placeholder="e.g. WD-INV-1234" style={input} />
+            {tr("Supplier's PO / invoice / DO no.")}
+            <input value={reference} onChange={(e) => setReference(readValue(e))} placeholder={L('e.g. WD-INV-1234', 'cth. WD-INV-1234')} style={input} />
           </label>
         </div>
         <div style={{ border: `1px solid ${c.border}`, borderRadius: c.radius, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                <th style={head}>Item</th>
-                <th style={{ ...head, textAlign: 'right' }}>Still to come</th>
-                <th style={{ ...head, textAlign: 'right' }}>Arrived (ctn)</th>
-                <th style={{ ...head, textAlign: 'right' }}>Price / ctn</th>
-                <th style={head}>Expiry</th>
+                <th style={head}>{tr('Item')}</th>
+                <th style={{ ...head, textAlign: 'right' }}>{tr('Still to come')}</th>
+                <th style={{ ...head, textAlign: 'right' }}>{tr('Arrived (ctn)')}</th>
+                <th style={{ ...head, textAlign: 'right' }}>{tr('Price / ctn')}</th>
+                <th style={head}>{tr('Expiry')}</th>
                 <th style={head} />
               </tr>
             </thead>
@@ -110,7 +114,7 @@ const ReceiveSheet = ({
                 return (
                   <tr key={l.itemId} style={{ opacity: notComing[l.itemId] ? 0.5 : 1 }}>
                     <td style={{ ...cell, whiteSpace: 'normal' }}>
-                      <div style={{ fontWeight: 500 }}>{item?.name ?? 'Item removed'}</div>
+                      <div style={{ fontWeight: 500 }}>{item?.name ?? tr('Item removed')}</div>
                       <div style={{ fontSize: 11, color: c.text3 }}>{item?.code}</div>
                     </td>
                     <td style={right}>{item ? cartonsAndUnits(l.outstanding, item) : l.outstanding}</td>
@@ -122,7 +126,7 @@ const ReceiveSheet = ({
                         inputMode="decimal"
                         style={{ ...input, width: 70, textAlign: 'right', fontWeight: 600, borderColor: short ? 'var(--t-color-amber9)' : undefined }}
                       />
-                      {short && unitsOf(l) > 0 ? <div style={{ fontSize: 11, color: 'var(--t-color-amber11)' }}>short: rest stays on order</div> : null}
+                      {short && unitsOf(l) > 0 ? <div style={{ fontSize: 11, color: 'var(--t-color-amber11)' }}>{tr('short: rest stays on order')}</div> : null}
                     </td>
                     <td style={right}>
                       <input
@@ -131,7 +135,7 @@ const ReceiveSheet = ({
                         disabled={notComing[l.itemId]}
                         inputMode="decimal"
                         placeholder={l.cartonPrice.toFixed(2)}
-                        title="What the invoice says per carton (empty = the price on the order)"
+                        title={tr('What the invoice says per carton (empty = the price on the order)')}
                         style={{ ...input, width: 84, textAlign: 'right' }}
                       />
                       {item && !notComing[l.itemId] ? (
@@ -147,9 +151,9 @@ const ReceiveSheet = ({
                       <button
                         onClick={() => setNotComing({ ...notComing, [l.itemId]: !notComing[l.itemId] })}
                         style={{ ...small, color: notComing[l.itemId] ? 'var(--t-color-red11)' : c.text2, borderColor: notComing[l.itemId] ? 'var(--t-color-red9)' : c.border2 }}
-                        title="The supplier won't send the rest: stop counting it as on order"
+                        title={tr("The supplier won't send the rest: stop counting it as on order")}
                       >
-                        {notComing[l.itemId] ? '✓ Not coming' : 'Not coming'}
+                        {notComing[l.itemId] ? tr('✓ Not coming') : tr('Not coming')}
                       </button>
                     </td>
                   </tr>
@@ -161,16 +165,16 @@ const ReceiveSheet = ({
         <button
           onClick={() => setAddExpense(!addExpense)}
           style={{ ...small, height: 30, alignSelf: 'flex-start', fontWeight: 600, color: addExpense ? 'var(--t-color-green11)' : c.text3, borderColor: addExpense ? 'var(--t-color-green9)' : c.border2 }}
-          title="Book the cost as an expense (Stock & ingredients) so it shows in Expenses, Transactions and the year summary"
+          title={tr('Book the cost as an expense (Stock & ingredients) so it shows in Expenses, Transactions and the year summary')}
         >
-          {addExpense ? '✓ Also add to Expenses' : 'Not added to Expenses'}
+          {addExpense ? tr('✓ Also add to Expenses') : tr('Not added to Expenses')}
         </button>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={control}>
-            Cancel
+            {tr('Cancel')}
           </button>
           <button onClick={save} disabled={busy || !ready} style={{ ...primary, opacity: busy || !ready ? 0.5 : 1 }}>
-            {busy ? 'Saving…' : 'Receive into stock'}
+            {busy ? tr('Saving…') : tr('Receive into stock')}
           </button>
         </div>
       </div>
@@ -199,16 +203,16 @@ const WhatsAppSheet = ({ order, items, company, phoneGuess, onClose, onDone }: {
     <Sheet width={560} onClose={onClose}>
       <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: c.font, color: c.text, overflowY: 'auto', height: '100%', boxSizing: 'border-box' }}>
         <span style={{ fontSize: 16, fontWeight: 600 }}>
-          Send {order.number} to {order.supplier || 'the supplier'}
+          {L('Send', 'Hantar')} {order.number} {L('to', 'kepada')} {order.supplier || tr('the supplier')}
         </span>
-        <span style={{ fontSize: 13, color: c.text2 }}>WhatsApp opens with this message typed in. You press send there. Edit the message first if you like.</span>
+        <span style={{ fontSize: 13, color: c.text2 }}>{L('WhatsApp opens with this message typed in. You press send there. Edit the message first if you like.', 'WhatsApp akan dibuka dengan mesej ini sudah ditaip. Anda tekan hantar di sana. Ubah mesej dahulu jika mahu.')}</span>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: c.text3 }}>
-          Supplier&apos;s WhatsApp number
-          <input value={phone} onChange={(e) => setPhone(readValue(e))} placeholder="e.g. 012-345 6789 or +60 12 345 6789" style={{ ...input, borderColor: phone && !e164 ? 'var(--t-color-red9)' : undefined }} />
-          <span style={{ color: e164 ? 'var(--t-color-green11)' : c.text3 }}>{e164 ? `Will open ${e164}. Remembered for the next order to ${order.supplier || 'this supplier'}.` : phone ? 'Not a usable number yet.' : 'Type it once: it is remembered.'}</span>
+          {tr("Supplier's WhatsApp number")}
+          <input value={phone} onChange={(e) => setPhone(readValue(e))} placeholder={L('e.g. 012-345 6789 or +60 12 345 6789', 'cth. 012-345 6789 atau +60 12 345 6789')} style={{ ...input, borderColor: phone && !e164 ? 'var(--t-color-red9)' : undefined }} />
+          <span style={{ color: e164 ? 'var(--t-color-green11)' : c.text3 }}>{e164 ? L(`Will open ${e164}. Remembered for the next order to ${order.supplier || 'this supplier'}.`, `Akan buka ${e164}. Diingati untuk pesanan seterusnya kepada ${order.supplier || 'pembekal ini'}.`) : phone ? tr('Not a usable number yet.') : tr('Type it once: it is remembered.')}</span>
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: c.text3 }}>
-          Message
+          {tr('Message')}
           <textarea value={message} onChange={(e) => setMessage(readValue(e))} rows={14} style={{ ...input, height: 'auto', padding: 10, fontFamily: c.font, lineHeight: 1.45 }} />
         </label>
         {order.status === 'DRAFT' ? (
@@ -216,12 +220,12 @@ const WhatsAppSheet = ({ order, items, company, phoneGuess, onClose, onDone }: {
             onClick={() => setMarkSent(!markSent)}
             style={{ ...small, height: 30, alignSelf: 'flex-start', fontWeight: 600, color: markSent ? 'var(--t-color-green11)' : c.text3, borderColor: markSent ? 'var(--t-color-green9)' : c.border2 }}
           >
-            {markSent ? '✓ Also mark the order as sent' : 'Leave the order as a draft'}
+            {markSent ? tr('✓ Also mark the order as sent') : tr('Leave the order as a draft')}
           </button>
         ) : null}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={control}>
-            Cancel
+            {tr('Cancel')}
           </button>
           {link ? (
             <a
@@ -231,11 +235,11 @@ const WhatsAppSheet = ({ order, items, company, phoneGuess, onClose, onDone }: {
               onClick={afterOpen}
               style={{ ...primary, display: 'inline-flex', alignItems: 'center', textDecoration: 'none', background: '#25D366', borderColor: '#25D366' }}
             >
-              Open WhatsApp
+              {tr('Open WhatsApp')}
             </a>
           ) : (
             <button disabled style={{ ...primary, opacity: 0.5 }}>
-              Open WhatsApp
+              {tr('Open WhatsApp')}
             </button>
           )}
         </div>
@@ -341,10 +345,10 @@ export const OrdersTab = ({
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         {(
           [
-            ['OPEN', `Open (${orders.filter(isOpen).length})`],
-            ['PARTLY', `Needs a look (${needAttention.length})`],
-            ['DONE', 'Received / cancelled'],
-            ['ALL', 'All'],
+            ['OPEN', L(`Open (${orders.filter(isOpen).length})`, `Terbuka (${orders.filter(isOpen).length})`)],
+            ['PARTLY', L(`Needs a look (${needAttention.length})`, `Perlu disemak (${needAttention.length})`)],
+            ['DONE', tr('Received / cancelled')],
+            ['ALL', tr('All')],
           ] as const
         ).map(([value, label]) => (
           <button key={value} onClick={() => setShow(value)} style={{ ...control, fontWeight: show === value ? 600 : 400, borderColor: show === value ? c.accent : c.border2 }}>
@@ -352,28 +356,28 @@ export const OrdersTab = ({
           </button>
         ))}
         <button onClick={() => setEditing(null)} style={primary}>
-          + New order
+          {tr('+ New order')}
         </button>
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 13, color: c.text2 }}>
-          Still to arrive: <b style={{ color: 'var(--t-color-blue11)' }}>{rm(openValue)}</b>
+          {tr('Still to arrive:')} <b style={{ color: 'var(--t-color-blue11)' }}>{rm(openValue)}</b>
         </span>
       </div>
 
       {needAttention.length && show !== 'PARTLY' ? (
         <div style={{ padding: '10px 12px', borderRadius: c.radius, background: 'var(--t-color-amber2)', border: '1px solid var(--t-color-amber6)', color: 'var(--t-color-amber11)', fontSize: 13, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ flex: 1, minWidth: 220 }}>
-            <b>{needAttention.length} order{needAttention.length === 1 ? '' : 's'} not fully received or late.</b> Stock you ordered has not all arrived.
+            <b>{L(`${needAttention.length} order${needAttention.length === 1 ? '' : 's'} not fully received or late.`, `${needAttention.length} pesanan belum diterima sepenuhnya atau lewat.`)}</b> {tr('Stock you ordered has not all arrived.')}
           </span>
           <button onClick={() => setShow('PARTLY')} style={small}>
-            Show them
+            {tr('Show them')}
           </button>
         </div>
       ) : null}
 
       {list.length ? null : (
         <div style={{ padding: 32, textAlign: 'center', color: c.text3, fontSize: 13, border: `1px dashed ${c.border2}`, borderRadius: c.radius }}>
-          {show === 'OPEN' ? 'No open orders. Press “+ New order”, or make one on Forecast & order with “Save as order”.' : show === 'PARTLY' ? 'Everything ordered has arrived, nothing is late.' : 'Nothing here yet.'}
+          {show === 'OPEN' ? L('No open orders. Press “+ New order”, or make one on Forecast & order with “Save as order”.', 'Tiada pesanan terbuka. Tekan “+ Pesanan baru”, atau buat satu di “Apa perlu dipesan” dengan “Simpan sebagai pesanan”.') : show === 'PARTLY' ? tr('Everything ordered has arrived, nothing is late.') : tr('Nothing here yet.')}
         </div>
       )}
 
@@ -395,15 +399,15 @@ export const OrdersTab = ({
                 {showLines ? '▾' : '▸'} {o.number}
               </button>
               <span style={{ fontSize: 13 }}>{o.supplier}</span>
-              <span style={{ fontSize: 12, color: c.text3 }}>ordered {shortDate(o.date)}</span>
-              {o.supplierRef ? <span style={{ fontSize: 12, color: c.text3 }}>· supplier PO {o.supplierRef}</span> : null}
-              <Chip label={status.label} color={status.color} />
-              {attention === 'PARTLY' ? <Chip label="Not fully received" color="orange" /> : null}
-              {attention === 'LATE' ? <Chip label={`Late: nothing arrived in ${daysAgo} days`} color="red" /> : null}
+              <span style={{ fontSize: 12, color: c.text3 }}>{L('ordered', 'dipesan')} {shortDate(o.date)}</span>
+              {o.supplierRef ? <span style={{ fontSize: 12, color: c.text3 }}>· {L('supplier PO', 'PO pembekal')} {o.supplierRef}</span> : null}
+              <Chip label={tr(status.label)} color={status.color} />
+              {attention === 'PARTLY' ? <Chip label={tr('Not fully received')} color="orange" /> : null}
+              {attention === 'LATE' ? <Chip label={L(`Late: nothing arrived in ${daysAgo} days`, `Lewat: tiada yang sampai dalam ${daysAgo} hari`)} color="red" /> : null}
               <span style={{ flex: 1 }} />
               <span style={{ fontSize: 12, color: c.text2 }}>
-                {Math.round(orderedCtn * 100) / 100} ctn ordered · {Math.round(receivedCtn * 100) / 100} arrived
-                {outstandingCtn ? <b style={{ color: 'var(--t-color-amber11)' }}> · {Math.round(outstandingCtn * 100) / 100} to come</b> : null} · {rm(total)}
+                {Math.round(orderedCtn * 100) / 100} ctn {L('ordered', 'dipesan')} · {Math.round(receivedCtn * 100) / 100} {L('arrived', 'sampai')}
+                {outstandingCtn ? <b style={{ color: 'var(--t-color-amber11)' }}> · {Math.round(outstandingCtn * 100) / 100} {L('to come', 'belum sampai')}</b> : null} · {rm(total)}
               </span>
             </div>
             {showLines && narrow ? (
@@ -415,22 +419,22 @@ export const OrdersTab = ({
                   return (
                     <div key={l.itemId} style={{ padding: '8px 12px', borderTop: `1px solid ${c.border}`, display: 'flex', flexDirection: 'column', gap: 2 }}>
                       <div style={{ fontWeight: 600, fontSize: 13 }}>
-                        {item?.name ?? 'Item removed'}
+                        {item?.name ?? tr('Item removed')}
                         <span style={{ color: c.text3, fontWeight: 400, fontSize: 12 }}> · {item?.code}</span>
                       </div>
                       <div style={{ fontSize: 12, color: c.text2, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                         <span>
-                          Ordered <b>{fmt(l.orderedUnits)}</b>
+                          {tr('Ordered')} <b>{fmt(l.orderedUnits)}</b>
                         </span>
                         <span>
-                          Arrived <b style={{ color: l.received ? 'var(--t-color-green11)' : c.text3 }}>{l.received ? fmt(l.received) : '—'}</b>
+                          {tr('Arrived')} <b style={{ color: l.received ? 'var(--t-color-green11)' : c.text3 }}>{l.received ? fmt(l.received) : '—'}</b>
                         </span>
                         {l.outstanding ? (
                           <span style={{ color: 'var(--t-color-amber11)' }}>
-                            To come <b>{fmt(l.outstanding)}</b>
+                            {tr('To come')} <b>{fmt(l.outstanding)}</b>
                           </span>
                         ) : l.closed && l.received < l.orderedUnits ? (
-                          <span>not coming</span>
+                          <span>{tr('not coming')}</span>
                         ) : null}
                         <span style={{ color: c.text3 }}>{rm(ctn(l.orderedUnits, l.itemId) * l.cartonPrice)}</span>
                       </div>
@@ -444,12 +448,12 @@ export const OrdersTab = ({
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 480 }}>
                 <thead>
                   <tr>
-                    <th style={head}>Item</th>
-                    <th style={{ ...head, textAlign: 'right' }}>Ordered</th>
-                    <th style={{ ...head, textAlign: 'right' }}>Arrived</th>
-                    <th style={{ ...head, textAlign: 'right' }}>Still to come</th>
-                    <th style={{ ...head, textAlign: 'right' }}>Ctn price</th>
-                    <th style={{ ...head, textAlign: 'right' }}>Amount</th>
+                    <th style={head}>{tr('Item')}</th>
+                    <th style={{ ...head, textAlign: 'right' }}>{tr('Ordered')}</th>
+                    <th style={{ ...head, textAlign: 'right' }}>{tr('Arrived')}</th>
+                    <th style={{ ...head, textAlign: 'right' }}>{tr('Still to come')}</th>
+                    <th style={{ ...head, textAlign: 'right' }}>{tr('Ctn price')}</th>
+                    <th style={{ ...head, textAlign: 'right' }}>{tr('Amount')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -460,13 +464,13 @@ export const OrdersTab = ({
                     return (
                       <tr key={l.itemId}>
                         <td style={{ ...cell, whiteSpace: 'normal' }}>
-                          <span style={{ fontWeight: 500 }}>{item?.name ?? 'Item removed'}</span>
+                          <span style={{ fontWeight: 500 }}>{item?.name ?? tr('Item removed')}</span>
                           <span style={{ color: c.text3, fontSize: 12 }}> · {item?.code}</span>
                         </td>
                         <td style={right}>{fmt(l.orderedUnits)}</td>
                         <td style={{ ...right, color: l.received ? 'var(--t-color-green11)' : c.text3, fontWeight: l.received ? 600 : 400 }}>{l.received ? fmt(l.received) : '—'}</td>
                         <td style={{ ...right, color: l.outstanding ? 'var(--t-color-amber11)' : c.text3, fontWeight: l.outstanding ? 600 : 400 }}>
-                          {l.outstanding ? fmt(l.outstanding) : l.closed && l.received < l.orderedUnits ? 'not coming' : '—'}
+                          {l.outstanding ? fmt(l.outstanding) : l.closed && l.received < l.orderedUnits ? tr('not coming') : '—'}
                         </td>
                         <td style={{ ...right, color: c.text2 }}>{rm(l.cartonPrice)}</td>
                         <td style={right}>{rm(ctn(l.orderedUnits, l.itemId) * l.cartonPrice)}</td>
@@ -480,39 +484,39 @@ export const OrdersTab = ({
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '8px 12px', borderTop: `1px solid ${c.border}` }}>
               {isOpen(o) ? (
                 <button onClick={() => setReceiving(o)} style={primary}>
-                  Receive goods
+                  {tr('Receive goods')}
                 </button>
               ) : null}
               {o.status === 'DRAFT' || o.status === 'SENT' ? (
-                <button onClick={() => setSending(o)} style={{ ...control, fontWeight: 600, color: 'var(--t-color-green11)' }} title="Send this order to the supplier on WhatsApp">
-                  Send on WhatsApp
+                <button onClick={() => setSending(o)} style={{ ...control, fontWeight: 600, color: 'var(--t-color-green11)' }} title={tr('Send this order to the supplier on WhatsApp')}>
+                  {tr('Send on WhatsApp')}
                 </button>
               ) : null}
               {o.status === 'DRAFT' ? (
-                <button onClick={() => setEditing(o)} style={control} title="Change the products or quantities of this draft">
-                  Edit
+                <button onClick={() => setEditing(o)} style={control} title={tr('Change the products or quantities of this draft')}>
+                  {tr('Edit')}
                 </button>
               ) : null}
               {o.status === 'DRAFT' ? (
                 <button onClick={() => act(o, 'SENT')} style={control}>
-                  Mark as sent
+                  {tr('Mark as sent')}
                 </button>
               ) : null}
-              <ExcelButton query={withOwner({ kind: 'xlsx-po', order: o.id }, ownerId)} title="This order as an Excel file to send to the supplier" />
+              <ExcelButton query={withOwner({ kind: 'xlsx-po', order: o.id }, ownerId)} title={tr('This order as an Excel file to send to the supplier')} />
               <span style={{ flex: 1 }} />
               {isOpen(o) && p.received > 0 ? (
-                <button onClick={() => act(o, 'CLOSE_REST')} style={small} title="The rest won't come: stop counting it as on order">
-                  Close the rest
+                <button onClick={() => act(o, 'CLOSE_REST')} style={small} title={tr("The rest won't come: stop counting it as on order")}>
+                  {tr('Close the rest')}
                 </button>
               ) : null}
               {isOpen(o) && !p.received ? (
                 <button onClick={() => act(o, 'CANCELLED')} style={{ ...small, color: 'var(--t-color-red11)' }}>
-                  Cancel order
+                  {tr('Cancel order')}
                 </button>
               ) : null}
               {o.status === 'CANCELLED' || o.status === 'SENT' ? (
                 <button onClick={() => act(o, 'DRAFT')} style={small}>
-                  {o.status === 'CANCELLED' ? 'Reopen' : 'Back to draft'}
+                  {o.status === 'CANCELLED' ? tr('Reopen') : tr('Back to draft')}
                 </button>
               ) : null}
             </div>
@@ -520,7 +524,10 @@ export const OrdersTab = ({
         );
       })}
       <span style={{ fontSize: 12, color: c.text3 }}>
-        Open orders count as “on order”: the forecast won&apos;t suggest those items again. The real PO is the supplier&apos;s; put its number on the order when it comes.
+        {L(
+          "Open orders count as “on order”: the forecast won't suggest those items again. The real PO is the supplier's; put its number on the order when it comes.",
+          'Pesanan terbuka dikira sebagai “dalam pesanan”: ramalan tidak akan mencadangkan produk itu lagi. PO sebenar milik pembekal; letakkan nombornya pada pesanan apabila ia tiba.',
+        )}
       </span>
     </>
   );

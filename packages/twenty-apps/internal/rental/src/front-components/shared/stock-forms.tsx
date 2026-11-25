@@ -553,38 +553,41 @@ export const SettleSheet = ({
   const paid = toNumber(amount || suggested);
   const covered = units > 0 && units <= left + 0.005;
   const ready = isFullDate(date) && covered && (how === 'RETURNED' ? true : how === 'EXCHANGED' ? Boolean(other && exchangeUnits > 0) : paid > 0);
-  const who = borrow.party || (borrowedIn ? 'the shop' : 'a shop');
+  const who = borrow.party || (borrowedIn ? L('the shop', 'kedai itu') : L('a shop', 'sebuah kedai'));
 
   const tooEarly = isFullDate(date) && date < borrow.date;
   const why = tooEarly
-    ? `The loan started on ${borrow.date}: pick that day or later.`
+    ? L(`The loan started on ${borrow.date}: pick that day or later.`, `Pinjaman bermula pada ${borrow.date}: pilih hari itu atau selepasnya.`)
     : !covered
       ? units > left + 0.005
-        ? `Only ${cartonsAndUnits(left, item)} is still open.`
-        : 'Type how much of the loan this settles.'
+        ? L(`Only ${cartonsAndUnits(left, item)} is still open.`, `Hanya ${cartonsAndUnits(left, item)} masih terbuka.`)
+        : tr('Type how much of the loan this settles.')
       : how === 'EXCHANGED' && !(other && exchangeUnits > 0)
-        ? 'Pick the other item and how much of it.'
+        ? tr('Pick the other item and how much of it.')
         : how === 'PAID' && !(paid > 0)
-          ? 'Type the amount paid.'
+          ? tr('Type the amount paid.')
           : '';
   const save = () => saver.run({ action: 'settleBorrow', movementId: borrow.id, how, date, units, exchangeItemId, exchangeQuantity: exchangeUnits, amount: paid, notes });
 
   const choices = borrowedIn
     ? ([
-        ['RETURNED', 'Give the same item back'],
-        ['EXCHANGED', 'Give another item'],
-        ['PAID', 'Pay money'],
+        ['RETURNED', tr('Give the same item back')],
+        ['EXCHANGED', tr('Give another item')],
+        ['PAID', tr('Pay money')],
       ] as const)
     : ([
-        ['RETURNED', 'Same item came back'],
-        ['EXCHANGED', 'Received another item'],
-        ['PAID', 'Received money'],
+        ['RETURNED', tr('Same item came back')],
+        ['EXCHANGED', tr('Received another item')],
+        ['PAID', tr('Received money')],
       ] as const);
 
   return (
     <Shell
-      title={borrowedIn ? `Settle: borrowed ${item.name} from ${who}` : `Settle: ${who} borrowed ${item.name}`}
-      intro={`${cartonsAndUnits(borrow.quantity, item)} ${borrowedIn ? 'borrowed' : 'lent'} on ${borrow.date}${left < borrow.quantity ? ` · ${cartonsAndUnits(left, item)} still open` : ''}.`}
+      title={borrowedIn ? L(`Settle: borrowed ${item.name} from ${who}`, `Selesaikan: pinjam ${item.name} daripada ${who}`) : L(`Settle: ${who} borrowed ${item.name}`, `Selesaikan: ${who} pinjam ${item.name}`)}
+      intro={L(
+        `${cartonsAndUnits(borrow.quantity, item)} ${borrowedIn ? 'borrowed' : 'lent'} on ${borrow.date}${left < borrow.quantity ? ` · ${cartonsAndUnits(left, item)} still open` : ''}.`,
+        `${cartonsAndUnits(borrow.quantity, item)} ${borrowedIn ? 'dipinjam' : 'dipinjamkan'} pada ${borrow.date}${left < borrow.quantity ? ` · ${cartonsAndUnits(left, item)} masih terbuka` : ''}.`,
+      )}
       onClose={onClose}
     >
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -594,25 +597,27 @@ export const SettleSheet = ({
           </button>
         ))}
       </div>
-      <Field label="Date" hint={isFullDate(date) ? undefined : 'Pick a full date (day, month and year).'}>
+      <Field label={tr('Date')} hint={isFullDate(date) ? undefined : tr('Pick a full date (day, month and year).')}>
         <input type="date" value={date} onChange={(e) => setDate(readValue(e))} style={input} />
       </Field>
       <Field
-        label="How much of the loan does this settle"
-        hint={units > left + 0.005 ? `Only ${cartonsAndUnits(left, item)} is still open.` : left > units ? 'The rest stays open until it is settled too.' : undefined}
+        label={tr('How much of the loan does this settle')}
+        hint={units > left + 0.005 ? L(`Only ${cartonsAndUnits(left, item)} is still open.`, `Hanya ${cartonsAndUnits(left, item)} masih terbuka.`) : left > units ? tr('The rest stays open until it is settled too.') : undefined}
       >
         <QtyInput item={item} units={units} onChange={setUnits} />
       </Field>
       {how === 'RETURNED' ? (
         <span style={{ fontSize: 12, color: c.text3 }}>
-          {borrowedIn ? `${cartonsAndUnits(units, item)} will be taken out of your stock automatically.` : `${cartonsAndUnits(units, item)} will be added back to your stock automatically.`}
+          {borrowedIn
+            ? L(`${cartonsAndUnits(units, item)} will be taken out of your stock automatically.`, `${cartonsAndUnits(units, item)} akan ditolak daripada stok anda secara automatik.`)
+            : L(`${cartonsAndUnits(units, item)} will be added back to your stock automatically.`, `${cartonsAndUnits(units, item)} akan ditambah semula ke stok anda secara automatik.`)}
         </span>
       ) : null}
       {how === 'EXCHANGED' ? (
         <>
-          <Field label={borrowedIn ? 'Item you give instead' : 'Item received instead'}>
+          <Field label={borrowedIn ? tr('Item you give instead') : tr('Item received instead')}>
             <select value={exchangeItemId} onChange={(e) => setExchangeItemId(readValue(e))} style={select}>
-              <option value="">Choose an item…</option>
+              <option value="">{tr('Choose an item…')}</option>
               {others.map((i) => (
                 <option key={i.id} value={i.id}>
                   {i.code ? `${i.code} ` : ''}
@@ -622,7 +627,7 @@ export const SettleSheet = ({
             </select>
           </Field>
           {other ? (
-            <Field label="How much of it" hint={borrowedIn ? 'Taken out of the stock of that item automatically.' : 'Added to the stock of that item automatically.'}>
+            <Field label={tr('How much of it')} hint={borrowedIn ? tr('Taken out of the stock of that item automatically.') : tr('Added to the stock of that item automatically.')}>
               <QtyInput key={other.id} item={other} units={0} onChange={setExchangeUnits} />
             </Field>
           ) : null}
@@ -630,17 +635,20 @@ export const SettleSheet = ({
       ) : null}
       {how === 'PAID' ? (
         <Field
-          label="Amount paid (RM)"
-          hint={`No stock moves. Saved on this loan, and recorded as ${borrowedIn ? 'an expense (Stock & ingredients)' : 'income (Transactions → Money in)'}. Suggested: the stock's cost.`}
+          label={tr('Amount paid (RM)')}
+          hint={L(
+            `No stock moves. Saved on this loan, and recorded as ${borrowedIn ? 'an expense (Stock & ingredients)' : 'income (Transactions → Money in)'}. Suggested: the stock's cost.`,
+            `Tiada stok bergerak. Disimpan pada pinjaman ini, dan direkodkan sebagai ${borrowedIn ? 'perbelanjaan (Stok & bahan)' : 'pendapatan (Transaksi → Wang masuk)'}. Cadangan: kos stok.`,
+          )}
         >
           <input value={amount} onChange={(e) => setAmount(readValue(e))} placeholder={suggested} inputMode="decimal" style={input} />
         </Field>
       ) : null}
-      <Field label={how === 'PAID' ? 'Note (who was paid, how, receipt no.)' : 'Notes'}>
+      <Field label={how === 'PAID' ? tr('Note (who was paid, how, receipt no.)') : tr('Notes')}>
         <input value={notes} onChange={(e) => setNotes(readValue(e))} style={input} />
       </Field>
       <BelowZeroBar message={saver.confirm} busy={busy} onYes={saver.confirmYes} onNo={saver.confirmNo} />
-      <Buttons onClose={onClose} onSave={save} busy={busy} ready={ready && !tooEarly && !saver.confirm} label="Settle" why={why} />
+      <Buttons onClose={onClose} onSave={save} busy={busy} ready={ready && !tooEarly && !saver.confirm} label={tr('Settle')} why={why} />
     </Shell>
   );
 };

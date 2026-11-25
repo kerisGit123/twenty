@@ -18,7 +18,7 @@ import { HistoryTab } from 'src/front-components/shared/stock-history-tab';
 import { ImportSheet } from 'src/front-components/shared/stock-import-sheet';
 import { IssueSheet, ReceiveRequestSheet, RequestSheet, RequestsTab, SettleRequestSheet } from 'src/front-components/shared/stock-requests-tab';
 import { c, control, lastPartyFor, primary } from 'src/front-components/shared/stock-ui';
-import { getLang, setLang, tr } from 'src/front-components/shared/stock-i18n';
+import { getLang, L, setLang, tr } from 'src/front-components/shared/stock-i18n';
 import { UsageTab } from 'src/front-components/shared/stock-usage-tab';
 import { StockGuide } from 'src/front-components/shared/stock-guide';
 import type { StockData } from 'src/logic-functions/utils/stock-data';
@@ -318,8 +318,14 @@ export const StockPage = () => {
 
   const rule = owner?.rule ?? DEFAULT_RULE;
   const ruleText = owner
-    ? `Rule for ${owner.name}: re-order when stock lasts under ${rule.reorderBelow} months; order enough for ${rule.orderUpTo} months${rule.leadDays ? `; delivery takes ${rule.leadDays} days` : ''}.`
-    : 'Each business uses its own re-order rule (default: under 2 months, order enough for 2.5). Pick a business to change it.';
+    ? L(
+        `Rule for ${owner.name}: re-order when stock lasts under ${rule.reorderBelow} months; order enough for ${rule.orderUpTo} months${rule.leadDays ? `; delivery takes ${rule.leadDays} days` : ''}.`,
+        `Peraturan untuk ${owner.name}: tempah semula apabila stok bertahan kurang ${rule.reorderBelow} bulan; pesan cukup untuk ${rule.orderUpTo} bulan${rule.leadDays ? `; penghantaran ambil ${rule.leadDays} hari` : ''}.`,
+      )
+    : L(
+        'Each business uses its own re-order rule (default: under 2 months, order enough for 2.5). Pick a business to change it.',
+        'Setiap perniagaan guna peraturan tempah semula sendiri (asal: kurang 2 bulan, pesan cukup untuk 2.5). Pilih perniagaan untuk menukarnya.',
+      );
 
   if (needsWorkspace) {
     return (
