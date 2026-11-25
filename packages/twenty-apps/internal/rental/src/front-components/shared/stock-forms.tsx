@@ -654,6 +654,69 @@ export const SettleSheet = ({
 };
 // ---------------------------------------------------------------- Stock take
 
+// ---------------------------------------------------------------- Delete a product (asks first)
+
+export const DeleteItemSheet = ({ item, records, onClose, onDelete, onStop }: { item: StockItem; records: number; onClose: () => void; onDelete: () => Promise<void>; onStop: () => Promise<void> }) => {
+  const [busy, setBusy] = useState(false);
+  const red = { ...primary, background: 'var(--t-color-red9)', borderColor: 'var(--t-color-red9)', opacity: busy ? 0.5 : 1 };
+
+  return (
+    <Shell title={L(`Delete “${item.name}”?`, `Padam “${item.name}”?`)} onClose={onClose}>
+      {records === 0 ? (
+        <>
+          <span style={{ fontSize: 14, color: c.text2, lineHeight: 1.5 }}>
+            {L('No stock has ever been recorded for this product, so it can be deleted. Do you want to delete it?', 'Tiada stok pernah direkodkan untuk produk ini, jadi ia boleh dipadam. Adakah anda mahu memadamnya?')}
+          </span>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={onClose} style={control}>
+              {tr('Cancel')}
+            </button>
+            <button
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                await onDelete();
+                setBusy(false);
+              }}
+              style={red}
+            >
+              {busy ? tr('Saving…') : tr('Yes, delete it')}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <span style={{ fontSize: 14, color: c.text2, lineHeight: 1.5 }}>
+            {L(
+              `This product has ${records} stock record${records === 1 ? '' : 's'}. Deleting it would break the history and the month-end numbers, so it cannot be deleted.`,
+              `Produk ini ada ${records} rekod stok. Memadamnya akan merosakkan sejarah dan angka akhir bulan, jadi ia tidak boleh dipadam.`,
+            )}
+          </span>
+          <span style={{ fontSize: 14, color: c.text2, lineHeight: 1.5 }}>
+            {L('You can stop using it instead: it leaves your lists, keeps its history, and you can use it again later.', 'Anda boleh berhenti menggunakannya: ia hilang daripada senarai, sejarahnya kekal, dan anda boleh menggunakannya semula kemudian.')}
+          </span>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={onClose} style={control}>
+              {tr('Cancel')}
+            </button>
+            <button
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                await onStop();
+                setBusy(false);
+              }}
+              style={{ ...primary, opacity: busy ? 0.5 : 1 }}
+            >
+              {tr('Stop using this product')}
+            </button>
+          </div>
+        </>
+      )}
+    </Shell>
+  );
+};
+
 // ---------------------------------------------------------------- Discontinue with stock left
 
 export const WriteOffSheet = ({ item, message, today, onClose, onDone }: { item: StockItem; message: string; today: string; onClose: () => void; onDone: () => void }) => {

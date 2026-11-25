@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 
 import { useOwnerScope } from 'src/front-components/shared/owner-switcher';
-import { ItemSheet, RecordSheet, ResetSheet, RuleSheet, SettleSheet, stockAction, WriteOffSheet } from 'src/front-components/shared/stock-forms';
+import { DeleteItemSheet, ItemSheet, RecordSheet, ResetSheet, RuleSheet, SettleSheet, stockAction, WriteOffSheet } from 'src/front-components/shared/stock-forms';
 import { StockTakeSheet } from 'src/front-components/shared/stock-take-sheet';
 import { ItemDetailSheet } from 'src/front-components/shared/stock-detail';
 import { StockHandTab } from 'src/front-components/shared/stock-hand-tab';
@@ -95,6 +95,7 @@ type Open =
   | { kind: 'rule' }
   | { kind: 'reset' }
   | { kind: 'writeOff'; item: StockItem; message: string }
+  | { kind: 'deleteItem'; item: StockItem }
   | null;
 
 // Five tabs. Ordering and Month end each hold a few related views, picked inside the tab.
@@ -314,6 +315,24 @@ export const StockPage = () => {
       const expectedOn = (day: string) => new Map(items.map((i) => [i.id, balanceOf((byItem.get(i.id) ?? []).filter((m) => m.date <= day))]));
 
       return <StockTakeSheet items={activeItems} balances={at ? expectedOn(at) : balances} expectedOn={expectedOn} today={today} initialDate={at} ownerId={ownerId} onClose={() => setOpen(null)} onDone={done} />;
+    }
+    if (open.kind === 'deleteItem') {
+      const item = open.item;
+
+      return (
+        <DeleteItemSheet
+          item={item}
+          records={(byItem.get(item.id) ?? []).length}
+          onClose={() => setOpen(null)}
+          onDelete={async () => {
+            if ((await stockAction({ action: 'deleteItem', itemId: item.id })).success) done();
+          }}
+          onStop={async () => {
+            setOpen(null);
+            await toggleStatus(item);
+          }}
+        />
+      );
     }
     if (open.kind === 'writeOff') return <WriteOffSheet item={open.item} message={open.message} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'rule' && owner) return <RuleSheet owner={owner} onClose={() => setOpen(null)} onDone={done} />;
@@ -539,6 +558,7 @@ export const StockPage = () => {
               <StockHandTab
                 simple={simple}
                 onEdit={simple ? undefined : (item) => (mayManage(item.ownerId) ? setOpen({ kind: 'item', item }) : undefined)}
+                onDelete={simple ? undefined : (item) => (mayManage(item.ownerId) ? setOpen({ kind: 'deleteItem', item }) : undefined)}
                 statuses={statuses}
                 today={today}
                 ownerId={ownerId}

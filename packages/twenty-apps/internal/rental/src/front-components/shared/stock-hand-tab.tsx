@@ -177,9 +177,11 @@ export const StockHandTab = ({
   onOpen,
   onWriteOffExpired,
   onEdit,
+  onDelete,
   simple = false,
 }: {
   onEdit?: (item: StockItem) => void; // managers: an Edit button on each row
+  onDelete?: (item: StockItem) => void; // managers: a Delete button on each row (it asks first)
   simple?: boolean; // staff: item, in stock and one badge; no forecast columns
   statuses: StockStatus[];
   today: string;
@@ -385,6 +387,11 @@ export const StockHandTab = ({
                       {onEdit ? (
                         <button onClick={() => onEdit(s.item)} style={small} title={tr('Change this product: name, price, packing…')}>
                           {tr('Edit')}
+                        </button>
+                      ) : null}
+                      {onDelete ? (
+                        <button onClick={() => onDelete(s.item)} style={{ ...small, color: 'var(--t-color-red11)' }} title={tr('Delete this product (asks first)')}>
+                          {tr('Delete')}
                         </button>
                       ) : null}
                     </span>
