@@ -38,7 +38,19 @@ export const HistoryTab = ({
   mayManage: (ownerId: string | null) => boolean;
 }) => {
   const [view, setView] = useState<'sheet' | 'list'>('sheet');
-  const [range, setRange] = useState<DateRange>(() => presetRange('thisMonth', today));
+  // Opens on this month; but when nothing happened this month it opens on the month of the latest
+  // movement, so the first thing a person sees is not an empty table.
+  const [range, setRange] = useState<DateRange>(() => {
+    const thisMonth = presetRange('thisMonth', today);
+    const latest = movements.reduce((max, m) => (m.date > max && m.date <= today ? m.date : max), '');
+
+    if (!latest || latest >= thisMonth.from) return thisMonth;
+    const year = Number(latest.slice(0, 4));
+    const month = Number(latest.slice(5, 7));
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+    return { from: `${latest.slice(0, 7)}-01`, to: `${latest.slice(0, 7)}-${String(lastDay).padStart(2, '0')}`, preset: 'custom' };
+  });
   const [query, setQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
   const sheet = useMemo(() => historySheet(items, movementsByItem, range.from, range.to), [items, movementsByItem, range.from, range.to]);
@@ -89,7 +101,11 @@ export const HistoryTab = ({
         <ExcelButton query={withOwner({ kind: 'xlsx-history', from: range.from, to: range.to }, ownerId)} title="This period's IN / OUT grid as an Excel file" />
       </div>
 
-      <div style={{ overflow: 'auto', border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg, maxHeight: 'calc(100cqh - 230px)', minHeight: 240 }}>
+      <div style={{ fontSize: 13, color: c.text2, background: c.bg2, borderRadius: c.radius, padding: '8px 12px' }}>
+        <b>How to read it:</b> Opening (what you had before the first day) + <span style={{ color: GREEN, fontWeight: 600 }}>in</span> − <span style={{ color: BLUE, fontWeight: 600 }}>out</span> = Balance (what is left after the last day). Switch to “List” to see who recorded each line.
+      </div>
+
+      <div style={{ overflow: 'auto', border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg, maxHeight: 'calc(100cqh - 280px)', minHeight: 240 }}>
         <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 720 + ins.length * 84 + outDates.length * 64 }}>
           <thead>
             <tr>
@@ -132,7 +148,15 @@ export const HistoryTab = ({
             {groups.length ? null : (
               <tr>
                 <td colSpan={columns} style={{ ...cell, textAlign: 'center', color: c.text3, padding: 32 }}>
-                  No IN or OUT in this period.
+                  Nothing came in or went out in this period.
+                  <div style={{ marginTop: 10, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+                    <button onClick={() => setRange(presetRange('thisYear', today))} style={control}>
+                      Show this year
+                    </button>
+                    <button onClick={() => setRange(presetRange('all', today))} style={control}>
+                      Show all time
+                    </button>
+                  </div>
                 </td>
               </tr>
             )}

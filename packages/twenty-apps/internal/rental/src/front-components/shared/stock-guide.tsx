@@ -31,11 +31,11 @@ export const StockGuide = ({
     {
       title: 'Add your products',
       how: canAddItems
-        ? 'Once per product: its name, how it is packed (e.g. 8 bags in a carton) and the price of a carton. Have your monthly stock Excel? Import it to add everything at once. Already have stock on the shelf? Use More > Opening stock to enter how many you have, for many items at once.'
+        ? 'Once per product: its name, how it is packed (e.g. 8 bags in a carton) and the price of a carton. Have your monthly stock Excel? Import it to add everything at once. Already have stock on the shelf? Use Manage products, then “Enter what is on the shelf now”, to type how many you have, for many items at once.'
         : 'Your manager adds the products first (name, how it is packed, price). Ask them, then come back here.',
       done: hasItems,
       action: canAddItems ? { label: '+ Add a product', onClick: onAddItem } : null,
-      extra: canAddItems ? { label: '⬆ Import Excel', onClick: onImport } : null,
+      extra: canAddItems ? { label: '⬆ Add many from Excel', onClick: onImport } : null,
     },
     {
       title: 'A delivery came: Stock in',

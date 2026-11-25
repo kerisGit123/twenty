@@ -193,6 +193,8 @@ export const ItemSheet = ({ item, owners, defaultOwnerId, today, onClose, onDone
     expiryDate: '',
   });
   const [busy, setBusy] = useState(false);
+  // Editing shows everything; adding starts with the few fields that matter.
+  const [more, setMore] = useState(Boolean(item));
   const set = (key: keyof typeof form) => (e: Parameters<typeof readValue>[0]) => setForm({ ...form, [key]: readValue(e) });
   const preview = { unitsPerCarton: toNumber(form.unitsPerCarton) || 1, unit: form.unit } as StockItem;
 
@@ -217,64 +219,81 @@ export const ItemSheet = ({ item, owners, defaultOwnerId, today, onClose, onDone
           </select>
         </Field>
       ) : null}
-      <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: 8 }}>
-        <Field label="Item code">
-          <input value={form.code} onChange={set('code')} placeholder="e.g. 1.001" style={input} />
-        </Field>
-        <Field label="Product name">
-          <input value={form.name} onChange={set('name')} placeholder="e.g. Milk powder" style={input} />
-        </Field>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <Field label="Specification">
-          <input value={form.specification} onChange={set('specification')} placeholder="e.g. 3kg x 8 bags" style={input} />
-        </Field>
-        <Field label="Group">
-          <select value={form.group} onChange={set('group')} style={select}>
-            {STOCK_GROUPS.map((g) => (
-              <option key={g.value} value={g.value}>
-                {g.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-      </div>
+      {/* The few things everyone needs: name, how it is packed, the price. The rest is under "More details". */}
+      <Field label="Product name">
+        <input value={form.name} onChange={set('name')} placeholder="e.g. Milk powder" style={input} />
+      </Field>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-        <Field label="Inner unit">
+        <Field label="Sold in" hint="e.g. bag, bottle, pcs">
           <input value={form.unit} onChange={set('unit')} placeholder="e.g. bag" style={input} />
         </Field>
-        <Field label="Units per carton">
+        <Field label="How many in one carton" hint="1 if it has no carton">
           <input value={form.unitsPerCarton} onChange={set('unitsPerCarton')} inputMode="numeric" style={input} />
         </Field>
-        <Field label="Carton price (RM)">
+        <Field label="Price of one carton (RM)">
           <input value={form.cartonPrice} onChange={set('cartonPrice')} inputMode="decimal" placeholder="0.00" style={input} />
         </Field>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <Field label="Supplier">
-          <input value={form.supplier} onChange={set('supplier')} placeholder="e.g. your supplier's name" style={input} />
-        </Field>
-        <Field label="Re-order below (months)" hint="Empty = the business rule">
-          <input value={form.reorderBelowMonths} onChange={set('reorderBelowMonths')} inputMode="decimal" placeholder="e.g. 1.5" style={input} />
-        </Field>
-      </div>
-      <Field label="Shelf life (days)" hint="How long it keeps, e.g. 180. When stock comes in without an expiry date, it gets this many days from the day it arrives. Empty = no automatic expiry.">
-        <input value={form.shelfLifeDays} onChange={set('shelfLifeDays')} inputMode="numeric" placeholder="e.g. 180" style={{ ...input, width: 160 }} />
-      </Field>
-      {!item ? (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, alignItems: 'end' }}>
-          <Field label="Stock in hand now (opening)">
-            <QtyInput item={preview} units={0} onChange={(units) => setForm({ ...form, openingUnits: units })} />
-          </Field>
-          <Field label="Expiry of that stock">
-            <input type="date" value={form.expiryDate} onChange={set('expiryDate')} style={input} />
-          </Field>
+      {toNumber(form.unitsPerCarton) > 0 ? (
+        <div style={{ fontSize: 13, color: c.text2, background: c.bg2, borderRadius: c.radius, padding: '8px 10px' }}>
+          1 carton = {toNumber(form.unitsPerCarton)} {form.unit || 'unit'}
+          {toNumber(form.cartonPrice) > 0 ? ` · RM ${toNumber(form.cartonPrice).toFixed(2)} per carton · RM ${(toNumber(form.cartonPrice) / toNumber(form.unitsPerCarton)).toFixed(2)} each` : ''}
         </div>
       ) : null}
-      <Field label="Notes">
-        <input value={form.notes} onChange={set('notes')} style={input} />
+      <Field label="Supplier" hint="Orders are grouped by supplier">
+        <input value={form.supplier} onChange={set('supplier')} placeholder="e.g. your supplier's name" style={input} />
       </Field>
-      <Buttons onClose={onClose} onSave={save} busy={busy} ready={Boolean(form.name.trim() && toNumber(form.unitsPerCarton) > 0)} label={item ? 'Save item' : 'Add item'} />
+      {!item ? (
+        <Field label="How many do you have on the shelf now?" hint="Leave at 0 if you have none yet. You can count the shelf later.">
+          <QtyInput item={preview} units={0} onChange={(units) => setForm({ ...form, openingUnits: units })} />
+        </Field>
+      ) : null}
+      <button onClick={() => setMore(!more)} style={{ ...control, alignSelf: 'flex-start', color: c.text2 }}>
+        {more ? '▾ Fewer details' : '▸ More details (code, group, re-order, shelf life, notes)'}
+      </button>
+      {more ? (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: 8 }}>
+            <Field label="Item code" hint="Helps searching">
+              <input value={form.code} onChange={set('code')} placeholder="e.g. 1.001" style={input} />
+            </Field>
+            <Field label="Description">
+              <input value={form.specification} onChange={set('specification')} placeholder="e.g. 3kg x 8 bags" style={input} />
+            </Field>
+          </div>
+          <Field label="Group">
+            <select value={form.group} onChange={set('group')} style={select}>
+              {STOCK_GROUPS.map((g) => (
+                <option key={g.value} value={g.value}>
+                  {g.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Remind me to order when it lasts less than (months)" hint="Leave empty to use the business rule">
+            <input value={form.reorderBelowMonths} onChange={set('reorderBelowMonths')} inputMode="decimal" placeholder="e.g. 1.5" style={{ ...input, width: 160 }} />
+          </Field>
+          <Field label="Shelf life (days)" hint="How long it keeps, e.g. 180. Stock that arrives without an expiry date gets this many days from the day it arrives. Empty = no automatic expiry.">
+            <input value={form.shelfLifeDays} onChange={set('shelfLifeDays')} inputMode="numeric" placeholder="e.g. 180" style={{ ...input, width: 160 }} />
+          </Field>
+          {!item ? (
+            <Field label="Expiry date of the stock on the shelf">
+              <input type="date" value={form.expiryDate} onChange={set('expiryDate')} style={{ ...input, width: 200 }} />
+            </Field>
+          ) : null}
+          <Field label="Notes">
+            <input value={form.notes} onChange={set('notes')} style={input} />
+          </Field>
+        </>
+      ) : null}
+      <Buttons
+        onClose={onClose}
+        onSave={save}
+        busy={busy}
+        ready={Boolean(form.name.trim() && toNumber(form.unitsPerCarton) > 0)}
+        label={item ? 'Save item' : 'Add item'}
+        why={!form.name.trim() ? 'Type the product name first.' : toNumber(form.unitsPerCarton) > 0 ? undefined : 'Type how many are in one carton (1 if none).'}
+      />
     </Shell>
   );
 };
@@ -635,11 +654,11 @@ export const WriteOffSheet = ({ item, message, today, onClose, onDone }: { item:
   };
 
   return (
-    <Shell title={`Discontinue ${item.name}?`} intro={message} onClose={onClose}>
+    <Shell title={`Stop using ${item.name}?`} intro={message} onClose={onClose}>
       <span style={{ fontSize: 13, color: c.text2 }}>
-        Writing it off records the rest as waste today, so the balance becomes 0. If you can still use or return it, cancel and record that first.
+        Writing it off records the rest as waste today, so the balance becomes 0. If you can still use or return it, cancel and record that first. The product leaves your lists, its history stays, and you can start using it again later.
       </span>
-      <Buttons onClose={onClose} onSave={save} busy={busy} ready label="Write off and discontinue" />
+      <Buttons onClose={onClose} onSave={save} busy={busy} ready label="Write off the rest and stop using it" />
     </Shell>
   );
 };
@@ -663,8 +682,8 @@ export const ResetSheet = ({ owner, onClose, onDone }: { owner: StockOwner; onCl
 
   return (
     <Shell
-      title={`Initialize stock · ${owner.name}`}
-      intro="Clears every stock IN, OUT, waste and missing line, order and branch request of this business, so every item starts again at zero and you can load fresh stock. Only a host or admin can do this."
+      title={`Start stock again · ${owner.name}`}
+      intro="⚠ This clears every stock in, take out, waste and count record, every order and every branch request of this business. Every product goes back to zero so you can load fresh stock. It cannot be done by staff, only by a host or admin. Do this only when you really want to begin from nothing."
       onClose={onClose}
     >
       <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: c.text2 }}>
@@ -678,7 +697,7 @@ export const ResetSheet = ({ owner, onClose, onDone }: { owner: StockOwner; onCl
       <Field label={`Type "${owner.name}" to confirm`} hint="Nothing is permanently erased: the removed records can be restored from the deleted records.">
         <input value={confirm} onChange={(e) => setConfirm(readValue(e))} style={input} />
       </Field>
-      <Buttons onClose={onClose} onSave={save} busy={busy} ready={ready} label="Initialize stock" why="Type the business name to turn the button on." />
+      <Buttons onClose={onClose} onSave={save} busy={busy} ready={ready} label="Delete all stock records" why="Type the business name to turn the button on." />
     </Shell>
   );
 };

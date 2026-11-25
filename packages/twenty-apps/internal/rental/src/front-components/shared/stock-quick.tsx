@@ -21,7 +21,7 @@ const KINDS = [
   { value: 'BORROW_IN', label: 'Borrowed in', party: '', hint: 'Which shop lent it to you?' },
   { value: 'BORROW', label: 'Lent out', party: '', hint: 'Which shop borrowed it?' },
   // Starting balances for many items at once: one date, then search and add. No supplier, no expense.
-  { value: 'OPENING', label: 'Opening stock', party: '', hint: '' },
+  { value: 'OPENING', label: 'Starting stock', party: '', hint: '' },
 ] as const;
 
 const toNumber = parseNumber;

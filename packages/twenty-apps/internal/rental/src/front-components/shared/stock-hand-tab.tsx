@@ -254,7 +254,7 @@ export const StockHandTab = ({
           ))}
         </select>
         <button onClick={() => toggle('discontinued')} style={{ ...control, fontWeight: filter === 'discontinued' ? 600 : 400, borderColor: filter === 'discontinued' ? c.accent : c.border2 }}>
-          Discontinued
+          Products no longer used
         </button>
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: c.text3 }}>

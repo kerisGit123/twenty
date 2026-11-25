@@ -71,10 +71,10 @@ const writeGuideHidden = (hidden: boolean) => {
 // The everyday jobs, one big button each. Borrowing and lending share one button
 // (Quick entry has both inside).
 const BIG_BUTTONS = [
-  { key: 'TAKE', label: 'Take out', hint: 'to the shop', icon: '↑', color: 'blue' },
+  { key: 'TAKE', label: 'Take out', hint: 'stock goes to the shop', icon: '↑', color: 'blue' },
   { key: 'PURCHASE', label: 'Stock in', hint: 'a delivery came', icon: '↓', color: 'green' },
-  { key: 'WASTE', label: 'Waste / missing', hint: 'thrown away or lost', icon: '🗑', color: 'red' },
-  { key: 'COUNT', label: 'Count', hint: 'check the shelf', icon: '✔', color: 'gray' },
+  { key: 'WASTE', label: 'Waste', hint: 'thrown away or spoiled', icon: '🗑', color: 'red' },
+  { key: 'COUNT', label: 'Count', hint: 'check the shelf · finds missing stock', icon: '✔', color: 'gray' },
   { key: 'BORROW_IN', label: 'Borrow / lend', hint: 'with another shop', icon: '⇄', color: 'purple' },
 ] as const;
 
@@ -112,9 +112,10 @@ const VIEWS: Partial<Record<Group, Array<{ key: Tab; label: string; managers?: b
     { key: 'orders', label: 'Orders' },
     { key: 'requests', label: 'Branch requests' },
   ],
+  // The monthly sheet is what people open Month end for, so it comes first.
   monthend: [
-    { key: 'monthend', label: 'Close the month' },
-    { key: 'month', label: 'Monthly sheet' },
+    { key: 'month', label: 'Monthly stock sheet' },
+    { key: 'monthend', label: 'Whole year · Close a month' },
     { key: 'usage', label: 'Usage vs sales' },
   ],
 };
@@ -216,7 +217,7 @@ export const StockPage = () => {
   const simple = !mayAddItems || (simplePref ?? true);
   const group = GROUP_OF[tab];
   const views = (VIEWS[group] ?? []).filter((v) => !v.managers || !simple);
-  const pickGroup = (next: Group) => setTab(next === 'ordering' ? (simple ? 'orders' : 'order') : next === 'monthend' ? 'monthend' : next);
+  const pickGroup = (next: Group) => setTab(next === 'ordering' ? (simple ? 'orders' : 'order') : next === 'monthend' ? 'month' : next);
   // Stock belongs to one workspace: the one picked at the top of the left sidebar.
   const needsWorkspace = !ownerId && scope.owners.length > 1;
   const chooseSimple = (value: boolean) => {
@@ -353,46 +354,59 @@ export const StockPage = () => {
           </button>
           {mayAddItems ? (
             <button onClick={() => chooseSimple(!simple)} style={{ ...control, color: c.text2 }} title={simple ? 'Manager tools: history, ordering plan, month end, items' : 'Back to the everyday buttons'}>
-              {simple ? 'Manager view' : 'Simple view'}
+              {simple ? 'Manager view' : 'Everyday view'}
             </button>
           ) : null}
-          {!simple ? (
-            <>
-              <button onClick={() => setOpen({ kind: 'quick' })} style={primary} disabled={!data} title="Take out, waste or stock in: search, tap, save">
-                ⚡ Quick entry (many items)
-              </button>
-              <button onClick={() => setOpen({ kind: 'take' })} style={control} disabled={!data} title="Count the shelf and fix the differences">
-                Count
-              </button>
-              {owner?.canManage ? (
-                <button onClick={() => setOpen({ kind: 'reset' })} style={{ ...control, color: 'var(--t-color-red11)' }} disabled={!data} title="Clear all the stock records of this business and start again (host / admin only)">
-                  Initialize stock…
-                </button>
-              ) : null}
-              <button onClick={() => setMoreOpen(!moreOpen)} style={{ ...control, color: c.text2 }}>
-                {moreOpen ? 'Less' : 'More ▾'}
+          {/* One "Manage" menu instead of a row of buttons: products, starting stock, import, and
+              (kept apart, in red) starting again. The everyday jobs are the big buttons below. */}
+          {mayAddItems ? (
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setMoreOpen(!moreOpen)} style={{ ...primary, background: c.bg, color: c.text, border: `1px solid ${c.border2}` }} disabled={!data} aria-expanded={moreOpen}>
+                Manage products ▾
               </button>
               {moreOpen ? (
                 <>
-                  {mayAddItems ? (
-                    <button onClick={() => setOpen({ kind: 'item', item: null })} style={control} disabled={!data}>
-                      + Add item
-                    </button>
-                  ) : null}
-                  {mayAddItems ? (
-                    <button onClick={() => setOpen({ kind: 'quick', quickKind: 'OPENING' })} style={control} disabled={!data} title="Starting stock for many items at once: pick a date, search by code or name, add the quantities">
-                      Opening stock
-                    </button>
-                  ) : null}
-                  {mayAddItems ? (
-                    <button onClick={() => setOpen({ kind: 'import' })} style={control} disabled={!data} title="Add products and starting stock from your monthly stock Excel (订货单)">
-                      ⬆ Import Excel
-                    </button>
-                  ) : null}
-
+                  <div onClick={() => setMoreOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 20 }} />
+                  <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 21, minWidth: 300, background: c.bg, border: `1px solid ${c.border2}`, borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', padding: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {(
+                      [
+                        { label: '＋ Add a new product', hint: 'A product you have not listed yet', run: () => setOpen({ kind: 'item', item: null }) },
+                        { label: '📦 Enter what is on the shelf now', hint: 'Starting stock for many products, on a date', run: () => setOpen({ kind: 'quick', quickKind: 'OPENING' }) },
+                        { label: '⬆ Add many products from Excel', hint: 'Your monthly stock sheet (订货单)', run: () => setOpen({ kind: 'import' }) },
+                      ] as const
+                    ).map((entry) => (
+                      <button
+                        key={entry.label}
+                        onClick={() => {
+                          setMoreOpen(false);
+                          entry.run();
+                        }}
+                        style={{ all: 'unset', cursor: 'pointer', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 1 }}
+                      >
+                        <span style={{ fontSize: 14, fontWeight: 600 }}>{entry.label}</span>
+                        <span style={{ fontSize: 12, color: c.text3 }}>{entry.hint}</span>
+                      </button>
+                    ))}
+                    <span style={{ fontSize: 12, color: c.text3, padding: '6px 12px 2px' }}>To remove a product you no longer use: click it in the list, then “Stop using this product”.</span>
+                    {owner?.canManage ? (
+                      <>
+                        <div style={{ height: 1, background: c.border, margin: '4px 6px' }} />
+                        <button
+                          onClick={() => {
+                            setMoreOpen(false);
+                            setOpen({ kind: 'reset' });
+                          }}
+                          style={{ all: 'unset', cursor: 'pointer', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 1 }}
+                        >
+                          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--t-color-red11)' }}>⚠ Start stock again…</span>
+                          <span style={{ fontSize: 12, color: c.text3 }}>Deletes all stock records of this business. Asks you to confirm.</span>
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
                 </>
               ) : null}
-            </>
+            </div>
           ) : null}
         </div>
 
@@ -412,7 +426,7 @@ export const StockPage = () => {
           />
         ) : null}
 
-        {simple && data ? (
+        {data ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
             {BIG_BUTTONS.map((b) => (
               <button
@@ -493,7 +507,7 @@ export const StockPage = () => {
           </div>
         ) : null}
         {data && !items.length ? (
-          <span style={{ color: c.text3, fontSize: 13 }}>No stock items in this business yet. Use “⬆ Import Excel” to bring in your monthly stock sheet, or “+ Add item”.</span>
+          <span style={{ color: c.text3, fontSize: 13 }}>No stock items in this business yet. {mayAddItems ? 'Press “Manage products”, then add a product, or bring in your monthly stock sheet from Excel.' : 'Ask your host or admin to add the products first.'}</span>
         ) : null}
         {data && items.length ? (
           <>

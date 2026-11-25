@@ -95,7 +95,7 @@ export const ItemDetailSheet = ({
           ) : null}
           {onToggleStatus ? (
             <button onClick={onToggleStatus} style={small}>
-              {item.status === 'DISCONTINUED' ? 'Reactivate' : 'Discontinue'}
+              {item.status === 'DISCONTINUED' ? 'Use this product again' : 'Stop using this product'}
             </button>
           ) : null}
         </div>
