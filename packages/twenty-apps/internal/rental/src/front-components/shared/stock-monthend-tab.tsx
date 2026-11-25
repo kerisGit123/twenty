@@ -34,7 +34,8 @@ export const MonthEndTab = ({
   onStockTake: (date: string) => void;
   onChanged: () => void;
 }) => {
-  const [view, setView] = useState<'products' | 'months'>('products');
+  // Opens on the month list: that is where a month is closed. The product grid is one tap away.
+  const [view, setView] = useState<'products' | 'months'>('months');
   const [closing, setClosing] = useState<MonthEndRow | null>(null);
   const [busy, setBusy] = useState(false);
   const rows = useMemo(() => monthEndRows(items, movementsByItem, today.slice(0, 7)).reverse(), [items, movementsByItem, today]);
@@ -68,7 +69,7 @@ export const MonthEndTab = ({
           <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: c.font, color: c.text }}>
             <span style={{ fontSize: 16, fontWeight: 600 }}>Close {monthLabel(closing.month)}?</span>
             <span style={{ fontSize: 13, color: c.text2 }}>
-              Closing value <b>{rm(closing.closingValue)}</b> becomes the fixed opening of {monthLabel(new Date(Date.parse(`${closing.month}-01T00:00:00Z`) + 32 * 86_400_000).toISOString().slice(0, 7))}. After closing, nobody can add, change or remove stock IN/OUT dated on or before{' '}
+              This locks the month. You can still open the latest closed month again if you need to correct something. Closing value <b>{rm(closing.closingValue)}</b> becomes the fixed opening of {monthLabel(new Date(Date.parse(`${closing.month}-01T00:00:00Z`) + 32 * 86_400_000).toISOString().slice(0, 7))}. After closing, nobody can add, change or remove stock IN/OUT dated on or before{' '}
               {monthEndDay(closing.month)} in {owner?.name}.
             </span>
             {!closing.counted ? (
@@ -103,8 +104,8 @@ export const MonthEndTab = ({
         <div style={{ display: 'inline-flex', border: `1px solid ${c.border2}`, borderRadius: c.radius, overflow: 'hidden' }}>
           {(
             [
-              ['products', 'By product · Jan–Dec'],
-              ['months', 'Summary by month'],
+              ['months', 'Months · close a month'],
+              ['products', 'Each product · Jan–Dec'],
             ] as const
           ).map(([value, label]) => (
             <button
@@ -130,6 +131,51 @@ export const MonthEndTab = ({
       {view === 'products' ? <YearGrid items={items} movementsByItem={movementsByItem} today={today} ownerId={owner?.id ?? ''} /> : null}
       {view === 'months' ? (
         <>
+          {/* Closing a month in three plain steps, for the oldest finished month that is still open. */}
+          {owner && canClose ? (
+            (() => {
+              const next = rows.find((r) => r.month === nextToClose);
+
+              if (!next) {
+                return (
+                  <div style={{ border: `1px solid ${c.border}`, borderRadius: 12, padding: 14, fontSize: 13, color: c.text2 }}>
+                    <b style={{ color: c.text }}>Nothing to close right now.</b> Every finished month is already closed. When this month is over, count the shelf and close it here.
+                  </div>
+                );
+              }
+
+              return (
+                <div style={{ border: '1px solid var(--t-color-blue6)', background: 'var(--t-color-blue2)', borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <span style={{ fontSize: 15, fontWeight: 700 }}>Ready to close {monthLabel(next.month)}</span>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>1. Count the shelf</span>
+                      <span style={{ fontSize: 13, color: next.counted ? 'var(--t-color-green11)' : 'var(--t-color-amber11)' }}>{next.counted ? '✓ Counted this month' : 'Not counted yet. Counting makes the closing match the shelf.'}</span>
+                      {!next.counted ? (
+                        <button onClick={() => onStockTake(monthEndDay(next.month))} style={{ ...control, alignSelf: 'flex-start' }}>
+                          Count now
+                        </button>
+                      ) : null}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>2. Look at what was lost</span>
+                      <span style={{ fontSize: 13, color: c.text2 }}>{next.wasteValue ? `${rm(next.wasteValue)} was wasted or went missing. See the table below.` : 'Nothing wasted or missing was recorded.'}</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>3. Close the month</span>
+                      <span style={{ fontSize: 13, color: c.text2 }}>Closing stock {rm(next.closingValue)}. Nobody can change this month after.</span>
+                      <button onClick={() => setClosing(next)} style={{ ...primary, alignSelf: 'flex-start' }}>
+                        🔒 Close {monthLabel(next.month)}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()
+          ) : null}
+          <span style={{ fontSize: 13, color: c.text2 }}>
+            <b>Open</b> = can still be changed. <b>🔒 Closed</b> = locked, so old records cannot be changed by mistake. Close months in order, after each month is over.
+          </span>
 
       <div style={{ overflow: 'auto', border: `1px solid ${c.border}`, borderRadius: c.radius, background: c.bg }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
@@ -137,11 +183,11 @@ export const MonthEndTab = ({
             <tr>
               <th style={{ ...head, textAlign: 'left' }}>Month</th>
               <th style={head}>Opening</th>
-              <th style={{ ...head, color: 'var(--t-color-green11)' }}>+ Purchased</th>
-              <th style={{ ...head, color: 'var(--t-color-green11)' }}>+ Other in</th>
-              <th style={{ ...head, color: 'var(--t-color-blue11)' }}>− Used</th>
-              <th style={{ ...head, color: 'var(--t-color-red11)' }}>− Waste / missing</th>
-              <th style={{ ...head, color: 'var(--t-color-blue11)' }}>− Lent / given back / count</th>
+              <th style={{ ...head, color: 'var(--t-color-green11)' }}>+ Bought</th>
+              <th style={{ ...head, color: 'var(--t-color-green11)' }} title="Returns, borrowed in, count differences upward">+ Other in</th>
+              <th style={{ ...head, color: 'var(--t-color-blue11)' }} title="Taken out to the shop">− Used</th>
+              <th style={{ ...head, color: 'var(--t-color-red11)' }}>− Wasted / missing</th>
+              <th style={{ ...head, color: 'var(--t-color-blue11)' }} title="Lent out, given back, count differences downward">− Lent / returned / count</th>
               <th style={head}>Closing</th>
               <th style={{ ...head, textAlign: 'left' }}>Count</th>
               <th style={{ ...head, textAlign: 'left' }}>Status</th>

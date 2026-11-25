@@ -115,7 +115,7 @@ const VIEWS: Partial<Record<Group, Array<{ key: Tab; label: string; managers?: b
   // The monthly sheet is what people open Month end for, so it comes first.
   monthend: [
     { key: 'month', label: 'Monthly stock sheet' },
-    { key: 'monthend', label: 'Whole year · Close a month' },
+    { key: 'monthend', label: 'Close the month' },
     { key: 'usage', label: 'Usage vs sales' },
   ],
 };
