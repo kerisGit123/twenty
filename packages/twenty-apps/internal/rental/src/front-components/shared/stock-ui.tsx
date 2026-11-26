@@ -5,7 +5,7 @@ import { RestApiClient } from 'twenty-client-sdk/rest';
 
 import { MONTHS } from 'src/shared/months';
 import { type StockItem } from 'src/shared/stock';
-import { tr } from 'src/front-components/shared/stock-i18n';
+import { L, tr } from 'src/front-components/shared/stock-i18n';
 
 // Shared look of the Stock page and its forms.
 
@@ -173,7 +173,7 @@ export const FLAG: Record<string, { label: string; color: string }> = {
 export const ShopChips = ({ shops, value, onPick }: { shops: string[]; value: string; onPick: (shop: string) => void }) =>
   shops.length ? (
     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-      <span style={{ fontSize: 12, color: c.text3 }}>Tap a shop:</span>
+      <span style={{ fontSize: 12, color: c.text3 }}>{L('Tap a shop:', 'Tekan kedai:')}</span>
       {shops.map((shop) => {
         const picked = value.trim().toLowerCase() === shop.toLowerCase();
 

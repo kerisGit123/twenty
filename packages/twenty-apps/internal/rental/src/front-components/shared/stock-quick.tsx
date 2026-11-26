@@ -220,25 +220,35 @@ export const QuickSheet = ({
           <>
             <ShopChips shops={shops} value={party} onPick={setParty} />
             <span style={{ fontSize: 12, color: needsShop ? 'var(--t-color-amber11)' : c.text3 }}>
-              {needsShop ? 'Say which shop: tap one above or type its name.' : kind === 'BORROW_IN' ? 'You will owe this back: give it back, swap it or pay for it later on the Loans tab.' : 'The shop will owe this back: settle it later on the Loans tab.'}
+              {needsShop
+                ? L('Say which shop: tap one above or type its name.', 'Nyatakan kedai: tekan satu di atas atau taip namanya.')
+                : kind === 'BORROW_IN'
+                  ? L('You will owe this back: give it back, swap it or pay for it later on the Loans tab.', 'Anda perlu pulangkan: pulangkan, tukar atau bayar kemudian di tab Pinjaman.')
+                  : L('The shop will owe this back: settle it later on the Loans tab.', 'Kedai itu perlu pulangkan: selesaikan kemudian di tab Pinjaman.')}
             </span>
           </>
         ) : null}
         {isOpening ? (
           <span style={{ fontSize: 13, color: c.text2 }}>
-            Pick the date the stock was counted, search an item by code or name, then type or tap how many were on the shelf. Nothing is added to Expenses. This adds to what is already in the system: to correct a quantity, use Count.
+            {L(
+              'Pick the date the stock was counted, search an item by code or name, then type or tap how many were on the shelf. Nothing is added to Expenses. This adds to what is already in the system: to correct a quantity, use Count.',
+              'Pilih tarikh stok dikira, cari produk ikut kod atau nama, kemudian taip atau tekan berapa yang ada di rak. Tiada apa masuk ke Perbelanjaan. Ia ditambah kepada stok yang sudah ada dalam sistem: untuk betulkan jumlah, guna Kira stok.',
+            )}
           </span>
         ) : null}
         {kind === 'PURCHASE' ? <input value={reference} onChange={(e) => setReference(readValue(e))} placeholder={tr('Invoice / DO no. (optional)')} style={{ ...input, height: 40 }} /> : null}
         {kind === 'PURCHASE' ? (
           <span style={{ fontSize: 12, color: c.text3 }}>
-            Did you order this earlier? Close this and use Ordering, Orders, <b>Receive goods</b> instead, so the order is ticked off and is not counted as still on order.
+            {L('Did you order this earlier? Close this and use Ordering, Orders, Receive goods instead, so the order is ticked off and is not counted as still on order.', 'Sudah pesan barang ini dahulu? Tutup ini dan guna Pesanan, kemudian Terima barang, supaya pesanan itu ditanda sampai dan tidak dikira masih dalam pesanan.')}
           </span>
         ) : null}
         {kind === 'WASTE' ? <ReasonPicker value={reason} onChange={setReason} /> : null}
         {oldDate || future ? (
           <span style={{ fontSize: 13, color: 'var(--t-color-amber11)', fontWeight: 500 }}>
-            {future ? `This date is ${-daysAgo} day${daysAgo === -1 ? '' : 's'} in the future` : `This is dated ${shortDate(date)}, ${daysAgo} days ago, not today`}. It is saved as a new entry with that date.
+            {future
+              ? L(`This date is ${-daysAgo} day${daysAgo === -1 ? '' : 's'} in the future`, `Tarikh ini ${-daysAgo} hari pada masa depan`)
+              : L(`This is dated ${shortDate(date)}, ${daysAgo} days ago, not today`, `Ini bertarikh ${shortDate(date)}, ${daysAgo} hari lalu, bukan hari ini`)}
+            {L('. It is saved as a new entry with that date.', '. Ia disimpan sebagai rekod baru dengan tarikh itu.')}
           </span>
         ) : null}
         <input value={query} onChange={(e) => setQuery(readValue(e))} placeholder={tr('🔍 Type a code or name…')} style={{ ...input, height: 44, fontSize: 15 }} />

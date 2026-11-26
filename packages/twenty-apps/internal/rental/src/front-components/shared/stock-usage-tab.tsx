@@ -2,6 +2,7 @@ import { type CSSProperties, useMemo, useState } from 'react';
 
 import { readValue } from 'src/front-components/shared/read-value';
 import { stockAction } from 'src/front-components/shared/stock-forms';
+import { L } from 'src/front-components/shared/stock-i18n';
 import { c, control, monthLabel, parseNumber, primary, qty, rm } from 'src/front-components/shared/stock-ui';
 import type { StockOwner } from 'src/logic-functions/utils/stock-data';
 import { perThousand, type StockItem, type StockMovement, unitValue, usageSheet } from 'src/shared/stock';
@@ -60,37 +61,37 @@ export const UsageTab = ({ items, movementsByItem, owner, today, onChanged }: { 
     }
   };
 
-  if (!owner) return <span style={{ fontSize: 13, color: c.text3 }}>Pick a business in the left sidebar to see its usage.</span>;
+  if (!owner) return <span style={{ fontSize: 13, color: c.text3 }}>{L('Pick a business in the left sidebar to see its usage.', 'Pilih perniagaan di bar sisi kiri untuk lihat penggunaannya.')}</span>;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ display: 'inline-flex', alignItems: 'center', border: `1px solid ${c.border2}`, borderRadius: c.radius, overflow: 'hidden' }}>
-          <button onClick={() => setMonth(shiftMonth(month, -1))} style={{ ...control, border: 'none', borderRadius: 0 }} title="Previous month">
+          <button onClick={() => setMonth(shiftMonth(month, -1))} style={{ ...control, border: 'none', borderRadius: 0 }} title={L('Previous month', 'Bulan sebelumnya')}>
             ‹
           </button>
           <span style={{ padding: '0 12px', fontWeight: 600, fontSize: 14, minWidth: 120, textAlign: 'center' }}>{monthLabel(month)}</span>
-          <button onClick={() => setMonth(shiftMonth(month, 1))} style={{ ...control, border: 'none', borderRadius: 0 }} title="Next month">
+          <button onClick={() => setMonth(shiftMonth(month, 1))} style={{ ...control, border: 'none', borderRadius: 0 }} title={L('Next month', 'Bulan seterusnya')}>
             ›
           </button>
         </div>
-        <span style={{ fontSize: 13, color: c.text2, marginLeft: 8 }}>Shop sales in {monthLabel(month)}:</span>
+        <span style={{ fontSize: 13, color: c.text2, marginLeft: 8 }}>{L('Shop sales in', 'Jualan kedai pada')} {monthLabel(month)}:</span>
         {draft !== null ? (
           <>
-            <input autoFocus value={draft} onChange={(e) => setDraft(readValue(e))} inputMode="decimal" placeholder="e.g. 60000" style={{ ...control, width: 130, cursor: 'text' }} />
+            <input autoFocus value={draft} onChange={(e) => setDraft(readValue(e))} inputMode="decimal" placeholder={L('e.g. 60000', 'cth. 60000')} style={{ ...control, width: 130, cursor: 'text' }} />
             <button onClick={saveSales} disabled={busy} style={primary}>
-              {busy ? 'Saving…' : 'Save'}
+              {busy ? L('Saving…', 'Menyimpan…') : L('Save', 'Simpan')}
             </button>
             <button onClick={() => setDraft(null)} style={control}>
-              Cancel
+              {L('Cancel', 'Batal')}
             </button>
           </>
         ) : (
           <>
-            <b style={{ fontSize: 14 }}>{monthSales ? rm(monthSales) : 'not typed yet'}</b>
+            <b style={{ fontSize: 14 }}>{monthSales ? rm(monthSales) : L('not typed yet', 'belum ditaip')}</b>
             {canType ? (
               <button onClick={() => setDraft(monthSales ? String(monthSales) : '')} style={control}>
-                {monthSales ? 'Change' : 'Type sales'}
+                {monthSales ? L('Change', 'Tukar') : L('Type sales', 'Taip jualan')}
               </button>
             ) : null}
           </>
@@ -99,24 +100,27 @@ export const UsageTab = ({ items, movementsByItem, owner, today, onChanged }: { 
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
         <div style={{ border: `1px solid ${c.border}`, borderRadius: c.radius, padding: 12 }}>
-          <div style={{ fontSize: 12, color: c.text3 }}>Stock used (cost)</div>
+          <div style={{ fontSize: 12, color: c.text3 }}>{L('Stock used (cost)', 'Stok digunakan (kos)')}</div>
           <div style={{ fontSize: 20, fontWeight: 650 }}>{rm(totalCost)}</div>
         </div>
         <div style={{ border: `1px solid ${c.border}`, borderRadius: c.radius, padding: 12 }}>
-          <div style={{ fontSize: 12, color: c.text3 }}>Per RM 1,000 of sales</div>
+          <div style={{ fontSize: 12, color: c.text3 }}>{L('Per RM 1,000 of sales', 'Bagi setiap RM 1,000 jualan')}</div>
           <div style={{ fontSize: 20, fontWeight: 650 }}>{monthSales ? rm((totalCost / monthSales) * 1000) : '—'}</div>
-          <div style={{ fontSize: 12, color: c.text3 }}>{monthSales ? `stock cost is ${((totalCost / monthSales) * 100).toFixed(1)}% of sales` : 'type the sales to see this'}</div>
+          <div style={{ fontSize: 12, color: c.text3 }}>{monthSales ? L(`stock cost is ${((totalCost / monthSales) * 100).toFixed(1)}% of sales`, `kos stok ialah ${((totalCost / monthSales) * 100).toFixed(1)}% daripada jualan`) : L('type the sales to see this', 'taip jualan untuk lihat ini')}</div>
         </div>
         <div style={{ border: `1px solid ${c.border}`, borderRadius: c.radius, padding: 12 }}>
-          <div style={{ fontSize: 12, color: c.text3 }}>Missing at the count</div>
+          <div style={{ fontSize: 12, color: c.text3 }}>{L('Missing at the count', 'Hilang semasa kiraan')}</div>
           <div style={{ fontSize: 20, fontWeight: 650, color: missingCost > 0.5 ? 'var(--t-color-red11)' : c.text }}>{sheet.counted ? rm(Math.max(0, missingCost)) : '—'}</div>
-          <div style={{ fontSize: 12, color: c.text3 }}>{sheet.counted ? 'used but never recorded' : 'no shelf count this month'}</div>
+          <div style={{ fontSize: 12, color: c.text3 }}>{sheet.counted ? L('used but never recorded', 'digunakan tetapi tidak direkodkan') : L('no shelf count this month', 'tiada kiraan rak bulan ini')}</div>
         </div>
       </div>
 
       {!sheet.counted ? (
         <span style={{ fontSize: 12.5, color: 'var(--t-color-amber11)' }}>
-          No shelf count was saved in {monthLabel(month)}, so the closing comes from the records and actual usage equals what was taken out and wasted. Count the shelf at the end of the month (Count button) to find stock that went missing.
+          {L(
+            `No shelf count was saved in ${monthLabel(month)}, so the closing comes from the records and actual usage equals what was taken out and wasted. Count the shelf at the end of the month (Count button) to find stock that went missing.`,
+            `Tiada kiraan rak disimpan pada ${monthLabel(month)}, jadi stok akhir diambil daripada rekod dan penggunaan sebenar sama dengan yang dikeluarkan dan dibuang. Kira rak pada hujung bulan (butang Kira stok) untuk cari stok yang hilang.`,
+          )}
         </span>
       ) : null}
 
@@ -124,17 +128,17 @@ export const UsageTab = ({ items, movementsByItem, owner, today, onChanged }: { 
         <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 980 }}>
           <thead>
             <tr>
-              <th style={{ ...head, textAlign: 'left' }}>Item</th>
-              <th style={head}>Opening</th>
-              <th style={head}>+ Stock in</th>
-              <th style={head}>+ Transfer in</th>
-              <th style={head}>− Transfer out</th>
-              <th style={head}>− Closing</th>
-              <th style={{ ...head, color: c.text }}>= Actual usage</th>
-              <th style={head}>Recorded</th>
-              <th style={head}>Missing</th>
-              <th style={{ ...head, color: c.text }}>Per RM 1,000</th>
-              <th style={head}>Usual</th>
+              <th style={{ ...head, textAlign: 'left' }}>{L('Item', 'Produk')}</th>
+              <th style={head}>{L('Opening', 'Stok awal')}</th>
+              <th style={head}>{L('+ Stock in', '+ Stok masuk')}</th>
+              <th style={head}>{L('+ Transfer in', '+ Pindah masuk')}</th>
+              <th style={head}>{L('− Transfer out', '− Pindah keluar')}</th>
+              <th style={head}>{L('− Closing', '− Stok akhir')}</th>
+              <th style={{ ...head, color: c.text }}>{L('= Actual usage', '= Guna sebenar')}</th>
+              <th style={head}>{L('Recorded', 'Direkodkan')}</th>
+              <th style={head}>{L('Missing', 'Hilang')}</th>
+              <th style={{ ...head, color: c.text }}>{L('Per RM 1,000', 'Setiap RM 1,000')}</th>
+              <th style={head}>{L('Usual', 'Biasa')}</th>
             </tr>
           </thead>
           <tbody>
@@ -164,7 +168,7 @@ export const UsageTab = ({ items, movementsByItem, owner, today, onChanged }: { 
                     <td style={{ ...right, fontWeight: 650 }}>{n(r.actual)}</td>
                     <td style={{ ...right, color: c.text3 }}>{n(r.recorded)}</td>
                     <td style={{ ...right, color: r.missing > 0.005 ? 'var(--t-color-red11)' : r.missing < -0.005 ? 'var(--t-color-amber11)' : c.text3 }}>{n(r.missing)}</td>
-                    <td style={{ ...right, fontWeight: 650, color: off ? 'var(--t-color-red11)' : c.text }} title={off ? 'More than 20% away from the usual' : undefined}>
+                    <td style={{ ...right, fontWeight: 650, color: off ? 'var(--t-color-red11)' : c.text }} title={off ? L('More than 20% away from the usual', 'Berbeza lebih 20% daripada biasa') : undefined}>
                       {ratio === null ? '—' : qty(ratio)}
                       {off ? ' ⚠' : ''}
                     </td>
@@ -176,7 +180,7 @@ export const UsageTab = ({ items, movementsByItem, owner, today, onChanged }: { 
             {!groups.length ? (
               <tr>
                 <td colSpan={11} style={{ ...cell, textAlign: 'center', color: c.text3, padding: 24 }}>
-                  Nothing moved in {monthLabel(month)}.
+                  {L('Nothing moved in', 'Tiada pergerakan stok pada')} {monthLabel(month)}.
                 </td>
               </tr>
             ) : null}
@@ -184,7 +188,10 @@ export const UsageTab = ({ items, movementsByItem, owner, today, onChanged }: { 
         </table>
       </div>
       <span style={{ fontSize: 12, color: c.text3 }}>
-        Actual usage = opening + stock in + transfer in (borrowed, returned, swapped in) − transfer out (lent, given back) − closing. Recorded = taken out + wasted. Missing = actual − recorded. Per RM 1,000 = actual usage ÷ sales × 1,000, in the item's unit; "Usual" is the average of the three months before that have sales. ⚠ = more than 20% away from usual.
+        {L(
+          'Actual usage = opening + stock in + transfer in (borrowed, returned, swapped in) − transfer out (lent, given back) − closing. Recorded = taken out + wasted. Missing = actual − recorded. Per RM 1,000 = actual usage ÷ sales × 1,000, in the item\'s unit; "Usual" is the average of the three months before that have sales. ⚠ = more than 20% away from usual.',
+          'Guna sebenar = stok awal + stok masuk + pindah masuk (dipinjam, dipulangkan, ditukar masuk) − pindah keluar (dipinjamkan, dipulangkan semula) − stok akhir. Direkodkan = dikeluarkan + dibuang. Hilang = guna sebenar − direkodkan. Setiap RM 1,000 = guna sebenar ÷ jualan × 1,000, dalam unit produk; "Biasa" ialah purata tiga bulan sebelumnya yang ada jualan. ⚠ = berbeza lebih 20% daripada biasa.',
+        )}
       </span>
     </div>
   );
