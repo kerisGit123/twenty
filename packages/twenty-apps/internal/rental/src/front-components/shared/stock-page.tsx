@@ -268,13 +268,13 @@ export const StockPage = () => {
           today={today}
           onClose={() => setOpen(null)}
           onRecord={(type) => setOpen({ kind: 'record', type, itemId: status.item.id })}
-          onEdit={mayManage(status.item.ownerId) ? () => setOpen({ kind: 'item', item: status.item }) : null}
+          onEdit={() => setOpen({ kind: 'item', item: status.item })}
           onToggleStatus={mayManage(status.item.ownerId) ? () => toggleStatus(status.item) : null}
           onDelete={mayManage(status.item.ownerId) ? () => deleteItem(status.item) : null}
         />
       ) : null;
     }
-    if (open.kind === 'item') return <ItemSheet item={open.item} owners={data.owners.filter((o) => o.canManage && (!ownerId || o.id === ownerId))} defaultOwnerId={ownerId} today={today} onClose={() => setOpen(null)} onDone={done} />;
+    if (open.kind === 'item') return <ItemSheet item={open.item} owners={data.owners.filter((o) => !ownerId || o.id === ownerId)} defaultOwnerId={ownerId} today={today} onClose={() => setOpen(null)} onDone={done} />;
     if (open.kind === 'record') {
       return (
         <RecordSheet
@@ -400,6 +400,12 @@ export const StockPage = () => {
               {tr(simple ? 'Manager view' : 'Everyday view')}
             </button>
           ) : null}
+          {/* Staff may add products too (not delete them, and no starting stock): one plain button. */}
+          {data && !mayAddItems ? (
+            <button onClick={() => setOpen({ kind: 'item', item: null })} style={control}>
+              {tr('＋ Add a product')}
+            </button>
+          ) : null}
           {/* One "Manage" menu instead of a row of buttons: products, starting stock, import, and
               (kept apart, in red) starting again. The everyday jobs are the big buttons below. */}
           {mayAddItems ? (
@@ -457,7 +463,8 @@ export const StockPage = () => {
           <StockGuide
             itemCount={items.length}
             movements={movements}
-            canAddItems={mayAddItems}
+            canAddItems
+            canImport={mayAddItems}
             onAddItem={() => setOpen({ kind: 'item', item: null })}
             onImport={() => setOpen({ kind: 'import' })}
             onStockIn={() => setOpen({ kind: 'quick', quickKind: 'PURCHASE' })}
@@ -550,14 +557,14 @@ export const StockPage = () => {
           </div>
         ) : null}
         {data && !items.length ? (
-          <span style={{ color: c.text3, fontSize: 13 }}>No stock items in this business yet. {mayAddItems ? 'Press “Manage products”, then add a product, or bring in your monthly stock sheet from Excel.' : 'Ask your host or admin to add the products first.'}</span>
+          <span style={{ color: c.text3, fontSize: 13 }}>No stock items in this business yet. {mayAddItems ? 'Press “Manage products”, then add a product, or bring in your monthly stock sheet from Excel.' : 'Press “＋ Add a product” to add the first one.'}</span>
         ) : null}
         {data && items.length ? (
           <>
             {tab === 'stock' ? (
               <StockHandTab
                 simple={simple}
-                onEdit={simple ? undefined : (item) => (mayManage(item.ownerId) ? setOpen({ kind: 'item', item }) : undefined)}
+                onEdit={(item) => setOpen({ kind: 'item', item })}
                 onDelete={simple ? undefined : (item) => (mayManage(item.ownerId) ? setOpen({ kind: 'deleteItem', item }) : undefined)}
                 statuses={statuses}
                 today={today}

@@ -12,6 +12,7 @@ export const StockGuide = ({
   itemCount,
   movements,
   canAddItems,
+  canImport,
   onAddItem,
   onImport,
   onStockIn,
@@ -20,7 +21,8 @@ export const StockGuide = ({
 }: {
   itemCount: number;
   movements: StockMovement[];
-  canAddItems: boolean; // managers add products; staff ask them
+  canAddItems: boolean; // everyone may add products
+  canImport: boolean; // Excel import and starting stock: host / admin only
   onAddItem: () => void;
   onImport: () => void;
   onStockIn: () => void;
@@ -31,15 +33,15 @@ export const StockGuide = ({
   const steps: Step[] = [
     {
       title: L('Add your products', 'Tambah produk anda'),
-      how: canAddItems
+      how: canImport
         ? L(
             'Once per product: its name, how it is packed (e.g. 8 bags in a carton) and the price of a carton. Have your monthly stock Excel? Import it to add everything at once. Already have stock on the shelf? Use Manage products, then “Enter what is on the shelf now”, to type how many you have, for many items at once.',
             'Sekali sahaja bagi setiap produk: namanya, cara ia dibungkus (cth. 8 beg dalam sekarton) dan harga sekarton. Ada Excel stok bulanan? Import untuk tambah semua sekali gus. Sudah ada stok di rak? Guna Urus produk, kemudian “Masukkan stok di rak sekarang”, untuk taip berapa banyak, bagi banyak produk sekali gus.',
           )
-        : L('Your manager adds the products first (name, how it is packed, price). Ask them, then come back here.', 'Pengurus anda menambah produk dahulu (nama, cara bungkus, harga). Minta mereka, kemudian kembali ke sini.'),
+        : L('Once per product: its name, how it is packed (e.g. 8 bags in a carton) and the price of a carton. Added one by mistake? Ask your host to delete it.', 'Sekali sahaja bagi setiap produk: namanya, cara ia dibungkus (cth. 8 beg dalam sekarton) dan harga sekarton. Tersilap tambah? Minta tuan rumah memadamnya.'),
       done: hasItems,
       action: canAddItems ? { label: L('+ Add a product', '+ Tambah produk'), onClick: onAddItem } : null,
-      extra: canAddItems ? { label: L('⬆ Add many from Excel', '⬆ Tambah banyak dari Excel'), onClick: onImport } : null,
+      extra: canImport ? { label: L('⬆ Add many from Excel', '⬆ Tambah banyak dari Excel'), onClick: onImport } : null,
     },
     {
       title: L('A delivery came: Stock in', 'Barang sampai: Stok masuk'),

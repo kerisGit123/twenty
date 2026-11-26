@@ -249,7 +249,7 @@ export const ItemSheet = ({ item, owners, defaultOwnerId, today, onClose, onDone
       <Field label={tr('Supplier')} hint={tr('Orders are grouped by supplier')}>
         <input value={form.supplier} onChange={set('supplier')} placeholder={L("e.g. your supplier's name", 'cth. nama pembekal anda')} style={input} />
       </Field>
-      {!item ? (
+      {!item && owners.find((o) => o.id === (form.ownerId || owners[0]?.id))?.canManage ? (
         <Field label={tr('How many do you have on the shelf now?')} hint={tr('Leave at 0 if you have none yet. You can count the shelf later.')}>
           <QtyInput item={preview} units={0} onChange={(units) => setForm({ ...form, openingUnits: units })} />
         </Field>
@@ -282,7 +282,7 @@ export const ItemSheet = ({ item, owners, defaultOwnerId, today, onClose, onDone
           <Field label="Shelf life (days)" hint="How long it keeps, e.g. 180. Stock that arrives without an expiry date gets this many days from the day it arrives. Empty = no automatic expiry.">
             <input value={form.shelfLifeDays} onChange={set('shelfLifeDays')} inputMode="numeric" placeholder="e.g. 180" style={{ ...input, width: 160 }} />
           </Field>
-          {!item ? (
+          {!item && owners.find((o) => o.id === (form.ownerId || owners[0]?.id))?.canManage ? (
             <Field label="Expiry date of the stock on the shelf">
               <input type="date" value={form.expiryDate} onChange={set('expiryDate')} style={{ ...input, width: 200 }} />
             </Field>

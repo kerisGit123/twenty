@@ -863,7 +863,12 @@ const handlers: Record<string, (client: CoreApiClient, scope: Scope, body: Json)
     const ownerId = existing?.ownerId ?? (text(body.ownerId, 64) || null);
 
     if (!ownerId || !inScope(scope, ownerId)) return json({ ...NOT_ALLOWED });
-    if (!canManage(scope, ownerId)) return fail("Only an admin or this business's host can add or change items and prices. Ask them, or record the stock IN/OUT instead.", 403);
+    // Everyone who works in the business may add and change products. Removing one (delete, or
+    // "Stop using") stays with the host or an admin, and so does starting stock: it puts stock on
+    // the shelf with no delivery behind it.
+    if (!existing && num(body.openingUnits) > 0 && !canManage(scope, ownerId)) {
+      return fail("Only an admin or this business's host can enter starting stock. Add the product with 0, then record a Stock in.", 403);
+    }
 
     const data = {
       name,

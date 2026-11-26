@@ -205,6 +205,7 @@ const MS: Record<string, string> = {
   'No stock has ever been recorded for this product. If it was added by mistake, you can delete it.': 'Tiada stok pernah direkodkan untuk produk ini. Jika ia ditambah secara tidak sengaja, anda boleh memadamnya.',
   'Sure? Tap again to delete': 'Pasti? Tekan sekali lagi untuk padam',
   'Delete product': 'Padam produk',
+  '＋ Add a product': '＋ Tambah produk',
   'Delete': 'Padam',
   'Delete this product (asks first)': 'Padam produk ini (akan bertanya dahulu)',
   'Yes, delete it': 'Ya, padam',
